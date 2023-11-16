@@ -96,6 +96,7 @@ export interface ActiveBin {
      *
      * @param stop The function the outer bin should call to clean up the inner
      * bin; defaults to the new bin's `cleanup()` method if not given.
+     *
      * @returns A new linked bin
      */
     nested(stop?: Cleanup): DisposalBin
