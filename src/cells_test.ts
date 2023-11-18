@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "../dev_deps.ts";
 import { current } from "./ambient.ts";
 import { bin } from "./bins.ts";
-import { runEffects, value, cached, effect } from "./cells.ts";
+import { runEffects, value, cached, effect } from "../mod.ts";
 
 function setupBin() {
     var b = bin();
@@ -76,11 +76,11 @@ describe("Consistent updates", () => {
         A.set(1); B.set(1); runEffects();
         see("F", "H");
         A.set(2); B.set(2); runEffects();
-        see("F", "E", "H");
+        see("E", "F", "H");
         A.set(3); B.set(1); runEffects();
         see("F", "H");
         A.set(4); B.set(2); runEffects();
-        see("F", "E", "H");
+        see("E", "F", "H");
     })
 });
 

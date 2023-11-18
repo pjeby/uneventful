@@ -2,7 +2,7 @@
 
 Reactive signals (like preact-signals) and streams (like rxjs) are both great ways of simplifying event-driven programming.  But each has different strengths, and making one do the work of the other is hard.  (And neither is that great at *sequential* asynchrony, the way CSP or goroutines are).
 
-Enter `uneventful`: a seamless blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a task subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the task ends -- or it or any parent task is canceled.  Likewise, if an effect spawns a task based on the value of a signal, the task is automatically canceled when the effect is rerun (or canceled by the end of an enclosing task).
+Enter `uneventful`: a seamless blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a job subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the job ends -- or it or any parent job is canceled.  Likewise, if an effect spawns a job based on the value of a signal, the job is automatically canceled when the effect is rerun (or canceled by the end of an enclosing job).
 
 The approach lets you use only the very *best* parts of all three paradigms, without needing to force something signal-like to be more streamy or vice versa, or to make either do something that's better represented as sequential steps.  Consider this contrived and somewhat silly example:
 
@@ -36,14 +36,15 @@ In contrast, uneventful's seamless blending of different kinds of reactivity (wi
 
 ### Flows
 
-Uneventful's API revolves around its four fundamental "flows":
+Uneventful's API revolves around its three fundamental kinds of "flows":
 
 - `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with optional automatic cleanup before each update and when the effect itself is canceled.
 - `when(`*source*`, `*listener*`)` consumes streams, promises, or "truthy" signal values, running a listener once for each received value (with automatic cleanup of anything that the listener used, when the flow is canceled, the stream closes or the next value/event arrives)
 - `job(`*generator function*`)` creates an asynchronous job - one that will be automatically canceled if the calling job, effect, or event listener is canceled.  (Jobs are also promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions.)
-- `yield *until()` suspends a `job()` to wait for a promise, event stream, or truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
 
-Most flows are infinitely composable: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.  (`yield *until()` only works directly in a `job()`, but it can wait for almost anything, including another job.)
+   Within a job function,`yield *until()` suspends to wait for a promise, event stream, another job, or a truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
+
+All three kinds of flows are **composable**: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.
 
 When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `cleanup()` callbacks to release non-flow resources when the enclosing flow ends.)
 
@@ -51,9 +52,9 @@ Of course, all this flow composition has to start *somewhere*, and usually that 
 
 ### Bins and Cleanup
 
-Under the hood, flows are based on *disposal bins*: a collection of callbacks that run when the flow ends, to release resources, listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `cleanup(callback)` to add "cleanup" callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
+Under the hood, flows are linked with *disposal bins*: collections of callbacks that run when the flow ends, to release resources, listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `cleanup(callback)` to add "cleanup" callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
 
-For `job()`, any added callbacks are run when the job overall is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
+For a `job()`, any added callbacks are run when the job as a whole is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
 
 ```typescript
 import { bin, value, effect, cleanup } from "uneventful";
@@ -108,13 +109,13 @@ A signal is an *observable value*.  Specifically, it can be monitored by `effect
 
 Monitoring is automatic, in that you don't have to perform any explicit subscription operations.  Just reading the value of a signal (or calling a function that reads a signal) from within an `effect()` automatically subscribes the effect to be re-run when the signal changes.
 
-Similarly, passing a signal (or function that reads one or more signals) to `when()` or `yield *until()` will subscribe those flows to be notified as soon as the signal (or function result) produces a truthy value.
+Similarly, passing a signal (or a zero-argument function that reads one or more signals) to `when()` or `yield *until()` will create a subscription to be notified as soon as the signal (or function result) produces a truthy value.
 
 All of these kinds of subscriptions will be ended when they're no longer needed (such as when the effect stops reading the signal value, or is canceled).
 
-Signals in Uneventful are created with `value(initialvalue)`, and `cached(calcFunction)`.  `value()` objects are writable via a `set()` method, while `cached()` functions are read-only functions, returning the most recent return value of their wrapped function.  Calling a cached function will always return the same result, *unless* any of the values or cached functions it used during its last run have changed since then.
+Signals in Uneventful are created with `value(initialvalue)`, and `cached(calcFunction)`.  `value()` objects are writable via a `set()` method, while `cached()` functions are read-only functions, returning the most recent return value of their wrapped function.  Calling a cached function will always return the same result, *unless* any of the signals it read during its last run have changed since then.
 
-`cached()` functions are technically unnecessary, in that you could always just use plain signal-using functions without any wrapping.  But on a practical level, they can improve efficiency by preventing unnecessary re-running of effects or redoing of expensive calculations.  A `cached()` function is guaranteed to be called no more than once per "batch" of updates to any of its dependencies, and it will not notify any of its subscribers if its result doesn't change.  And, if it doesn't have any flows subscribed to it  (e.g. `effect()`, `when()` `*until()`), it won't be re-run unless explicitly called.
+`cached()` functions are technically unnecessary, in that you could always just use plain signal-using functions without any wrapping.  But on a practical level, they improve efficiency by preventing unnecessary re-running of effects or redoing of expensive calculations.  A `cached()` function is guaranteed to be called no more than once per "batch" of updates to any of its dependencies, and it will not notify any of its subscribers if its result doesn't change.  (And, if it doesn't have any flows subscribed to it  (via `effect()`, `when()` `*until()`, etc.), it won't be re-run unless explicitly called.)
 
 #### Batching and Side-Effects
 

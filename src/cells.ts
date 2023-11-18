@@ -1,17 +1,8 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { ActiveBin, OptionalCleanup, bin } from "./bins.ts";
-import { PlainFunction } from "./types.ts";
 
-export function value<T>(val?: T) {
-    const cell = new Cell<T>;
-    cell.value = val;
-    function get() { return cell.getValue(); }
-    get.set = cell.setValue.bind(cell);
-    return get;
-}
-
-export function cached<T>(compute: (old: T) => T, initial?: T) {
+export function mkCached<T>(compute: (old: T) => T, initial?: T) {
     const cell = new Cell<T>;
     cell.value = initial;
     cell.compute = compute;
@@ -20,47 +11,7 @@ export function cached<T>(compute: (old: T) => T, initial?: T) {
     return cell.getValue.bind(cell);
 }
 
-/**
- * Subscribe a function to run every time certain values change.
- *
- * The function is run asynchronously, first after being created, then again
- * after there are changes in any of the values or cached functions it read
- * during its previous run.
- *
- * The created subscription is tied to the currently-active bin (usually that of
- * the enclosing flow).  So when that bin is cleaned up (or the flow ended), the
- * effect will be terminated automatically.  You can also terminate it early by
- * calling the "stop" function that is both passed to the effect function and
- * returned by `effect()`.
- *
- * Note: this function will throw an error if called outside of a `bin()`,
- * `bin.run()`, or another flow (i.e. another `job()`, `when()`, or `effect()`).
- * If you need a standalone effect, use {@link effect.root} instead.
- *
- * @param fn The function that will be run each time its dependencies change. It
- * is passed a single argument: a function that can be called to terminate the
- * effect.
- *
- * @returns A function that can be called to terminate the effect.
- */
-export function effect(fn: (stop: () => void) => OptionalCleanup): () => void {
-    return mkEffect(fn, bin);
-}
-
-/**
- * Create a standalone ("root") effect that won't be tied to the current
- * bin/flow (and thus doesn't *need* an enclosing bin or flow)
- *
- * Just like a plain `effect()` except that the effect is *not* tied to the
- * current flow or bin, and will therefore remain active until the disposal
- * callback is called, even if the enclosing bin is cleaned up or flow is
- * canceled.
- */
-effect.root = function(fn: (stop: () => void) => OptionalCleanup): () => void {
-    return mkEffect(fn, null);
-}
-
-function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveBin) {
+export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveBin) {
     if (parent) unlink = parent.addLink(stop);
     var cell = new Cell;
     cell.compute = fn.bind(null, stop);
@@ -77,12 +28,6 @@ function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveBin) 
             cell = undefined;
         }
     }
-}
-
-export function untracked<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
-    const old = current.cell;
-    if (!old) return fn(...args);
-    try { current.cell = null; return fn(...args); } finally { current.cell = old; }
 }
 
 const effectQueue = new Set<Cell>;
@@ -131,12 +76,12 @@ const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
     for(; cell; cell = dirtyStack.pop()) {
-        for (const sub of cell.subscribers) {
-            var flags = sub.flags;
+        for (let sub=cell.subscribers; sub; sub = sub.nT) {
+            var flags = sub.tgt.flags;
             if (flags & Is.Dirty) continue;
-            if (flags & Is.Effect) effectQueue.add(sub);
-            sub.flags |= Is.Dirty;
-            if (sub.subscribers) dirtyStack.push(sub);
+            if (flags & Is.Effect) effectQueue.add(sub.tgt);
+            sub.tgt.flags |= Is.Dirty;
+            if (sub.tgt.subscribers) dirtyStack.push(sub.tgt);
         }
     }
 }
@@ -152,27 +97,96 @@ const enum Is {
     NeedRecalc = Dirty | Detached
 }
 
-const freesets: Set<Cell>[] = [];
+type Subscription = {
+    /** Source of the subscription */
+    src: Cell
+    nS: Subscription,
+    pS: Subscription,
+
+    /** Subscriber */
+    tgt: Cell
+    nT: Subscription,
+    pT: Subscription,
+
+    ts: number,
+
+    /* stack for active subscriptions on sources */
+    old: Subscription
+}
+
+var freesubs: Subscription;
+
+function mksub(source: Cell, target: Cell) {
+    let sub: Subscription = freesubs;
+    if (sub) {
+        freesubs = sub.old;
+        sub.src = source; sub.nS = undefined; sub.pS = target.sources;
+        sub.tgt = target; sub.nT = sub.pT = undefined;
+        sub.ts = source.lastChanged; sub.old = source.adding;
+    } else sub = {
+        src: source, nS: undefined, pS: target.sources,
+        tgt: target, nT: undefined, pT: undefined,
+        ts: source.lastChanged, old: source.adding
+    }
+    // Add subscription to tail of target's sources
+    if (target.sources) target.sources.nS = sub;
+    target.sources = sub;
+    // track that this source has had a subscription added during this calculation
+    source.adding = sub;
+    // Set up reciprocal subscription if needed
+    (target.flags & Is.Detached) || source.subscribe(sub);  // XXX
+}
+
+function delsub(sub: Subscription) {
+    sub.src.unsubscribe(sub);
+    if (sub.nS) sub.nS.pS = sub.pS;
+    if (sub.pS) sub.pS.nS = sub.nS;
+    sub.src = sub.tgt = sub.nS = sub.pS = sub.nT = sub.pT = undefined;
+    sub.old = freesubs;
+    freesubs = sub;
+}
 
 export class Cell<T=any> {
     value: T
     lastRecalc = 0;
     lastChanged = 0;
     flags = 0;
-    sources: Set<Cell>;
-    subscribers: Set<Cell>;
     ctx: Context;
+    /** The subscription being added during the current calculation - used for uniqueness */
+    adding: Subscription;
+    /** Linked list of sources */
+    sources: Subscription;
+    /** Linked list of targets */
+    subscribers: Subscription;
+
     compute: (val?: T) => any
 
     getValue() {
         if (timestamp > this.lastRecalc && this.flags & Is.NeedRecalc) this.catchUp();
         const dep = current.cell;
-        if (dep && dep !== this) {
+        if (dep) {
             if (this.flags & Is.Running) throw new Error("Cached function dependency cycle");
-            const sources = dep.sources || (dep.sources = freesets.pop() || new Set);
-            sources.has(this) || (
-                sources.add(this), ((dep.flags & Is.Detached) || this.subscribe(dep))
-            )
+            // See if we've already got a subscription node for the dependent
+            let s = this.adding;
+            if (!s || s.tgt !== dep) {
+                // nope, it's new
+                mksub(this, dep);
+            } else {
+                // Yep, see if it's a hangover from last time
+                if (s.ts === -1) {
+                    // yep, mark it reused
+                    s.ts = this.lastChanged;
+                    if (s.nS) { // if not at end, move it
+                        s.nS.pS = s.pS;
+                        if (s.pS) s.pS.nS = s.nS;
+                        s.nS = undefined;
+                        s.pS = dep.sources;
+                        dep.sources.nS = s;
+                        dep.sources = s;
+                    }
+                }
+                // else it's already done, no need to do anything.
+            }
         }
         return this.value;
     }
@@ -181,7 +195,7 @@ export class Cell<T=any> {
         const cell = current.cell;
         if (cell) {
             if (cell.flags & Is.Lazy) throw new Error("Side-effects not allowed");
-            if (this.subscribers && this.subscribers.has(cell)) throw new Error("Circular update error");
+            if (this.adding && this.adding.tgt === cell) throw new Error("Circular update error");
             if (loopCount>100) throw new Error("Indirect update cycle detected");
             // queue update for second half of current batch
             toUpdate.set(this, val);
@@ -207,7 +221,8 @@ export class Cell<T=any> {
         this.flags &= ~Is.Dirty;
         if (this.sources) {
             const {lastRecalc} = this;
-            for (const s of this.sources) {
+            for(let sub=this.sources; sub; sub = sub.nS) {
+                const s = sub.src;
                 if (timestamp > s.lastRecalc && s.flags & Is.NeedRecalc) s.catchUp();
                 if (s.lastChanged > lastRecalc) {
                     return this.doRecalc();
@@ -221,19 +236,22 @@ export class Cell<T=any> {
     doRecalc() {
         this.lastRecalc = timestamp;
         const oldCtx = swapCtx(this.ctx);
-        const oldSources = this.sources;
-        this.sources = undefined;
+        for(let sub = this.sources; sub; sub = sub.nS) {
+            sub.ts = -1; // mark stale for possible reuse
+            // attach sub to its source, so we can look it up
+            sub.old = sub.src.adding;
+            sub.src.adding = sub;
+            this.sources = sub;
+        }
         this.flags |= Is.Running;
         try {
             if (this.flags & Is.Lazy) {
-                const future = (0, this.compute)(this.value);
+                const future = this.compute(this.value);
                 if (future !== this.value || !this.lastChanged) {
                     this.value = future;
                     this.lastChanged = timestamp;
                 }
-            } else if (this.flags & Is.Dead) {
-                // no-op
-            } else if (this.flags & Is.Effect) {
+            } else {
                 const b = this.ctx.bin;
                 b.cleanup();
                 try {
@@ -253,46 +271,54 @@ export class Cell<T=any> {
         } finally {
             this.flags &= ~Is.Running;
             swapCtx(oldCtx);
-            if (oldSources) {
-                const sources = this.sources;
-                oldSources.forEach(s => sources?.has(s) || s.unsubscribe(this));
-                oldSources.clear();
-                freesets.push(oldSources);
+            // reset this.src to the head of the list, dropping stale subscriptions
+            for(let sub = this.sources; sub; ) {
+                const pS = sub.pS;
+                sub.src.adding = sub.old;
+                sub.old = undefined;
+                if (sub.ts === -1) {
+                    delsub(sub);
+                } else {
+                    this.sources = sub;
+                }
+                sub = pS;
             }
-            if (this.flags & Is.Dead && this.ctx.bin) {
+            if (this.flags & Is.Dead) this.disposeEffect();
+        }
+    }
+
+    disposeEffect() {
+        this.flags |= Is.Dead;
+        effectQueue.delete(this);
+        if (current !== this.ctx) {
+            for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
+            this.sources = undefined;
+            if (this.ctx.bin) {
                 this.ctx.bin.destroy();
                 this.ctx.bin = null;
             }
         }
     }
 
-    disposeEffect() {
-        if (this.flags & Is.Dead) return;
-        this.flags |= Is.Dead;
-        if (current === this.ctx) {
-            // Currently calculating; do prelim work here
-            this.ctx.cell = null;
-            this.sources?.forEach(s => s.unsubscribe(this));
-            this.sources?.clear();
-            this.sources = undefined;
-        } else {
-            this.doRecalc();
-        }
-    }
-
-    subscribe(subscriber: Cell) {
-        (this.subscribers ||= freesets.pop() || new Set).add(subscriber);
-        if (this.flags & Is.Lazy && this.subscribers.size === 1) {
+    subscribe(sub: Subscription) {
+        if (this.flags & Is.Lazy && !this.subscribers) {
             this.flags &= ~Is.Detached;
-            if (this.sources) for(const s of this.sources) s.subscribe(this);
+            for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
+        }
+        if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
+            sub.nT = this.subscribers;
+            if (this.subscribers) this.subscribers.pT = sub;
+            this.subscribers = sub;
         }
     }
 
-    unsubscribe(subscriber: Cell) {
-        this.subscribers?.delete(subscriber);
-        if (this.flags & Is.Lazy && !this.subscribers.size) {
+    unsubscribe(sub: Subscription) {
+        if (sub.nT) sub.nT.pT = sub.pT;
+        if (sub.pT) sub.pT.nT = sub.nT;
+        if (this.subscribers === sub) this.subscribers = sub.nT;
+        if (!this.subscribers && this.flags & Is.Lazy) {
             this.flags |= Is.Detached;
-            if (this.sources) for(const s of this.sources) s.unsubscribe(this);
+            for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
         }
     }
 }
