@@ -1,0 +1,50 @@
+{
+    "name": "uneventful",
+    "type": "module",
+    "main": "./dist/mod.cjs",
+    "module": "./dist/mod.mjs",
+    "types": "./dist/mod.d.ts",
+    "exports": {
+        "require": {
+            "types": "./dist/mod.d.ts",
+            "default": "./dist/mod.cjs"
+        },
+        "import": {
+            "types": "./dist/mod.d.ts",
+            "default": "./dist/mod.mjs"
+        }
+    },
+    "scripts": {
+        "build": "tsc --build",
+        "roll": "pkgroll --minify",
+        "cov": "c8 -r lcov mocha -n loader=ts-node/esm",
+        "watch": "mocha -r tsx --watch",
+        "test": "mocha -r tsx && tsc --build",
+        "prepublishOnly": "mocha -r tsx && tsc --build"
+    },
+    "mocha": {
+        "spec": "specs/*.spec.ts",
+        "watch-files": [
+            "*.ts",
+            "src/*.ts",
+            "specs/*.ts",
+            "README.md"
+        ]
+    },
+    "devDependencies": {
+        "@types/chai": "^4.3.10",
+        "@types/mocha": "^10.0.4",
+        "@types/node": "^16",
+        "@types/sinon": "^17.0.1",
+        "@types/sinon-chai": "^3.2.12",
+        "c8": "^8.0.1",
+        "chai": "^4.3.10",
+        "mocha": "^10.2.0",
+        "pkgroll": "^2.0.1",
+        "sinon": "^17.0.1",
+        "sinon-chai": "^3.7.0",
+        "ts-node": "^10.9.1",
+        "tsx": "^4.1.3",
+        "typescript": "^5.2.2"
+    }
+}

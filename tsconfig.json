@@ -1,6 +1,17 @@
 {
     "compilerOptions": {
         "strict": false,
-        "strictBindCallApply": true
-    }
+        "strictBindCallApply": true,
+        "allowImportingTsExtensions": true,
+        "emitDeclarationOnly": true,
+        "declaration": true,
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "target": "es2020",
+        "lib": ["es2020"],
+        "outDir": "./dist"
+    },
+    "include": [
+        "src/*.ts", "mod.ts"
+    ]
 }

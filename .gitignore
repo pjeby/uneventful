@@ -1,3 +1,4 @@
 .deno
-cov_profile
-lcov.info
+node_modules
+coverage
+dist

@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, spy } from "../dev_deps.ts";
-import { current, makeCtx, swapCtx } from "./ambient.ts";
-import { Cleanup, DisposalBin, bin, cleanup } from "./bins.ts";
+import { afterEach, beforeEach, describe, expect, it, spy } from "./dev_deps.ts";
+import { current, makeCtx, swapCtx } from "../src/ambient.ts";
+import { Cleanup, DisposalBin, bin, cleanup } from "../mod.ts";
 
 describe("bin", () => {
     it(".active is true during run()", () => {
@@ -126,11 +126,10 @@ describe("bin instances", () => {
             b.add(cb2);
             b.cleanup();
             const reason = await new Promise<Error>(res => {
-                globalThis.addEventListener("unhandledrejection", handler);
-                function handler(e: PromiseRejectionEvent) {
-                    globalThis.removeEventListener("unhandledrejection", handler);
-                    e.preventDefault();
-                     res(e.reason);
+                process.on("unhandledRejection", handler);
+                function handler(e: any) {
+                    process.off("unhandledRejection", handler);
+                    res(e);
                 }
             });
             expect(reason.message).to.equal("caught me!");

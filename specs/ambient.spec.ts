@@ -1,7 +1,8 @@
-import { expect, describe, it } from "../dev_deps.ts";
-import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
-import { DisposalBin } from "./bins.ts";
-import { Job } from "./types.ts";
+import { describe, it } from "mocha";
+import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
+import { DisposalBin } from "../mod.ts";
+import { Job } from "../src/types.ts";
+import { expect } from "chai";
 
 it("swapCtx() swaps the context", () => {
     const ctx = makeCtx(), old = current;

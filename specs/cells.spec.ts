@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "../dev_deps.ts";
-import { current } from "./ambient.ts";
-import { bin } from "./bins.ts";
-import { runEffects, value, cached, effect } from "../mod.ts";
+import { log, see, afterEach, beforeEach, describe, expect, it } from "./dev_deps.ts";
+import { current } from "../src/ambient.ts";
+import { bin, runEffects, value, cached, effect } from "../mod.ts";
 
 function setupBin() {
     var b = bin();
@@ -125,18 +124,3 @@ describe("effect()", () => {
         see("66");
     });
 });
-
-var _log: string[] =[];
-
-
-function log(s) { _log.push(""+s); }
-function see(...lines: Array<string|RegExp>) {
-    const data = _log;
-    _log = [];
-    for (const line of lines) {
-        if (typeof line === "string") {
-            expect(data.shift()).to.equal(line, `Got ${data.join('\n')}`);
-        } else expect(data.shift()).to.match(line, `Got ${data.join('\n')}`);
-    }
-    expect(data.length).to.equal(0, `Unexpected extra output: ${data.join('\n')}`);
-}
