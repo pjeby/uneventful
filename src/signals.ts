@@ -28,6 +28,7 @@ export class Writable<T> extends Signal<T>  {
 export function value<T>(val?: T): Writable<T> {
     const cell = new Cell<T>;
     cell.value = val;
+    cell.validThrough = Infinity;
     const get = cell.getValue.bind(cell) as Writable<T>;
     get.set = cell.setValue.bind(cell);
     return Object.setPrototypeOf(get, Writable.prototype) as Writable<T>;

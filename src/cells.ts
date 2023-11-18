@@ -7,7 +7,8 @@ export function mkCached<T>(compute: (old: T) => T, initial?: T) {
     cell.value = initial;
     cell.compute = compute;
     cell.ctx = makeCtx(null, null, cell);
-    cell.flags = Is.Lazy | Is.Detached;
+    cell.flags = Is.Lazy;
+    cell.latestSource = Infinity;
     return cell.getValue.bind(cell);
 }
 
@@ -16,7 +17,7 @@ export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: Acti
     var cell = new Cell;
     cell.compute = fn.bind(null, stop);
     cell.ctx = makeCtx(current.job, bin(), cell);
-    cell.flags = Is.Effect | Is.Dirty;
+    cell.flags = Is.Effect;
     effectQueue.add(cell);
     var unlink: () => void;
     runningEffects || scheduleEffects();
@@ -75,13 +76,14 @@ function scheduledRun() {
 const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
+    const latestSource = cell.lastChanged;
     for(; cell; cell = dirtyStack.pop()) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
-            var flags = sub.tgt.flags;
-            if (flags & Is.Dirty) continue;
-            if (flags & Is.Effect) effectQueue.add(sub.tgt);
-            sub.tgt.flags |= Is.Dirty;
-            if (sub.tgt.subscribers) dirtyStack.push(sub.tgt);
+            const tgt = sub.tgt;
+            if (tgt.latestSource >= latestSource) continue;
+            tgt.latestSource = latestSource;
+            if (tgt.flags & Is.Effect) effectQueue.add(tgt);
+            if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
 }
@@ -89,12 +91,9 @@ function markDependentsDirty(cell: Cell) {
 
 const enum Is {
     Effect = 1 << 0,
-    Dirty  = 1 << 1,
     Lazy   = 1 << 2,
     Dead   = 1 << 3,
-    Detached = 1 << 4,
     Running = 1 << 5,
-    NeedRecalc = Dirty | Detached
 }
 
 type Subscription = {
@@ -134,7 +133,7 @@ function mksub(source: Cell, target: Cell) {
     // track that this source has had a subscription added during this calculation
     source.adding = sub;
     // Set up reciprocal subscription if needed
-    (target.flags & Is.Detached) || source.subscribe(sub);  // XXX
+    (target.latestSource === Infinity) || source.subscribe(sub);  // XXX
 }
 
 function delsub(sub: Subscription) {
@@ -148,8 +147,9 @@ function delsub(sub: Subscription) {
 
 export class Cell<T=any> {
     value: T
-    lastRecalc = 0;
+    validThrough = 0;
     lastChanged = 0;
+    latestSource = timestamp;
     flags = 0;
     ctx: Context;
     /** The subscription being added during the current calculation - used for uniqueness */
@@ -162,7 +162,7 @@ export class Cell<T=any> {
     compute: (val?: T) => any
 
     getValue() {
-        if (timestamp > this.lastRecalc && this.flags & Is.NeedRecalc) this.catchUp();
+        if (timestamp > this.validThrough && this.latestSource > this.validThrough) this.catchUp();
         const dep = current.cell;
         if (dep) {
             if (this.flags & Is.Running) throw new Error("Cached function dependency cycle");
@@ -202,7 +202,7 @@ export class Cell<T=any> {
         } else if (val !== this.value) {
             // outside batch or effect; apply immediately
             this.value = val;
-            this.lastChanged = ++timestamp;
+            this.lastChanged = this.latestSource = ++timestamp;
             // mark dirty now so cached funcs will return correct values
             if (this.subscribers) markDependentsDirty(this);
             scheduleEffects();
@@ -212,29 +212,29 @@ export class Cell<T=any> {
     updateValue(val: T) {
         if (val !== this.value) {
             this.value = val;
-            this.lastChanged = timestamp;
+            this.lastChanged = this.latestSource = timestamp;
             if (this.subscribers) markDependentsDirty(this);
         }
     }
 
     catchUp() {
-        this.flags &= ~Is.Dirty;
+        const {validThrough} = this;
         if (this.sources) {
-            const {lastRecalc} = this;
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
-                if (timestamp > s.lastRecalc && s.flags & Is.NeedRecalc) s.catchUp();
-                if (s.lastChanged > lastRecalc) {
+                if (timestamp > s.validThrough && s.latestSource > s.validThrough) s.catchUp();
+                if (s.lastChanged > validThrough) {
                     return this.doRecalc();
                 }
             }
+            this.validThrough = timestamp;
         } else {
             return this.doRecalc();
         }
     }
 
     doRecalc() {
-        this.lastRecalc = timestamp;
+        this.validThrough = timestamp;
         const oldCtx = swapCtx(this.ctx);
         for(let sub = this.sources; sub; sub = sub.nS) {
             sub.ts = -1; // mark stale for possible reuse
@@ -302,7 +302,7 @@ export class Cell<T=any> {
 
     subscribe(sub: Subscription) {
         if (this.flags & Is.Lazy && !this.subscribers) {
-            this.flags &= ~Is.Detached;
+            this.latestSource = timestamp;
             for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
@@ -317,7 +317,7 @@ export class Cell<T=any> {
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
         if (!this.subscribers && this.flags & Is.Lazy) {
-            this.flags |= Is.Detached;
+            this.latestSource = Infinity;
             for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
         }
     }
