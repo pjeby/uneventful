@@ -1,15 +1,21 @@
 {
     "compilerOptions": {
+        // Project's typechecking options
         "strict": false,
         "strictBindCallApply": true,
-        "allowImportingTsExtensions": true,
-        "emitDeclarationOnly": true,
-        "declaration": true,
+
+        // These options support running tsx + ts-node
         "module": "Node16",
         "moduleResolution": "Node16",
         "target": "es2020",
         "lib": ["es2020"],
-        "outDir": "./dist"
+
+        // required to import ".ts" files (for ts-node/esm, deno, and VSCode)
+        "allowImportingTsExtensions": true,
+
+        // required for allowImportingTsExtensions to work w/VSCode; pkgroll
+        // doesn't work with emitDeclarationOnly, but works ok with noEmit)
+        "noEmit": true,
     },
     "include": [
         "src/*.ts", "mod.ts"

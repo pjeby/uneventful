@@ -15,12 +15,11 @@
         }
     },
     "scripts": {
-        "build": "tsc --build",
-        "roll": "pkgroll --minify",
-        "cov": "c8 -r lcov mocha -n loader=ts-node/esm",
+        "build": "pkgroll",
+        "coverage": "c8 -r lcov mocha -n loader=ts-node/esm",
         "watch": "mocha -r tsx --watch",
-        "test": "mocha -r tsx && tsc --build",
-        "prepublishOnly": "mocha -r tsx && tsc --build"
+        "test": "mocha -r tsx && pkgroll",
+        "prepublishOnly": "mocha -r tsx && pkgroll"
     },
     "mocha": {
         "spec": "specs/*.spec.ts",
