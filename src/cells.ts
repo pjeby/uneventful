@@ -272,17 +272,15 @@ export class Cell<T=any> {
             this.flags &= ~Is.Running;
             swapCtx(oldCtx);
             // reset this.src to the head of the list, dropping stale subscriptions
+            let head: Subscription;
             for(let sub = this.sources; sub; ) {
                 const pS = sub.pS;
                 sub.src.adding = sub.old;
                 sub.old = undefined;
-                if (sub.ts === -1) {
-                    delsub(sub);
-                } else {
-                    this.sources = sub;
-                }
+                if (sub.ts === -1) delsub(sub); else head = sub;
                 sub = pS;
             }
+            this.sources = head;
             if (this.flags & Is.Dead) this.disposeEffect();
         }
     }

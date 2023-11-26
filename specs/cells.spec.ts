@@ -1,23 +1,28 @@
-import { log, see, afterEach, beforeEach, describe, expect, it } from "./dev_deps.ts";
-import { current } from "../src/ambient.ts";
-import { bin, runEffects, value, cached, effect } from "../mod.ts";
-
-function setupBin() {
-    var b = bin();
-    beforeEach(() => { current.bin = b; });
-    afterEach(() => { b.cleanup(); current.bin = null; });
-}
+import { log, see, describe, expect, it, useBin } from "./dev_deps.ts";
+import { runEffects, value, cached, effect } from "../mod.ts";
 
 describe("Cycles and Side-Effects", () => {
-    setupBin();
+    useBin();
     it("cached() can't create side-effects", () => {
         const v = value(99), w = cached(() => v.set(42));
         expect(w).to.throw("Side-effects not allowed")
     });
-    it("effect() can't set a value it reads", () => {
-        const v = value(99);
-        effect(() => { v.set(v()+1); })
-        expect(runEffects).to.throw("Circular update error");
+    describe("effect() can't set a value", () => {
+        it("after it reads it", () => {
+            const v = value(99);
+            effect(() => { v.set(v()+1); })
+            expect(runEffects).to.throw("Circular update error");
+        });
+        it("before it reads it", () => {
+            // Given a value
+            const v = value(42);
+            // When the value is set inside an effect that reads it afterward
+            effect(() => { v.set(43); log(v()); });
+            // Then it should still throw a circular update error
+            expect(runEffects).to.throw("Circular update error");
+            // after it runs once
+            see("42");
+        });
     });
     it("inter-effect loops are detected and killed", () => {
         const v1 = value(99), v2 = value(0);
@@ -37,14 +42,18 @@ describe("Cycles and Side-Effects", () => {
 
 
 describe("Consistent updates", () => {
-    setupBin();
+    useBin();
     it("with multiple paths to common element", () => {
+        // Given an effect with two paths to a common value
         const start = value(22);
         const route1 = cached(() => start() - 1);
         const route2 = cached(() => start() + 1);
         const common = effect(() => log(`${route1()}, ${route2()}`));
+        // When effects are run Then the callback should only run once, with consistent data
         runEffects(); see("21, 23");
+        // And When the common value is changed and effects are run
         start.set(44);
+        // Then the callback should again run only once, with consistent data
         runEffects(); see("43, 45");
         common();
     })
@@ -89,7 +98,7 @@ describe("Consistent updates", () => {
 describe.skip("cached()", () => {});
 
 describe("effect()", () => {
-    setupBin();
+    useBin();
     it("should call the function on tick", () => {
         effect(() => log("called"));
         runEffects();

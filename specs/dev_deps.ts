@@ -11,10 +11,13 @@ export const { spy, mock } = sinon;
 
 var _log: string[] =[];
 
+/** Add an entry to the log for verification */
 export function log(s: any) { _log.push(""+s); }
 
+/** Clear the log without checking its contents */
 log.clear = function() { _log.length = 0; }
 
+/** Verify current log contents (and clear the log) */
 export function see(...lines: Array<string|RegExp>) {
     const data = _log.splice(0);
     if (lines.every(line => typeof line === "string")) {
@@ -31,3 +34,14 @@ export function see(...lines: Array<string|RegExp>) {
 
 import { reporters } from "mocha";
 reporters.Base.colors.pending = 93;
+
+import {bin} from "../src/bins.ts";
+import { current } from "../src/ambient.ts";
+import { beforeEach, afterEach } from "mocha";
+
+/** Arrange for each test in the current suite to be wrapped in a bin() for cleanup */
+export function useBin() {
+    var b = bin();
+    beforeEach(() => { current.bin = b; });
+    afterEach(() => { b.cleanup(); current.bin = null; });
+}
