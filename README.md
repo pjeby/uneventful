@@ -7,7 +7,7 @@ Enter `uneventful`: a seamless blend of signals, streams, and CSP-like, cancelab
 The approach lets you use only the very *best* parts of all three paradigms, without needing to force something signal-like to be more streamy or vice versa, or to make either do something that's better represented as sequential steps.  Consider this contrived and somewhat silly example:
 
 ```typescript
-import { effect, when, until, job, signal, fromDomEvent, interval } from "uneventful";
+import { effect, when, until, job, value, fromDomEvent, interval } from "uneventful";
 
 const buttonClick = fromDomEvent(buttonElement, "click");
 const multiplierValue = value(1);
@@ -40,9 +40,9 @@ Uneventful's API revolves around its three fundamental kinds of "flows":
 
 - `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with optional automatic cleanup before each update and when the effect itself is canceled.
 - `when(`*source*`, `*listener*`)` consumes streams, promises, or "truthy" signal values, running a listener once for each received value (with automatic cleanup of anything that the listener used, when the flow is canceled, the stream closes or the next value/event arrives)
-- `job(`*generator function*`)` creates an asynchronous job - one that will be automatically canceled if the calling job, effect, or event listener is canceled.  (Jobs are also promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions.)
+- `job(`*generator-or-genfunc*`)` creates an asynchronous job - one that will be automatically canceled if the calling job, effect, or event listener is canceled.  (Jobs are also promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions.)
 
-   Within a job function,`yield *until()` suspends to wait for a promise, event stream, another job, or a truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
+   Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
 
 All three kinds of flows are **composable**: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.
 

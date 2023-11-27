@@ -3,15 +3,15 @@ import { current, makeCtx, swapCtx } from "../src/ambient.ts";
 import { Cleanup, DisposalBin, bin, cleanup } from "../mod.ts";
 
 describe("bin", () => {
-    it(".active is true during run()", () => {
+    it(".active() is true during run()", () => {
         var tested: boolean;
-        expect(bin.active, "Shouldn't be active before run()").to.be.false;
+        expect(bin.active(), "Shouldn't be active before run()").to.be.false;
         bin().run(()=> {
-            expect(bin.active, "Should be active during run()").to.be.true;
+            expect(bin.active(), "Should be active during run()").to.be.true;
             tested = true;
         })
         expect(tested, "Should have called the run function").to.be.true;
-        expect(bin.active, "Shouldn't be active after run()").to.be.false;
+        expect(bin.active(), "Shouldn't be active after run()").to.be.false;
     })
     describe("bin()", () => {
         it("returns new bins", () => {

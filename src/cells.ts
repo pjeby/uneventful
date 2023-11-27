@@ -37,6 +37,16 @@ var timestamp = 1;
 var runningEffects = false;
 var loopCount = 0;
 
+/**
+ * Synchronously run pending effects (no-op if already running)
+ *
+ * (Note that you should normally only need to call this when you need
+ * side-effects to occur within a specific synchronous timeframe, e.g. if
+ * effects need to be able to cancel a synchronous event, continue an IndexedDB
+ * transaction, or run in an animation frame.)
+ *
+ * @category Signals
+ */
 export function runEffects() {
     if (runningEffects) return;
     runningEffects = true;

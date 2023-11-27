@@ -133,3 +133,15 @@ describe("effect()", () => {
         see("66");
     });
 });
+
+describe("effect.root()", () => {
+    it("should call the function on tick", () => {
+        const dispose = effect.root(() => log("called"));
+        try {
+            runEffects();
+            see("called");
+        } finally {
+            dispose();
+        }
+    });
+});

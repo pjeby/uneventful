@@ -11,10 +11,12 @@
  * will add `callback` to the active bin, or throw an error if there is none.
  * (You can use `bin.active` to check if there is a currently active bin, or
  * make one active using its `.run()` method.)
+ *
+ * @category Resource Management
  */
 interface bin extends ActiveBin {
     /** Is there a currently active bin? */
-    readonly active: boolean;
+    active(): boolean;
 
     /**
      * Create a temporary bin, running a function in it and returning a callback
@@ -34,14 +36,26 @@ interface bin extends ActiveBin {
     (): DisposalBin;
 }
 
-/** A cleanup function is any zero argument function.  It will always be run in
- * the job context it was registered from. */
+/**
+ * A cleanup function is any zero argument function.  It will always be run in
+ * the job context it was registered from.
+ *
+ * @category Resource Management
+ */
 export type Cleanup = () => unknown;
 
-/** An optional cleanup parameter or return */
+/**
+ * An optional cleanup parameter or return.
+ *
+ * @category Resource Management
+ */
 export type OptionalCleanup = Cleanup | Nothing;
 
-/** The subset of the {@link DisposalBin} interface that's also available on the "current" bin */
+/**
+ * The subset of the {@link DisposalBin} interface that's also available on the "current" bin.
+ *
+ * @category Resource Management
+ */
 export interface ActiveBin {
     /**
      * Add a cleanup function to be run when the bin is cleaned up. Non-function
@@ -102,6 +116,16 @@ export interface ActiveBin {
     nested(stop?: Cleanup): DisposalBin
 }
 
+/**
+ * A disposal bin is a way to clean up a collection of related resources or undo
+ * actions taken by rules, effects, or jobs.
+ *
+ * By adding "cleanups" -- zero-argument callbacks -- to a disposal bin, you can
+ * later call its `cleanup()` method to run all of them in reverse order,
+ * thereby undoing actions or disposing of used resources.
+ *
+ * @category Resource Management
+ */
 export interface DisposalBin extends ActiveBin {
     /**
      * Call all the added cleanup functions, removing them in the process
@@ -140,6 +164,17 @@ export interface DisposalBin extends ActiveBin {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Job, Nothing, PlainFunction } from "./types.ts";
 
+/**
+ * Create a {@link DisposalBin} or manage the {@link ActiveBin}.
+ *
+ * The {@link bin}() function object is also an {@link ActiveBin} instance, with
+ * its methods applying to the currently active bin.  (If there is no active
+ * bin, an error will be thrown when you try to use those methods.)
+ *
+ * You can check if there is an active bin by calling {@link bin.active}().
+ *
+ * @category Resource Management
+ */
 export const bin: bin = (() => {
 
     function getBin() {
@@ -153,7 +188,7 @@ export const bin: bin = (() => {
 
     class _bin implements DisposalBin {
 
-        static get active() { return !!current.bin; }
+        static active() { return !!current.bin; }
         static add(cleanup?: OptionalCleanup) { return getBin().add(cleanup); }
         static addLink(cleanup: Cleanup) { return getBin().addLink(cleanup); }
         static link(inner: DisposalBin, stop?: Cleanup) { return getBin().link(inner, stop); }
@@ -250,4 +285,10 @@ export const bin: bin = (() => {
     }
 })();
 
+/**
+ * Add a cleanup function to be run when the active bin is cleaned up. Non-function
+ * values are ignored.
+ *
+ * @category Resource Management
+ */
 export const cleanup = bin.add;

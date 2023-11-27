@@ -17,7 +17,9 @@
     "scripts": {
         "build": "pkgroll",
         "coverage": "c8 -r lcov mocha -n loader=ts-node/esm",
+        "docs": "typedoc",
         "watch": "mocha -r tsx --watch",
+        "watch-docs": "typedoc --watch",
         "test": "mocha -r tsx && pkgroll",
         "prepublishOnly": "mocha -r tsx && pkgroll"
     },
@@ -44,6 +46,7 @@
         "sinon-chai": "^3.7.0",
         "ts-node": "^10.9.1",
         "tsx": "^4.1.3",
+        "typedoc": "^0.25.4",
         "typescript": "^5.2.2"
     }
 }
