@@ -42,6 +42,6 @@ import { beforeEach, afterEach } from "mocha";
 /** Arrange for each test in the current suite to be wrapped in a bin() for cleanup */
 export function useBin() {
     var b = bin();
-    beforeEach(() => { current.bin = b; });
-    afterEach(() => { b.cleanup(); current.bin = null; });
+    beforeEach(() => { current.bin = b; log.clear(); });
+    afterEach(() => { b.cleanup(); current.bin = null; log.clear(); });
 }
