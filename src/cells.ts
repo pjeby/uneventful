@@ -1,6 +1,6 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
-import { ActiveBin, OptionalCleanup, bin } from "./bins.ts";
+import { ActiveTracker, OptionalCleanup, tracker } from "./bins.ts";
 
 export class WriteConflict extends Error {}
 export class CircularDependency extends Error {}
@@ -16,11 +16,11 @@ export function mkCached<T>(compute: (old: T) => T, initial?: T) {
     return cell.getValue.bind(cell);
 }
 
-export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveBin) {
+export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveTracker) {
     if (parent) unlink = parent.addLink(stop);
     var cell = new Cell;
     cell.compute = fn.bind(null, stop);
-    cell.ctx = makeCtx(current.job, bin(), cell);
+    cell.ctx = makeCtx(current.job, tracker(), cell);
     cell.flags = Is.Effect;
     effectQueue.add(cell);
     var unlink: () => void;
@@ -252,10 +252,10 @@ export class Cell<T=any> {
                     this.lastChanged = timestamp;
                 }
             } else {
-                const b = this.ctx.bin;
+                const b = this.ctx.tracker;
                 b.cleanup();
                 try {
-                    b.add(this.compute());
+                    b.onCleanup(this.compute());
                     this.lastChanged = timestamp;
                 } catch (e) {
                     b.cleanup();
@@ -291,9 +291,9 @@ export class Cell<T=any> {
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
-            if (this.ctx.bin) {
-                this.ctx.bin.destroy();
-                this.ctx.bin = null;
+            if (this.ctx.tracker) {
+                this.ctx.tracker.destroy();
+                this.ctx.tracker = null;
             }
         }
     }

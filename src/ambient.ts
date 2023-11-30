@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { DisposalBin } from "./bins.ts";
+import type { ResourceTracker } from "./bins.ts";
 import type { Cell } from "./cells.ts";
 import type { Job } from "./types.ts";
 
@@ -13,7 +13,7 @@ type Opt<X> = X | undefined | null;
 
 export type Context = {
     job: Opt<Job<any>>
-    bin:  Opt<DisposalBin>
+    tracker:  Opt<ResourceTracker>
     cell: Opt<Cell>
 }
 
@@ -33,22 +33,22 @@ var freelist = [] as Context[];
 /** Get a fresh context object (either by creation or recycling) */
 export function makeCtx(
     job?:  Context["job"],
-    bin?:  Context["bin"],
+    tracker?:  Context["tracker"],
     cell?: Context["cell"],
 ): Context {
     if (freelist && freelist.length) {
         const s = freelist.pop()!;
         s.job = job;
-        s.bin = bin;
+        s.tracker = tracker;
         s.cell = cell;
         return s;
     }
-    return {job, bin, cell};
+    return {job, tracker, cell};
 }
 
 /** Put a no-longer-needed context object on the recycling heap */
 export function freeCtx(s: Context) {
-    s.job = s.bin = s.cell = null;
+    s.job = s.tracker = s.cell = null;
     freelist.push(s);
 }
 

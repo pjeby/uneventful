@@ -30,7 +30,7 @@ Notice how, if we could *only* use signals or streams or CSP, this example (and 
 
 And *all* of them would be more code, more complexity, more *glue* to set things up and shut them down, and more potential for errors.
 
-In contrast, uneventful's seamless blending of different kinds of reactivity (with automatic canceling and cleanups) means uneventful can be *lightweight*, both conceptually and in code size.  You don't need to learn or use a hundred different stream operators, for example, when so many of them are things that can be expressed more cleanly as signal effects or sequential tasks.
+In contrast, uneventful's seamless blending of different kinds of reactivity (with automatic canceling and resource cleanup) means uneventful can be *lightweight*, both conceptually and in code size.  You don't need to learn or use a hundred different stream operators, for example, when so many of them are things that can be expressed more cleanly as signal effects or sequential tasks.
 
 ## Features and Differences
 
@@ -38,51 +38,51 @@ In contrast, uneventful's seamless blending of different kinds of reactivity (wi
 
 Uneventful's API revolves around its three fundamental kinds of "flows":
 
-- `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with optional automatic cleanup before each update and when the effect itself is canceled.
-- `when(`*source*`, `*listener*`)` consumes streams, promises, or "truthy" signal values, running a listener once for each received value (with automatic cleanup of anything that the listener used, when the flow is canceled, the stream closes or the next value/event arrives)
+- `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with automatic resource cleanup before each update and when the effect itself is canceled.
+- `when(`*source*`, `*listener*`)` consumes streams, promises, or "truthy" signal values, running a listener once for each received value (with automatic cleanup of any resources the listener used when the flow is canceled, the stream closes or the next value/event arrives).
 - `job(`*generator-or-genfunc*`)` creates an asynchronous job - one that will be automatically canceled if the calling job, effect, or event listener is canceled.  (Jobs are also promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions.)
 
    Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
 
 All three kinds of flows are **composable**: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.
 
-When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `cleanup()` callbacks to release non-flow resources when the enclosing flow ends.)
+When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `onCleanup()` callbacks to release non-flow resources when the enclosing flow ends.)
 
-Of course, all this flow composition has to start *somewhere*, and usually that will be one or more root-level `job()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a `bin()`, as we'll see in the next section.)
+Of course, all this flow composition has to start *somewhere*, and usually that will be one or more root-level `job()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a `track()`, as we'll see in the next section.)
 
-### Bins and Cleanup
+### Resource Tracking and Cleanup
 
-Under the hood, flows are linked with *disposal bins*: collections of callbacks that run when the flow ends, to release resources, listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `cleanup(callback)` to add "cleanup" callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
+Under the hood, flows are linked by *resource trackers*: collections of callbacks that run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `onCleanup(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
 
 For a `job()`, any added callbacks are run when the job as a whole is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
 
 ```typescript
-import { bin, value, effect, cleanup } from "uneventful";
+import { value, effect, onCleanup } from "uneventful";
 this.selectedIndex = value(0);  // dynamic value
 
 effect(() => {
     const selectedNode = this.nodes[this.selectedIndex()];
     if (selectedNode) {
         selectedNode.classList.add("selected");
-        cleanup(() => { selectedNode.classList.remove("selected"); });
+        onCleanup(() => { selectedNode.classList.remove("selected"); });
     }
 });
 ```
 
 This code will add `.selected` to the class of the currently selected element (which can be changed with `this.selectedIndex.set(number)`).  But, it will also automatically *remove* the class from the *previously* selected item (if any), before applying it to the new one!  (The class will also be removed if the effect is canceled, e.g. by the termination of an enclosing flow.)
 
-As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to call `cleanup()` on them.
+As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with an `onCleanup()` call.
 
-Bins are normally managed for you automatically, but you can also manually create and compose them via the `bin()` function and its methods.  You probably won't do that very often, though, unless you're creating a custom flow or stream operator, or integrating your root-level flows with another framework's explicit resource management.
+Resource tracking is normally managed for you automatically, but you can also manually manage them via the `tracker()` function and its methods.  You probably won't do that very often, though, unless you're creating a custom flow or stream operator, or integrating your root-level flows with another framework's explicit resource management.
 
-For example, [Obsidian.md](https://obsidian.md/) plugins and components will usually want to `.register()` their flows in an explicit `bin()`, to ensure they're all stopped (and the resources released, events unhooked, etc.) when the plugin or component is unloaded:
+For example, [Obsidian.md](https://obsidian.md/) plugins and components will usually want to `.register()` their flows in an explicit `track()` call, to ensure they're all stopped (and the resources released, events unhooked, etc.) when the plugin or component is unloaded:
 
 ```typescript
-import { bin } from "uneventful";
+import { track } from "uneventful";
 
 class SomeComponentOrPlugin extends obsidian.Component {
     onload() {
-        this.register(bin(() => {
+        this.register(track(() => {
             // create effect(), job() or when() flows here
             // (They will all be stopped and resources cleaned
             // up when the component is unloaded.)

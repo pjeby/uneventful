@@ -35,13 +35,13 @@ export function see(...lines: Array<string|RegExp>) {
 import { reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import {bin} from "../src/bins.ts";
+import { tracker } from "../src/bins.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 
-/** Arrange for each test in the current suite to be wrapped in a bin() for cleanup */
-export function useBin() {
-    var b = bin();
-    beforeEach(() => { current.bin = b; log.clear(); });
-    afterEach(() => { b.cleanup(); current.bin = null; log.clear(); });
+/** Arrange for each test in the current suite to be wrapped in a tracker() for cleanup */
+export function useTracker() {
+    var b = tracker();
+    beforeEach(() => { current.tracker = b; log.clear(); });
+    afterEach(() => { b.cleanup(); current.tracker = null; log.clear(); });
 }

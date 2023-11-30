@@ -1,147 +1,141 @@
 /**
- * A disposal bin is a way to clean up a collection of related resources or undo
- * actions taken by rules, effects, or jobs.
+ * A resource tracker tracks and releases resources (or runs undo actions) that
+ * are used by flows (such as effects and jobs) or other units of work.
  *
- * By adding "cleanups" -- zero-argument callbacks -- to a disposal bin, you can
- * later call its `cleanup()` method to run all of them in reverse order,
- * thereby undoing actions or disposing of used resources.
+ * By adding `onCleanup()` callbacks to a tracker, you can later call its
+ * `cleanup()` method to run all of them in reverse order, thereby undoing
+ * actions or releasing used resources.
  *
- * The `bin` export lets you `.create()` new disposal bins, and perform
- * operations on the "current" bin, if there is one. e.g. `bin.add(callback)`
- * will add `callback` to the active bin, or throw an error if there is none.
- * (You can use `bin.active` to check if there is a currently active bin, or
+ * The `tracker` export lets you create new trackers, and perform operations on
+ * the "current" tracker, if there is one. e.g. `tracker.add(callback)` will add
+ * `callback` to the active tracker, or throw an error if there is none. (You
+ * can use `tracker.active` to check if there is a currently active tracker, or
  * make one active using its `.run()` method.)
  *
  * @category Resource Management
  */
-interface bin extends ActiveBin {
-    /** Is there a currently active bin? */
+interface TrackerAPI extends ActiveTracker {
+    /** Is there a currently active tracker? */
     active(): boolean;
 
-    /**
-     * Create a temporary bin, running a function in it and returning a callback
-     * that will safely destroy the bin.  (The same callback will be also be
-     * passed as the first argument to the function, so the bin can be destroyed
-     * either inside or outside the function.)
-     *
-     * If the called function returns a function, it will be added to the new
-     * bin's cleanup callbacks.  If the function throws an error, the bin will
-     * be cleaned up, and the error re-thrown.
-     *
-     * @returns the temporary bin's `destroy` callback
-     */
-    (action: (destroy: () => void) => OptionalCleanup): () => void;
-
-    /** Return an empty DisposalBin (new or recycled) */
-    (): DisposalBin;
+    /** Return an empty ResourceTracker (new or recycled) */
+    (): ResourceTracker;
 }
 
 /**
- * A cleanup function is any zero argument function.  It will always be run in
+ * A cleanup function is any zero-argument function.  It will always be run in
  * the job context it was registered from.
  *
  * @category Resource Management
  */
-export type Cleanup = () => unknown;
+export type CleanupFn = () => unknown;
 
 /**
  * An optional cleanup parameter or return.
  *
  * @category Resource Management
  */
-export type OptionalCleanup = Cleanup | Nothing;
+export type OptionalCleanup = CleanupFn | Nothing;
 
 /**
- * The subset of the {@link DisposalBin} interface that's also available on the "current" bin.
+ * The subset of the {@link ResourceTracker} interface that's also available on
+ * the "current" tracker.
  *
  * @category Resource Management
  */
-export interface ActiveBin {
+export interface ActiveTracker {
     /**
-     * Add a cleanup function to be run when the bin is cleaned up. Non-function
-     * values are ignored.
+     * Add a callback to be run when the tracker is released. (Non-function
+     * values are ignored.)
      */
-    add(cleanup?: OptionalCleanup): void;
+    onCleanup(cleanup?: OptionalCleanup): void;
 
-    /** Like add(), except a function is returned that will remove the cleanup
-     * function from the bin, if it's still present. */
-    addLink(cleanup: Cleanup): () => void;
+    /** Like onCleanup(), except a function is returned that will remove the cleanup
+     * function from the tracker, if it's still present. */
+    addLink(cleanup: CleanupFn): () => void;
 
     /**
-     * Link an inner bin to this bin, such that the inner bin will remove itself
-     * from the outer bin when cleaned up, and the outer bin will clean the
-     * inner if cleaned first.
+     * Link an "inner" tracker to this one, such that the inner tracker will
+     * remove itself from the outer tracker when cleaned up, and the outer
+     * tracker will clean the inner if cleaned first.
      *
      * Long-lived jobs or event streams often spin off lots of subordinate tasks
      * that will end before the parent does, but which still need to stop when
-     * the parent does. Simply add()ing them to the parent's bin would
+     * the parent does. Simply adding them to the parent's tracker would
      * accumulate a lot of garbage, though: an endless list of cleanup functions
      * to shut down things that were already shut down a long time ago.  So
-     * link() and addLink() can be used to create inner bins for subordinate
-     * jobs that will unlink themselves from the outer bins, if they finish first.
+     * link() and addLink() can be used to create inner trackers for subordinate
+     * jobs that will unlink themselves from the outer trackers, if they finish
+     * first.
      *
-     * This method is shorthand for `inner.add(outer.addLink(stop ??
-     * inner.cleanup))`. (Similar to {@link ActiveBin.nested}, except that you
-     * supply the inner bin instead of it being created automatically.)
+     * This method is shorthand for `inner.onCleanup(outer.addLink(stop ??
+     * inner.cleanup))`. (Similar to {@link ActiveTracker.nested}, except that
+     * you supply the inner tracker instead of it being created automatically.)
      *
-     * (Note that the link is a one-time thing: if you reuse the inner bin after
-     * it's been cleaned up, you'll need to link() it again, to re-attach it to
-     * the outer bin or attach it to a different one.)
+     * (Note that the link is a one-time thing: if you reuse the inner tracker
+     * after it's been cleaned up, you'll need to link() it again, to re-attach
+     * it to the outer tracker or attach it to a different one.)
      *
-     * @param inner The bin to link.
-     * @param stop The function the outer bin should call to clean up the inner;
-     * defaults to the inner's `cleanup()` method if not given.
-     * @returns The inner bin.
+     * @param inner The tracker to link.
+     * @param stop The function the outer tracker should call to clean up the
+     * inner; defaults to the inner's `cleanup()` method if not given.
+     * @returns The inner tracker.
      */
-    link(inner: DisposalBin, stop?: Cleanup): DisposalBin
+    link(inner: ResourceTracker, stop?: CleanupFn): ResourceTracker
 
     /**
-     * Create an inner bin that is cleaned up when the outer bin does, or
-     * unlinks itself from the outer bin if the inner bin is cleaned up first.
+     * Create an inner tracker that cleans up when the outer tracker does,
+     * or unlinks itself from the outer tracker if the inner tracker is cleaned
+     * up first.
      *
-     * This is shorthand for `inner = bin.create(); outer.link(inner, stop));`.
-     * When the inner bin is cleaned up, it will remove its cleanup from the
-     * outer bin, preventing defunct cleanup functions from accumulating in the
-     * outer bin.
+     * This is shorthand for `inner = tracker(); outer.link(inner, stop));`.
+     * When the inner tracker is cleaned up, it will remove its cleanup from the
+     * outer tracker, preventing defunct cleanup functions from accumulating in
+     * the outer tracker.
      *
-     * (Note that the link is a one-time thing: if you reuse the inner bin after
-     * it's been cleaned up, you'll need to use `outer.link(inner, stop?)` to
-     * re-attach it to the outer bin or attach it to a different one.)
+     * (Note that the link is a one-time thing: if you reuse the inner tracker
+     * after it's been cleaned up, you'll need to use `outer.link(inner, stop?)`
+     * to re-attach it to the outer tracker or attach it to a different one.)
      *
-     * @param stop The function the outer bin should call to clean up the inner
-     * bin; defaults to the new bin's `cleanup()` method if not given.
+     * @param stop The function the outer tracker should call to clean up the
+     * inner tracker; defaults to the new tracker's `cleanup()` method if not
+     * given.
      *
-     * @returns A new linked bin
+     * @returns A new linked tracker
      */
-    nested(stop?: Cleanup): DisposalBin
+    nested(stop?: CleanupFn): ResourceTracker
 }
 
 /**
- * A disposal bin is a way to clean up a collection of related resources or undo
- * actions taken by rules, effects, or jobs.
+ * A resource tracker tracks and releases resources (or runs undo actions) that
+ * are used by flows (such as effects and jobs) or other units of work.
  *
- * By adding "cleanups" -- zero-argument callbacks -- to a disposal bin, you can
- * later call its `cleanup()` method to run all of them in reverse order,
- * thereby undoing actions or disposing of used resources.
+ * By adding `onCleanup()` callbacks to a tracker, you can later call its
+ * `release()` method to run all of them in reverse order, thereby undoing
+ * actions or releasing of used resources.
  *
  * @category Resource Management
  */
-export interface DisposalBin extends ActiveBin {
+export interface ResourceTracker extends ActiveTracker {
     /**
-     * Call all the added cleanup functions, removing them in the process
+     * Release all resources held by the tracker.
+     *
+     * All added cleanup functions will be called in last-in-first-out order,
+     * removing them in the process.
      *
      * If any callbacks throw exceptions, they're converted to unhandled promise
      * rejections (so that all of them will be called, even if one throws an
      * error).
      *
      * Note: this method is a bound function, so you can pass it as a callback
-     * to another bin, event handler, etc.
+     * to another tracker, event handler, etc.
      */
     readonly cleanup: () => void;
 
     /**
-     * Invoke a function with this bin as the active one, so that `bin.add()`
-     * will add things to it, `bin.nested()` will fork it, and so on.
+     * Invoke a function with this tracker as the active one, so that
+     * `tracker.add()` will add things to it, `tracker.nested()` will fork it,
+     * and so on.
      *
      * @param fn The function to call
      * @param args The arguments to call it with, if any
@@ -150,13 +144,13 @@ export interface DisposalBin extends ActiveBin {
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
 
     /**
-     * Deallocate the bin and recycle it for future use
+     * Release all resources, deallocate the tracker, and recycle it for future use
      *
-     * Do not use this method unless you can guarantee there are no outstanding
-     * references to the bin, or else Bad Things Will Happen.
+     * Do not use this method unless you can *guarantee* there are no outstanding
+     * references to the tracker, or else Bad Things Will Happen.
      *
      * Note: this method is a bound function, so you can pass it as a callback
-     * to another bin, event handler, etc.
+     * to another tracker, event handler, etc.
      */
     readonly destroy: () => void;
 }
@@ -164,39 +158,42 @@ export interface DisposalBin extends ActiveBin {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Job, Nothing, PlainFunction } from "./types.ts";
 
+const recycledTrackers = [] as ResourceTracker[];
+
 /**
- * Create a {@link DisposalBin} or manage the {@link ActiveBin}.
+ * Create a {@link ResourceTracker} or manage the {@link ActiveTracker}.
  *
- * The {@link bin}() function object is also an {@link ActiveBin} instance, with
- * its methods applying to the currently active bin.  (If there is no active
- * bin, an error will be thrown when you try to use those methods.)
+ * The {@link tracker} function object is also an {@link ActiveTracker}
+ * instance, with its methods applying to the currently active tracker.  (If
+ * there is no active tracker, an error will be thrown when you try to use those
+ * methods.)
  *
- * You can check if there is an active bin by calling {@link bin.active}().
+ * You can check if there is an active tracker by calling
+ * {@link tracker.active}().
  *
  * @category Resource Management
  */
-export const bin: bin = (() => {
+export const tracker: TrackerAPI = (() => {
 
-    function getBin() {
-        const {bin} = current;
+    function getTracker() {
+        const {tracker: bin} = current;
         if (bin) return bin;
-        throw new Error("No disposal bin is currently active");
+        throw new Error("No resource tracker is currently active");
     }
 
-    const recycledBins = [] as DisposalBin[];
     var freelist: CleanupNode;
 
-    class _bin implements DisposalBin {
+    class _tracker implements ResourceTracker {
 
-        static active() { return !!current.bin; }
-        static add(cleanup?: OptionalCleanup) { return getBin().add(cleanup); }
-        static addLink(cleanup: Cleanup) { return getBin().addLink(cleanup); }
-        static link(inner: DisposalBin, stop?: Cleanup) { return getBin().link(inner, stop); }
-        static nested(stop?: Cleanup) { return getBin().nested(stop); }
+        static active() { return !!current.tracker; }
+        static onCleanup(cleanup?: OptionalCleanup) { return getTracker().onCleanup(cleanup); }
+        static addLink(cleanup: CleanupFn) { return getTracker().addLink(cleanup); }
+        static link(inner: ResourceTracker, stop?: CleanupFn) { return getTracker().link(inner, stop); }
+        static nested(stop?: CleanupFn) { return getTracker().nested(stop); }
 
         destroy = () => {
             this.cleanup();
-            recycledBins.push(this);
+            recycledTrackers.push(this);
         }
 
         cleanup = () => {
@@ -216,52 +213,49 @@ export const bin: bin = (() => {
             } finally { freeCtx(swapCtx(old)); }
         }
 
-        add(cleanup?: OptionalCleanup) {
+        onCleanup(cleanup?: OptionalCleanup) {
             if (typeof cleanup === "function") this._push(cleanup);
         }
 
-        addLink(cleanup: Cleanup): () => void {
+        addLink(cleanup: CleanupFn): () => void {
             var rb = this._push(() => { rb = null; cleanup(); });
             return () => { freeCN(rb); rb = null; };
         }
 
-        nested(stop?: Cleanup): DisposalBin {
-            return this.link(bin(), stop);
+        nested(stop?: CleanupFn): ResourceTracker {
+            return this.link(tracker(), stop);
         }
 
-        link(nested: DisposalBin, stop?: Cleanup): DisposalBin {
-            nested.add(this.addLink(stop || nested.cleanup));
+        link(nested: ResourceTracker, stop?: CleanupFn): ResourceTracker {
+            nested.onCleanup(this.addLink(stop || nested.cleanup));
             return nested;
         }
 
         protected _next: CleanupNode = undefined;
-        protected _push(cb: Cleanup) {
+        protected _push(cb: CleanupFn) {
             let rb = makeCN(cb, current.job, this._next, this as unknown as CleanupNode);
             if (this._next) this._next._prev = rb;
             return this._next = rb;
         }
     }
 
-    function bin(action: (destroy: () => void) => OptionalCleanup): () => void;
-    function bin(): DisposalBin;
-    function bin(action?: (destroy: () => void) => OptionalCleanup) {
-        if (this instanceof bin) throw new Error("Use bin() without new")
-        const b = recycledBins.pop() || new _bin;
-        if (typeof action === "function") { b.add(b.run(action, b.destroy)); return b.destroy; }
-        return b;
+    function tracker(): ResourceTracker {
+        if (this instanceof tracker) throw new Error("Use tracker() without new")
+        return recycledTrackers.pop() || new _tracker;
     }
-    bin.prototype = _bin.prototype;
-    bin.prototype.constructor = bin;
-    return Object.setPrototypeOf(bin, _bin);
+
+    tracker.prototype = _tracker.prototype;
+    tracker.prototype.constructor = tracker;
+    return Object.setPrototypeOf(tracker, _tracker);
 
     type CleanupNode = {
         _next: CleanupNode,
         _prev: CleanupNode,
-        _cb: Cleanup,
+        _cb: CleanupFn,
         _job: Job<any>
     }
 
-    function makeCN(cb: Cleanup, job: Job<any>, next: CleanupNode, prev: CleanupNode): CleanupNode {
+    function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode, prev: CleanupNode): CleanupNode {
         if (freelist) {
             let node = freelist;
             freelist = node._next;
@@ -286,9 +280,30 @@ export const bin: bin = (() => {
 })();
 
 /**
- * Add a cleanup function to be run when the active bin is cleaned up. Non-function
- * values are ignored.
+ * Add a cleanup function to the active tracker. Non-function values are
+ * ignored.
  *
  * @category Resource Management
  */
-export const cleanup = bin.add;
+export const onCleanup = tracker.onCleanup;
+
+/**
+ * Create a temporary tracker, running a function in it and returning a
+ * callback that will safely dispose of the tracker and its resources.  (The
+ * same callback will be also be passed as the first argument to the
+ * function, so the tracker can be destroyed from either inside or outside the
+ * function.)
+ *
+ * If the called function returns a function, it will be added to the new
+ * tracker's cleanup callbacks.  If the function throws an error, the
+ * tracker will be cleaned up, and the error re-thrown.
+ *
+ * @returns the temporary tracker's `dispose` callback
+ *
+ * @category Resource Management
+ */
+export function track(action: (destroy: () => void) => OptionalCleanup): () => void {
+    const t = tracker();
+    t.onCleanup(t.run(action, t.destroy));
+    return t.destroy;
+}

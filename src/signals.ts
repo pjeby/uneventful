@@ -1,5 +1,5 @@
 import { current } from "./ambient.ts";
-import { OptionalCleanup, bin } from "./bins.ts";
+import { OptionalCleanup, tracker } from "./bins.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, mkEffect, mkCached } from "./cells.ts";
 
@@ -95,7 +95,7 @@ export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T> {
  * @category Flows
  */
 export function effect(fn: (stop: () => void) => OptionalCleanup): () => void {
-    return mkEffect(fn, bin);
+    return mkEffect(fn, tracker);
 }
 
 /**

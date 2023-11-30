@@ -1,9 +1,9 @@
-import { log, see, describe, expect, it, useBin } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useTracker } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
 import { CircularDependency, WriteConflict } from "../src/cells.ts";
 
 describe("Cycles and Side-Effects", () => {
-    useBin();
+    useTracker();
     it("cached() can't create side-effects", () => {
         const v = value(99), w = cached(() => v.set(42));
         expect(w).to.throw("Side-effects not allowed")
@@ -52,7 +52,7 @@ describe("Cycles and Side-Effects", () => {
 
 
 describe("Consistent updates", () => {
-    useBin();
+    useTracker();
     it("with multiple paths to common element", () => {
         // Given an effect with two paths to a common value
         const start = value(22);
@@ -108,7 +108,7 @@ describe("Consistent updates", () => {
 describe.skip("cached()", () => {});
 
 describe("effect()", () => {
-    useBin();
+    useTracker();
     it("should call the function on tick", () => {
         effect(() => log("called"));
         runEffects();

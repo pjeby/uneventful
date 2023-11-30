@@ -1,100 +1,100 @@
 import { afterEach, beforeEach, describe, expect, it, spy } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { Cleanup, DisposalBin, bin, cleanup } from "../mod.ts";
+import { CleanupFn, ResourceTracker, tracker, onCleanup, track } from "../mod.ts";
 
 describe("bin", () => {
     it(".active() is true during run()", () => {
         var tested: boolean;
-        expect(bin.active(), "Shouldn't be active before run()").to.be.false;
-        bin().run(()=> {
-            expect(bin.active(), "Should be active during run()").to.be.true;
+        expect(tracker.active(), "Shouldn't be active before run()").to.be.false;
+        tracker().run(()=> {
+            expect(tracker.active(), "Should be active during run()").to.be.true;
             tested = true;
         })
         expect(tested, "Should have called the run function").to.be.true;
-        expect(bin.active(), "Shouldn't be active after run()").to.be.false;
+        expect(tracker.active(), "Shouldn't be active after run()").to.be.false;
     })
-    describe("bin()", () => {
-        it("returns new bins", () => {
-            const bin1 = bin(), bin2 = bin();
-            expect(bin1).to.be.instanceof(bin);
-            expect(bin2).to.be.instanceof(bin);
-            expect(bin1).to.not.equal(bin2);
+    describe("tracker()", () => {
+        it("returns new trackers", () => {
+            const tracker1 = tracker(), tracker2 = tracker();
+            expect(tracker1).to.be.instanceof(tracker);
+            expect(tracker2).to.be.instanceof(tracker);
+            expect(tracker1).to.not.equal(tracker2);
         });
-        it("recycles destroyed bins", () => {
-            const bin1 = bin();
-            bin1.destroy();
-            const bin2 = bin();
-            expect(bin2, "should be recycled").to.equal(bin1);
+        it("recycles destroyed trackers", () => {
+            const tracker1 = tracker();
+            tracker1.destroy();
+            const tracker2 = tracker();
+            expect(tracker2, "should be recycled").to.equal(tracker1);
         });
-        describe("when given a callback", () => {
-            it("runs it with the bin active, passing in a destroy", () => {
-                var active: DisposalBin, d: () => void;
-                const b = bin((destroy) => { d = destroy; active = current.bin; });
-                expect(active.destroy).to.equal(b);
-                expect(d).to.equal(b);
-            });
-            it("adds the return value if it's a function", () => {
-                const cb = spy();
-                const b = bin(() => cb as Cleanup);
-                expect(cb).to.not.have.been.called;
-                b();
-                expect(cb).to.have.been.calledOnce;
-            });
-        })
     });
+    describe("track()", () => {
+        it("runs with a new tracker active, passing in a destroy", () => {
+            var active: ResourceTracker, d: () => void;
+            const b = track((destroy) => { d = destroy; active = current.tracker; });
+            expect(active.destroy).to.equal(b);
+            expect(d).to.equal(b);
+        });
+        it("adds the return value if it's a function", () => {
+            const cb = spy();
+            const b = track(() => cb as CleanupFn);
+            expect(cb).to.not.have.been.called;
+            b();
+            expect(cb).to.have.been.calledOnce;
+        });
+    })
     describe("calls methods on the active bin", () => {
-        var bin1 = bin(), cb = spy();
-        beforeEach(() => { bin1 = bin(); cb = spy(); current.bin = bin1; });
-        afterEach(() => { current.bin = undefined; });
+        var t1 = tracker(), cb = spy();
+        beforeEach(() => { t1 = tracker(); cb = spy(); current.tracker = t1; });
+        afterEach(() => { current.tracker = undefined; });
         it("cleanup", () => {
-            const m = spy(bin1, "add");
-            expect(cleanup(cb)).to.be.undefined;
+            const m = spy(t1, "onCleanup");
+            expect(onCleanup(cb)).to.be.undefined;
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
         })
-        it(".add()", () => {
-            const m = spy(bin1, "add");
-            expect(bin.add(cb)).to.be.undefined;
+        it(".onCleanup()", () => {
+            const m = spy(t1, "onCleanup");
+            expect(tracker.onCleanup(cb)).to.be.undefined;
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
         });
         it(".addlink()", () => {
-            const m = spy(bin1, "addLink");
-            const unlink = bin.addLink(cb);
+            const m = spy(t1, "addLink");
+            const unlink = tracker.addLink(cb);
             expect(unlink).to.be.a("function");
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(unlink);
         });
         it(".link()", () => {
-            const m = spy(bin1, "link");
-            const bin2 = bin();
-            bin.link(bin2, cb);
-            expect(m).to.have.been.calledOnceWithExactly(bin2, cb).and.returned(bin2);
+            const m = spy(t1, "link");
+            const t2 = tracker();
+            tracker.link(t2, cb);
+            expect(m).to.have.been.calledOnceWithExactly(t2, cb).and.returned(t2);
         });
         it(".nested()", () => {
-            const m = spy(bin1, "nested");
-            const bin2 = bin.nested(cb);
+            const m = spy(t1, "nested");
+            const t2 = tracker.nested(cb);
             expect(m).to.have.been.calledOnceWithExactly(cb);
-            expect(bin2).to.be.instanceOf(bin);
+            expect(t2).to.be.instanceOf(tracker);
         });
     });
-    describe("throws when there's no active bin", () => {
-        const msg = "No disposal bin is currently active";
-        it("cleanup()", () => { expect(() => cleanup(() => {})).to.throw(msg); });
-        it(".add()", () => { expect(() => bin.add(() => {})).to.throw(msg); });
-        it(".addlink()", () => { expect(() => bin.addLink(() => {})).to.throw(msg); });
-        it(".link()", () => { expect(() => bin.link(bin(), () => {})).to.throw(msg); });
-        it(".nested", () => { expect(() => bin.nested(() => {})).to.throw(msg); });
+    describe("throws when there's no active tracker", () => {
+        const msg = "No resource tracker is currently active";
+        it("onCleanup()", () => { expect(() => onCleanup(() => {})).to.throw(msg); });
+        it(".onCleanup()", () => { expect(() => tracker.onCleanup(() => {})).to.throw(msg); });
+        it(".addlink()", () => { expect(() => tracker.addLink(() => {})).to.throw(msg); });
+        it(".link()", () => { expect(() => tracker.link(tracker(), () => {})).to.throw(msg); });
+        it(".nested", () => { expect(() => tracker.nested(() => {})).to.throw(msg); });
     })
 });
 
-describe("bin instances", () => {
-    var b: DisposalBin;
-    beforeEach(() => { b = bin(); });
+describe("tracker instances", () => {
+    var b: ResourceTracker;
+    beforeEach(() => { b = tracker(); });
     describe(".add()", () => {
         it("can be called without a callback", () => {
-            b.add(); b.cleanup();
+            b.onCleanup(); b.cleanup();
         });
         it("calls the callback if given one", () => {
             const cb = spy();
-            b.add(cb);
+            b.onCleanup(cb);
             expect(cb).to.not.have.been.called;
             b.cleanup();
             expect(cb).to.have.been.calledOnce;
@@ -103,7 +103,7 @@ describe("bin instances", () => {
     describe(".cleanup()", () => {
         it("runs callbacks in reverse order", () => {
             const c1 = spy(), c2 = spy(), c3 = spy();
-            b.add(c1); b.add(c2); b.add(c3);
+            b.onCleanup(c1); b.onCleanup(c2); b.onCleanup(c3);
             b.cleanup();
             expect(c3).to.have.been.calledImmediatelyBefore(c2);
             expect(c2).to.have.been.calledImmediatelyBefore(c1);
@@ -112,8 +112,8 @@ describe("bin instances", () => {
         it("runs callbacks under the job they were added with", () => {
             const job1: any = {}, job2: any = {}, job3: any = {}, old = swapCtx(makeCtx());
             try {
-                current.job = job1; b.add(() => expect(current.job).to.equal(job1));
-                current.job = job2; b.add(() => expect(current.job).to.equal(job2));
+                current.job = job1; b.onCleanup(() => expect(current.job).to.equal(job1));
+                current.job = job2; b.onCleanup(() => expect(current.job).to.equal(job2));
                 current.job = job3;
                 b.cleanup();
                 expect(current.job).to.equal(job3);
@@ -121,9 +121,9 @@ describe("bin instances", () => {
         });
         it("converts errors to unhandled rejections", async () => {
             const cb1 = spy(), cb2 = spy();
-            b.add(cb1);
-            b.add(() => { throw new Error("caught me!"); })
-            b.add(cb2);
+            b.onCleanup(cb1);
+            b.onCleanup(() => { throw new Error("caught me!"); })
+            b.onCleanup(cb2);
             b.cleanup();
             const reason = await new Promise<Error>(res => {
                 process.on("unhandledRejection", handler);
@@ -137,7 +137,7 @@ describe("bin instances", () => {
     })
     it(".destroy() cleans up the bin", () => {
         const cb = spy();
-        b.add(cb);
+        b.onCleanup(cb);
         expect(cb).to.not.have.been.called;
         b.destroy();
         expect(cb).to.have.been.calledOnce;
@@ -177,17 +177,17 @@ describe("bin instances", () => {
         });
         it("cleans up the inner as the default stop action", () => {
             const inner = b.nested();
-            inner.add(cb);
+            inner.onCleanup(cb);
             expect(cb).to.not.have.been.called;
             b.cleanup();
             expect(cb).to.have.been.calledOnce;
         });
     });
     describe("link()", () => {
-        var cb = spy(), inner = bin();
+        var cb = spy(), inner = tracker();
         beforeEach(() => {
             cb = spy();
-            inner = bin();
+            inner = tracker();
         });
         it("calls the stop function if outer is cleaned up", () => {
             b.link(inner, cb);
@@ -204,7 +204,7 @@ describe("bin instances", () => {
         });
         it("cleans up the inner as the default stop action", () => {
             b.link(inner);
-            inner.add(cb);
+            inner.onCleanup(cb);
             expect(cb).to.not.have.been.called;
             b.cleanup();
             expect(cb).to.have.been.calledOnce;
@@ -212,29 +212,29 @@ describe("bin instances", () => {
     });
     describe(".run()", () => {
         it("makes the bin active", () => {
-            var active: DisposalBin;
-            expect(current.bin).to.be.undefined;
-            b.run(() => { active = current.bin; });
+            var active: ResourceTracker;
+            expect(current.tracker).to.be.undefined;
+            b.run(() => { active = current.tracker; });
             expect(active).to.equal(b);
-            expect(current.bin).to.be.undefined;
+            expect(current.tracker).to.be.undefined;
         });
         it("restores the context, even on error", () => {
-            const b1 = bin();
-            expect(current.bin).to.be.undefined;
+            const b1 = tracker();
+            expect(current.tracker).to.be.undefined;
             b.run(() => {
-                expect(current.bin).to.equal(b);
-                b1.run(() => expect(current.bin).to.equal(b1));
+                expect(current.tracker).to.equal(b);
+                b1.run(() => expect(current.tracker).to.equal(b1));
                 try {
                     b1.run(() => { throw new Error; });
                 } catch (e) {
-                    expect(current.bin).to.equal(b);
+                    expect(current.tracker).to.equal(b);
                 }
             });
-            expect(current.bin).to.be.undefined;
+            expect(current.tracker).to.be.undefined;
         });
         it("cleans up on throw", () => {
             var cb = spy();
-            b.add(cb);
+            b.onCleanup(cb);
             expect(() => b.run(() => {
                 expect(cb).to.not.have.been.called;
                 throw new Error("dang");

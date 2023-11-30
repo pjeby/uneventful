@@ -1,8 +1,8 @@
-import { log, see, describe, expect, it, useBin } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useTracker } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
 
 describe("Signal invariants", () => {
-    useBin();
+    useTracker();
 
     it("Updates are immediate outside of effects", () => {
         // Given a value
