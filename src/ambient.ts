@@ -1,11 +1,11 @@
 /**
- * Ambient execution context (for jobs, bins, and dependency tracking)
+ * Ambient execution context (for job, resource, and dependency tracking)
  *
  * @internal
  * @module
  */
 
-import type { ResourceTracker } from "./bins.ts";
+import type { ResourceTracker } from "./tracking.ts";
 import type { Cell } from "./cells.ts";
 import type { Job } from "./types.ts";
 

@@ -35,7 +35,7 @@ export function see(...lines: Array<string|RegExp>) {
 import { reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { tracker } from "../src/bins.ts";
+import { tracker } from "../src/tracking.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 

@@ -176,8 +176,8 @@ const recycledTrackers = [] as ResourceTracker[];
 export const tracker: TrackerAPI = (() => {
 
     function getTracker() {
-        const {tracker: bin} = current;
-        if (bin) return bin;
+        const {tracker} = current;
+        if (tracker) return tracker;
         throw new Error("No resource tracker is currently active");
     }
 

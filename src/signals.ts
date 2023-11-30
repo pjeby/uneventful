@@ -1,5 +1,5 @@
 import { current } from "./ambient.ts";
-import { OptionalCleanup, tracker } from "./bins.ts";
+import { OptionalCleanup, tracker } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, mkEffect, mkCached } from "./cells.ts";
 
@@ -75,15 +75,16 @@ export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T> {
  * after there are changes in any of the values or cached functions it read
  * during its previous run.
  *
- * The created subscription is tied to the currently-active bin (usually that of
- * the enclosing flow).  So when that bin is cleaned up (or the flow ended), the
- * effect will be terminated automatically.  You can also terminate it early by
- * calling the "stop" function that is both passed to the effect function and
- * returned by `effect()`.
+ * The created subscription is tied to the currently-active resource tracker
+ * (usually that of the enclosing flow).  So when that tracker is cleaned up (or
+ * the flow is ended), the effect will be terminated automatically.  You can
+ * also terminate it early by calling the "stop" function that is both passed to
+ * the effect function and returned by `effect()`.
  *
- * Note: this function will throw an error if called outside of a `bin()`,
- * `bin.run()`, or another flow (i.e. another `job()`, `when()`, or `effect()`).
- * If you need a standalone effect, use **{@link effect.root}** instead.
+ * Note: this function will throw an error if called outside of a `track()`,
+ * `tracker().run()`, or another flow (i.e. another `job()`, `when()`, or
+ * `effect()`). If you need a standalone effect, use **{@link effect.root}**
+ * instead.
  *
  * @param fn The function that will be run each time its dependencies change. It
  * is passed a single argument: a function that can be called to terminate the
@@ -107,12 +108,13 @@ export function effect(fn: (stop: () => void) => OptionalCleanup): () => void {
 export namespace effect {
     /**
      * Create a standalone ("root") effect that won't be tied to the current
-     * bin/flow (and thus doesn't *need* an enclosing bin or flow)
+     * resource tracker or flow (and thus doesn't *need* an enclosing tracker or
+     * flow).
      *
      * Just like a plain `effect()` except that the effect is *not* tied to the
-     * current flow or bin, and will therefore remain active until the disposal
-     * callback is called, even if the enclosing bin is cleaned up or flow is
-     * canceled.
+     * current flow or tracker, and will therefore remain active until the
+     * disposal callback is called, even if the enclosing tracker is cleaned up
+     * or flow is canceled.
      */
     export function root(fn: (stop: () => void) => OptionalCleanup): () => void {
         return mkEffect(fn, null);

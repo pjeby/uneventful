@@ -15,7 +15,7 @@ it("swapCtx() swaps the context", () => {
 it("makeCtx() creates a context w/given props", () => {
     const j = {} as Job<any>, s = {} as ResourceTracker, ctx = makeCtx(j, s);
     expect(ctx.job, "Should set job from first arg" ).to.equal(j);
-    expect(ctx.tracker, "Should set bin from second arg").to.equal(s);
+    expect(ctx.tracker, "Should set resource tracker from second arg").to.equal(s);
 });
 
 describe("freeCtx()", () => {
@@ -23,7 +23,7 @@ describe("freeCtx()", () => {
         const j = {} as Job<any>, s = {} as ResourceTracker, ctx = makeCtx(j, s);
         freeCtx(ctx);
         expect(ctx.job, "Should clear the job").to.equal(null);
-        expect(ctx.tracker, "Should clear the bin").to.equal(null);
+        expect(ctx.tracker, "Should clear the resource tracker").to.equal(null);
     })
     it("Recycles to makeCtx()", () => {
         const ctx = makeCtx();

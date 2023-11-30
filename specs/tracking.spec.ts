@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spy } from "./dev_deps.ts"
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
 import { CleanupFn, ResourceTracker, tracker, onCleanup, track } from "../mod.ts";
 
-describe("bin", () => {
+describe("tracker", () => {
     it(".active() is true during run()", () => {
         var tested: boolean;
         expect(tracker.active(), "Shouldn't be active before run()").to.be.false;
@@ -42,7 +42,7 @@ describe("bin", () => {
             expect(cb).to.have.been.calledOnce;
         });
     })
-    describe("calls methods on the active bin", () => {
+    describe("calls methods on the active tracker", () => {
         var t1 = tracker(), cb = spy();
         beforeEach(() => { t1 = tracker(); cb = spy(); current.tracker = t1; });
         afterEach(() => { current.tracker = undefined; });
@@ -135,7 +135,7 @@ describe("tracker instances", () => {
             expect(reason.message).to.equal("caught me!");
         })
     })
-    it(".destroy() cleans up the bin", () => {
+    it(".destroy() cleans up the tracker", () => {
         const cb = spy();
         b.onCleanup(cb);
         expect(cb).to.not.have.been.called;
@@ -211,7 +211,7 @@ describe("tracker instances", () => {
         });
     });
     describe(".run()", () => {
-        it("makes the bin active", () => {
+        it("makes the tracker active", () => {
             var active: ResourceTracker;
             expect(current.tracker).to.be.undefined;
             b.run(() => { active = current.tracker; });
