@@ -2,10 +2,14 @@ import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { ActiveBin, OptionalCleanup, bin } from "./bins.ts";
 
+export class WriteConflict extends Error {}
+export class CircularDependency extends Error {}
+
 export function mkCached<T>(compute: (old: T) => T, initial?: T) {
     const cell = new Cell<T>;
     cell.value = initial;
     cell.compute = compute;
+    cell.latestSource = timestamp;  // force revalidation on first use
     cell.ctx = makeCtx(null, null, cell);
     cell.flags = Is.Lazy;
     cell.latestSource = Infinity;
@@ -32,10 +36,8 @@ export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: Acti
 }
 
 const effectQueue = new Set<Cell>;
-var toUpdate = new Map<Cell, any>();
 var timestamp = 1;
 var runningEffects = false;
-var loopCount = 0;
 
 /**
  * Synchronously run pending effects (no-op if already running)
@@ -50,22 +52,13 @@ var loopCount = 0;
 export function runEffects() {
     if (runningEffects) return;
     runningEffects = true;
-    loopCount = 0;
     try {
-        while(effectQueue.size || toUpdate.size) {
-            ++loopCount
-            // run effects marked dirty by value changes
-            for(const e of effectQueue) e.catchUp();
-            effectQueue.clear();
-            ++timestamp;
-            // update any values changed by the effects
-            for(const [c,v] of toUpdate) c.updateValue(v);
-            toUpdate.clear();
-        }
+        // run effects marked dirty by value changes
+        for(const e of effectQueue) e.catchUp();
+        effectQueue.clear();
     } finally {
-        loopCount = 0;
         runningEffects = false;
-        if (effectQueue.size || toUpdate.size) scheduleEffects();
+        if (effectQueue.size) scheduleEffects();
     }
 }
 
@@ -86,16 +79,25 @@ function scheduledRun() {
 const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
-    const latestSource = cell.lastChanged;
+    const latestSource = cell.lastChanged = cell.latestSource = timestamp;
+    var err = false;
     for(; cell; cell = dirtyStack.pop()) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
             const tgt = sub.tgt;
-            if (tgt.latestSource >= latestSource) continue;
+            if (tgt.latestSource >= latestSource) {
+                // We encountered an already dirty subtree; check if it's been
+                // recalculated already.  If so, the update should fail since
+                // it would be a "lost" update (i.e., the subtree saw the value
+                // before it was changed.)
+                err ||= (tgt.validThrough === timestamp);
+                continue;
+            }
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Effect) effectQueue.add(tgt);
+            if (tgt.flags & Is.Effect) { effectQueue.add(tgt); runningEffects || scheduleEffects(); }
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
+    if (err) throw new WriteConflict("Read/write conflict");
 }
 
 
@@ -157,9 +159,9 @@ function delsub(sub: Subscription) {
 
 export class Cell<T=any> {
     value: T
-    validThrough = 0;
-    lastChanged = 0;
-    latestSource = timestamp;
+    validThrough = 0; // timestamp of most recent validation or recalculation
+    lastChanged = 0;  // timestamp of last value change
+    latestSource = 0; // max lastChanged of this cell or any ancestor source
     flags = 0;
     ctx: Context;
     /** The subscription being added during the current calculation - used for uniqueness */
@@ -175,7 +177,7 @@ export class Cell<T=any> {
         if (timestamp > this.validThrough && this.latestSource > this.validThrough) this.catchUp();
         const dep = current.cell;
         if (dep) {
-            if (this.flags & Is.Running) throw new Error("Cached function dependency cycle");
+            if (this.flags & Is.Running) throw new CircularDependency("Cached function dependency cycle");
             // See if we've already got a subscription node for the dependent
             let s = this.adding;
             if (!s || s.tgt !== dep) {
@@ -204,27 +206,15 @@ export class Cell<T=any> {
     setValue(val: T) {
         const cell = current.cell;
         if (cell) {
-            if (cell.flags & Is.Lazy) throw new Error("Side-effects not allowed");
-            if (this.adding && this.adding.tgt === cell) throw new Error("Circular update error");
-            if (loopCount>100) throw new Error("Indirect update cycle detected");
-            // queue update for second half of current batch
-            toUpdate.set(this, val);
-        } else if (val !== this.value) {
-            // outside batch or effect; apply immediately
-            this.value = val;
-            this.lastChanged = this.latestSource = ++timestamp;
-            // mark dirty now so cached funcs will return correct values
-            if (this.subscribers) markDependentsDirty(this);
-            scheduleEffects();
+            if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
+            if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update your dependency");
+        } else {
+            if (val === this.value) return;
+            ++timestamp;
         }
-    }
-
-    updateValue(val: T) {
-        if (val !== this.value) {
-            this.value = val;
-            this.lastChanged = this.latestSource = timestamp;
-            if (this.subscribers) markDependentsDirty(this);
-        }
+        if (this.validThrough === timestamp) throw new WriteConflict("Value already used");
+        markDependentsDirty(this);
+        this.value = val;
     }
 
     catchUp() {

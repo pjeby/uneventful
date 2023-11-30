@@ -1,5 +1,6 @@
 import { log, see, describe, expect, it, useBin } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
+import { CircularDependency, WriteConflict } from "../src/cells.ts";
 
 describe("Cycles and Side-Effects", () => {
     useBin();
@@ -11,29 +12,38 @@ describe("Cycles and Side-Effects", () => {
         it("after it reads it", () => {
             const v = value(99);
             effect(() => { v.set(v()+1); })
-            expect(runEffects).to.throw("Circular update error");
+            expect(runEffects).to.throw(CircularDependency);
         });
         it("before it reads it", () => {
             // Given a value
             const v = value(42);
             // When the value is set inside an effect that reads it afterward
             effect(() => { v.set(43); log(v()); });
-            // Then it should still throw a circular update error
-            expect(runEffects).to.throw("Circular update error");
-            // after it runs once
-            see("42");
+            runEffects();
+            // Then it should run once
+            see("43");
+            // But When it's run a second time,
+            ++v.value;
+            // Then it should throw a circular update error
+            expect(runEffects).to.throw(CircularDependency);
         });
-    });
-    it("inter-effect loops are detected and killed", () => {
-        const v1 = value(99), v2 = value(0);
-        const c1 = cached(() => v1()*2);
-        effect(() => v2.set(c1()));
-        effect(() => { v1.set(v2()); });
-        expect(runEffects).to.throw(/cycle detected/)
-        runEffects() // nothing happens - first effect is dead
-        v2.set(23);
-        runEffects();
-        expect(v1()).to.equal(23); // second effect still working
+        it("that's indirectly read before it", () => {
+            // Given a value and a cached function that depends on it
+            const v1 = value(99), c1 = cached(() => v1()*2);
+            // And a second value updated by effect from the cached function
+            const v2 = value(0);
+            effect(() => v2.set(c1()));
+            // When another effect tries to write the first value
+            effect(() => { v1.set(v2()); });
+            // Then it should detect a write conflict
+            expect(runEffects).to.throw(WriteConflict)
+            // And the value should not be changed
+            expect(v1()).to.equal(99);
+            // But the first effect should have run
+            expect(v2()).to.equal(198);
+            // And it should still be active
+            v1.set(23); runEffects(); expect(v2()).to.equal(46);
+        });
     });
     // XXX shouldn't sp.run(), job(), cleanup, and many more from inside cached?
     // don't allow create effect() inside cached?
