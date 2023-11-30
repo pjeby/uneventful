@@ -8,6 +8,7 @@ module.exports = {
         "Signals",
         "Resource Management",
         "*",
+        "Errors",
         "Other",
     ],
     hideGenerator: true,

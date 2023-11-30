@@ -22,8 +22,8 @@ export class Signal<T> extends Function {
     toString()  { return "" + this(); }
     /** The current value */
     toJSON()    { return this(); }
-    /** The current value, but without dependency tracking */
-    peek()      { return untracked(this as () => T); };
+    /** Get the signal's current value, without adding the signal as a dependency */
+    peek()      { return peek(this as () => T); };
 }
 
 export interface Writable<T> {
@@ -39,7 +39,7 @@ export interface Writable<T> {
 export class Writable<T> extends Signal<T>  {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
-    update(fn: (val: T) => T) { return this.set(fn(untracked(this as () => T))); }
+    update(fn: (val: T) => T) { return this.set(fn(peek(this as () => T))); }
 }
 
 /**
@@ -122,15 +122,17 @@ export namespace effect {
 }
 
 /**
- * Run a function without tracking signals it depends on, even if a cached
- * function or effect is calling it.
+ * Call a function without creating a dependency on any signals it reads.  (Like
+ * {@link Signal.peek}, but for any function with any arguments.)
  *
  * You can also pass in any arguments the function takes, and the function's
  * return value is returned.
  *
+ * @returns The result of calling `fn(..args)`
+ *
  * @category Signals
  */
-export function untracked<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
+export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     const old = current.cell;
     if (!old) return fn(...args);
     try { current.cell = null; return fn(...args); } finally { current.cell = old; }

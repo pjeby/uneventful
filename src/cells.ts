@@ -2,7 +2,22 @@ import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { ActiveTracker, OptionalCleanup, tracker } from "./tracking.ts";
 
+/**
+ * Error indicating an effect has attempted to write a value it indirectly
+ * depends on, or which has already been read by another effect in the current
+ * batch. (Also thrown when a cached function attempts to write a value at all,
+ * directly or inidirectly.)
+ *
+ * @category Errors
+ */
 export class WriteConflict extends Error {}
+
+/**
+ * Error indicating an effect has attempted to write a value it directly depends
+ * on, or a cached function has called itself, directly or indirectly.
+ *
+ * @category Errors
+ */
 export class CircularDependency extends Error {}
 
 export function mkCached<T>(compute: (old: T) => T, initial?: T) {
