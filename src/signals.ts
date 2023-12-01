@@ -23,7 +23,7 @@ export class Signal<T> extends Function {
     /** The current value */
     toJSON()    { return this(); }
     /** Get the signal's current value, without adding the signal as a dependency */
-    peek()      { return peek(this as () => T); };
+    peek()      { return noDeps(this as () => T); };
 }
 
 export interface Writable<T> {
@@ -129,7 +129,7 @@ export namespace effect {
  *
  * @category Signals
  */
-export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
+export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     const old = current.cell;
     if (!old) return fn(...args);
     try { current.cell = null; return fn(...args); } finally { current.cell = old; }

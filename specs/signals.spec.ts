@@ -1,5 +1,41 @@
 import { log, see, describe, expect, it, useTracker } from "./dev_deps.ts";
-import { runEffects, value, cached, effect } from "../mod.ts";
+import { runEffects, value, cached, effect, noDeps, WriteConflict } from "../mod.ts";
+
+describe("noDeps()", () => {
+    useTracker();
+    describe("returns the result of calling the function", () => {
+        it("with no arguments", () => {
+            // When called with a no argument function
+            // Then it should return the result
+            expect(noDeps(() => 42)).to.equal(42);
+        });
+        it("with arguments", () => {
+            // When called with a function and arguments
+            // Then it should return the result
+            expect(noDeps((x, y) => ({x, y}), 15, 21)).to.deep.equal({x: 15, y: 21});
+        });
+        it("prevents forming a dependency", () => {
+            // Given a cached that peeks at a value via noDeps
+            const v = value(42), c = cached(() => noDeps(v));
+            // And has a subscriber (so it will only recompute if a dependency changes)
+            effect(() => { c() }); runEffects();
+            expect(c()).to.equal(42);
+            // And a value that has changed after it was peeked
+            v.set(43);
+            // When the cached is called
+            // Then it should still have the old value
+            expect(c()).to.equal(42);
+        });
+        it("doesn't prevent cycle detection on assignment", () => {
+            // Given an effect that reads and writes a value with noDeps
+            const v = value(42);
+            effect(() => { noDeps(() => { v.set(v()+1); }); })
+            // When the effect is run,
+            // Then it should still throw a write conflict
+            expect(runEffects).to.throw(WriteConflict);
+        });
+    })
+});
 
 describe("Signal invariants", () => {
     useTracker();

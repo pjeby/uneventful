@@ -23,6 +23,7 @@ export class CircularDependency extends Error {}
 const effectQueue = new Set<Cell>;
 var timestamp = 1;
 var runningEffects = false;
+var currentEffect: Cell;
 
 /**
  * Synchronously run pending effects (no-op if already running)
@@ -39,9 +40,10 @@ export function runEffects() {
     runningEffects = true;
     try {
         // run effects marked dirty by value changes
-        for(const e of effectQueue) e.catchUp();
+        for(currentEffect of effectQueue) currentEffect.catchUp();
         effectQueue.clear();
     } finally {
+        currentEffect = undefined;
         runningEffects = false;
         if (effectQueue.size) scheduleEffects();
     }
@@ -184,7 +186,7 @@ export class Cell<T=any> {
     }
 
     setValue(val: T) {
-        const cell = current.cell;
+        const cell = current.cell || currentEffect;
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
