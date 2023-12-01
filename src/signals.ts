@@ -1,5 +1,5 @@
 import { current } from "./ambient.ts";
-import { OptionalCleanup, tracker } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, tracker } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell } from "./cells.ts";
 
@@ -80,7 +80,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  *
  * Note: this function will throw an error if called outside of a `track()`,
  * `tracker().run()`, or another flow (i.e. another `job()`, `when()`, or
- * `effect()`). If you need a standalone effect, use **{@link effect.root}**
+ * `effect()`). If you need a standalone effect, use {@link effect.root}
  * instead.
  *
  * @param fn The function that will be run each time its dependencies change. It
@@ -92,7 +92,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  * @category Signals
  * @category Flows
  */
-export function effect(fn: (stop: () => void) => OptionalCleanup): () => void {
+export function effect(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
     return Cell.mkEffect(fn, tracker);
 }
 
@@ -113,7 +113,7 @@ export namespace effect {
      * disposal callback is called, even if the enclosing tracker is cleaned up
      * or flow is canceled.
      */
-    export function root(fn: (stop: () => void) => OptionalCleanup): () => void {
+    export function root(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
         return Cell.mkEffect(fn, null);
     }
 }

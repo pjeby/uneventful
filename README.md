@@ -95,13 +95,31 @@ class SomeComponentOrPlugin extends obsidian.Component {
 
 #### Differences from Other Signal Frameworks
 
-(If you're not familiar with other signal frameworks, please skip to the next section!  This bit is literally **just** about things that may confuse people who *are* familiar with other JavaScript-based signal frameworks.)
+(If you're not familiar with other signal frameworks, please skip to the [next section](#signal-objects)!  This bit is literally **just** about things that may confuse people who *are* familiar with other JavaScript-based signal frameworks.)
+
+##### Terminology
 
 If you're coming to Uneventful from other signal frameworks, the first big thing you may notice is our terminology is a bit different.  That's because we try to use names that indicate what something is *used for*, rather than what something *is*, how it works, or what it's made of.
 
 So, what other frameworks usually call a `signal()`, we call a `value()`, because what you use it for is to *store a value*.  And instead of `computed()`, we have `cached()`, because you use it to intelligently cache a function's results between changes, to avoid extra work.
 
-The second big thing to be aware of is that Uneventful has an [innovative batching model](#batching-and-side-effects) that works differently (by which I mean *better*) than any other signal framework I'm aware of.  But if you're used to getting burned by other frameworks' gotchas, it may seem "too simple" at first.  So feel free to check out all the details if you want to deeply understand why and how Uneventful's model is so simple, yet still fulfills the same stringent consistency requirements as other frameworks.
+##### No Cycles Allowed
+
+The second big thing to be aware of is that Uneventful does not allow effects to create dependency cycles, even temporarily.  It catches them much earlier than other frameworks, throwing at the first effect that closes such a cycle.
+
+Yes, other signal frameworks do detect and break dependency cycles, but they don't always show you *where* the problem is in your code.  (e.g. Preact signals throw at the point where you start or end a batch, not in the effect that actually closes the cycle.)  This is because other frameworks usually allow effects to create *temporary* cycles as long as they *eventually* terminate.
+
+Why?  Because if signals are the only thing you have in your toolbox, you'll usually need to create *state machines* in your effects, where you're using signals to determine where you are in a process and then updating them afterwards.  (This is technically a dependency cycle, because you're updating a value that you also read in the same effect/batch.)
+
+In uneventful, however, there is no need to make such state machines in your effects, because you can just use a `job()` instead!  Jobs can wait for values to change and set values if they need to, and keep their own state internally.  The code is cleaner and easier to understand/debug, because you're not writing a state machine, just a function with loops and branches.
+
+So if you're porting existing signal-based code to uneventful, you may need to refactor a few of your effects to be jobs.  (You'll know because those effects will throw `WriteConflict` or `CircularDependency` errors almost as soon as they're run.)
+
+##### Unique Batching Model
+
+The third and final big thing to be aware of is that Uneventful schedules effects differently than other frameworks.  By default, it's similar to Maverick's model, where you don't need to explicitly batch anything, and effects are run asynchronously unless you ask for them to be run right away.  But it's different in that 1) creating an effect *doesn't* run it right away, and 2) you can assign individual effects to custom event schedulers, so that you can e.g. run some effects only in animation frames, or when a button gets pushed, or really any other time you like.
+
+These two differences are related: if effects ran right away, then by definition they wouldn't be running when a button was pressed or in an animation frame!  So when you create an effect, it's *scheduled* right away, but won't do its first run until its scheduler tells it to.  (The default scheduler will run it in the next microtask if you don't ask it to flush the queue before then.)
 
 #### Signal Objects
 

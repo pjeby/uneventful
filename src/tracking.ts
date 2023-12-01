@@ -31,6 +31,14 @@ interface TrackerAPI extends ActiveTracker {
 export type CleanupFn = () => unknown;
 
 /**
+ * A function that can be called to dispose of something or unsubscribe
+ * something.  It's called without arguments and returns void.
+ *
+ * @category Types and Interfaces
+ */
+export type DisposeFn = () => void;
+
+/**
  * An optional cleanup parameter or return.
  *
  * @category Resource Management
@@ -50,8 +58,11 @@ export interface ActiveTracker {
      */
     onCleanup(cleanup?: OptionalCleanup): void;
 
-    /** Like onCleanup(), except a function is returned that will remove the cleanup
-     * function from the tracker, if it's still present. */
+    /**
+     * Like {@link onCleanup}(), except a function is returned that will remove
+     * the cleanup function from the tracker, if it's still present.  (Also, the
+     * cleanup function isn't optional.)
+     */
     addLink(cleanup: CleanupFn): () => void;
 
     /**
@@ -298,11 +309,11 @@ export const onCleanup = tracker.onCleanup;
  * tracker's cleanup callbacks.  If the function throws an error, the
  * tracker will be cleaned up, and the error re-thrown.
  *
- * @returns the temporary tracker's `dispose` callback
+ * @returns the temporary tracker's `destroy()` callback
  *
  * @category Resource Management
  */
-export function track(action: (destroy: () => void) => OptionalCleanup): () => void {
+export function track(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
     const t = tracker();
     t.onCleanup(t.run(action, t.destroy));
     return t.destroy;

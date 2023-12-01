@@ -12,6 +12,7 @@ module.exports = {
         "Other",
     ],
     hideGenerator: true,
+    hideParameterTypesInTitle: false,
     navigation: {
         includeCategories: true,
     },
