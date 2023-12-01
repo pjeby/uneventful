@@ -58,11 +58,11 @@ export function value<T>(val?: T): Writable<T> {
  *
  * @category Signals
  */
-export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T>
+export function cached<T>(compute: () => T): Signal<T>
 export function cached<T extends Signal<any>>(signal: T): T
-export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T> {
+export function cached<T>(compute: () => T): Signal<T> {
     if (compute instanceof Signal) return compute;
-    return Object.setPrototypeOf(Cell.mkCached(compute, initial), Signal.prototype) as Signal<T>;
+    return Object.setPrototypeOf(Cell.mkCached(compute), Signal.prototype) as Signal<T>;
 }
 
 /**

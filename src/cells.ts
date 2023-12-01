@@ -229,7 +229,7 @@ export class Cell<T=any> {
             if (this.flags & Is.Lazy) {
                 this.flags &= ~Is.Error
                 try {
-                    const future = this.compute(this.value);
+                    const future = this.compute();
                     if (future !== this.value || !this.lastChanged) {
                         this.value = future;
                         this.lastChanged = timestamp;
@@ -315,9 +315,8 @@ export class Cell<T=any> {
         return cell;
     }
 
-    static mkCached<T>(compute: (old: T) => T, initial?: T) {
+    static mkCached<T>(compute: () => T) {
         const cell = new Cell<T>;
-        cell.value = initial;
         cell.compute = compute;
         cell.ctx = makeCtx(null, null, cell);
         cell.flags = Is.Lazy;
