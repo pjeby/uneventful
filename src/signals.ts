@@ -1,7 +1,7 @@
 import { current } from "./ambient.ts";
 import { OptionalCleanup, tracker } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
-import { Cell, mkEffect, mkCached } from "./cells.ts";
+import { Cell } from "./cells.ts";
 
 export interface Signal<T> {
     /** A signal object can be called to get its current value */
@@ -39,7 +39,6 @@ export interface Writable<T> {
 export class Writable<T> extends Signal<T>  {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
-    update(fn: (val: T) => T) { return this.set(fn(peek(this as () => T))); }
 }
 
 /**
@@ -48,9 +47,7 @@ export class Writable<T> extends Signal<T>  {
  * @category Signals
  */
 export function value<T>(val?: T): Writable<T> {
-    const cell = new Cell<T>;
-    cell.value = val;
-    cell.validThrough = Infinity;
+    const cell = Cell.mkValue(val);
     const get = cell.getValue.bind(cell) as Writable<T>;
     get.set = cell.setValue.bind(cell);
     return Object.setPrototypeOf(get, Writable.prototype) as Writable<T>;
@@ -65,7 +62,7 @@ export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T>
 export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T> {
     if (compute instanceof Signal) return compute;
-    return Object.setPrototypeOf(mkCached(compute, initial), Signal.prototype) as Signal<T>;
+    return Object.setPrototypeOf(Cell.mkCached(compute, initial), Signal.prototype) as Signal<T>;
 }
 
 /**
@@ -96,7 +93,7 @@ export function cached<T>(compute: (old: T) => T, initial?: T): Signal<T> {
  * @category Flows
  */
 export function effect(fn: (stop: () => void) => OptionalCleanup): () => void {
-    return mkEffect(fn, tracker);
+    return Cell.mkEffect(fn, tracker);
 }
 
 /**
@@ -117,7 +114,7 @@ export namespace effect {
      * or flow is canceled.
      */
     export function root(fn: (stop: () => void) => OptionalCleanup): () => void {
-        return mkEffect(fn, null);
+        return Cell.mkEffect(fn, null);
     }
 }
 

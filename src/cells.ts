@@ -20,36 +20,6 @@ export class WriteConflict extends Error {}
  */
 export class CircularDependency extends Error {}
 
-export function mkCached<T>(compute: (old: T) => T, initial?: T) {
-    const cell = new Cell<T>;
-    cell.value = initial;
-    cell.compute = compute;
-    cell.latestSource = timestamp;  // force revalidation on first use
-    cell.ctx = makeCtx(null, null, cell);
-    cell.flags = Is.Lazy;
-    cell.latestSource = Infinity;
-    return cell.getValue.bind(cell);
-}
-
-export function mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveTracker) {
-    if (parent) unlink = parent.addLink(stop);
-    var cell = new Cell;
-    cell.compute = fn.bind(null, stop);
-    cell.ctx = makeCtx(current.job, tracker(), cell);
-    cell.flags = Is.Effect;
-    effectQueue.add(cell);
-    var unlink: () => void;
-    runningEffects || scheduleEffects();
-    return stop;
-    function stop() {
-        if (unlink) unlink();
-        if (cell) {
-            cell.disposeEffect();
-            cell = undefined;
-        }
-    }
-}
-
 const effectQueue = new Set<Cell>;
 var timestamp = 1;
 var runningEffects = false;
@@ -94,25 +64,17 @@ function scheduledRun() {
 const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
+    // We don't set validThrough here because that's how we tell the cell's been read/depended on
     const latestSource = cell.lastChanged = cell.latestSource = timestamp;
-    var err = false;
     for(; cell; cell = dirtyStack.pop()) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
             const tgt = sub.tgt;
-            if (tgt.latestSource >= latestSource) {
-                // We encountered an already dirty subtree; check if it's been
-                // recalculated already.  If so, the update should fail since
-                // it would be a "lost" update (i.e., the subtree saw the value
-                // before it was changed.)
-                err ||= (tgt.validThrough === timestamp);
-                continue;
-            }
+            if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
             if (tgt.flags & Is.Effect) { effectQueue.add(tgt); runningEffects || scheduleEffects(); }
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
-    if (err) throw new WriteConflict("Read/write conflict");
 }
 
 
@@ -121,6 +83,7 @@ const enum Is {
     Lazy   = 1 << 2,
     Dead   = 1 << 3,
     Running = 1 << 5,
+    Computed = Effect | Lazy,
 }
 
 type Subscription = {
@@ -222,7 +185,7 @@ export class Cell<T=any> {
         const cell = current.cell;
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
-            if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update your dependency");
+            if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
         } else {
             if (val === this.value) return;
             ++timestamp;
@@ -233,8 +196,8 @@ export class Cell<T=any> {
     }
 
     catchUp() {
-        const {validThrough} = this;
         if (this.sources) {
+            const {validThrough} = this;
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
                 if (timestamp > s.validThrough && s.latestSource > s.validThrough) s.catchUp();
@@ -242,10 +205,8 @@ export class Cell<T=any> {
                     return this.doRecalc();
                 }
             }
-            this.validThrough = timestamp;
-        } else {
-            return this.doRecalc();
-        }
+        } else if (this.flags & Is.Computed) return this.doRecalc();
+        this.validThrough = timestamp;
     }
 
     doRecalc() {
@@ -332,6 +293,43 @@ export class Cell<T=any> {
         if (!this.subscribers && this.flags & Is.Lazy) {
             this.latestSource = Infinity;
             for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
+        }
+    }
+
+    static mkValue<T>(val: T) {
+        const cell = new Cell<T>;
+        cell.value = val;
+        cell.lastChanged = cell.latestSource = timestamp;
+        return cell;
+    }
+
+    static mkCached<T>(compute: (old: T) => T, initial?: T) {
+        const cell = new Cell<T>;
+        cell.value = initial;
+        cell.compute = compute;
+        cell.latestSource = timestamp;  // force revalidation on first use
+        cell.ctx = makeCtx(null, null, cell);
+        cell.flags = Is.Lazy;
+        cell.latestSource = Infinity;
+        return cell.getValue.bind(cell);
+    }
+
+    static mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveTracker) {
+        if (parent) unlink = parent.addLink(stop);
+        var cell = new Cell;
+        cell.compute = fn.bind(null, stop);
+        cell.ctx = makeCtx(current.job, tracker(), cell);
+        cell.flags = Is.Effect;
+        effectQueue.add(cell);
+        var unlink: () => void;
+        runningEffects || scheduleEffects();
+        return stop;
+        function stop() {
+            if (unlink) unlink();
+            if (cell) {
+                cell.disposeEffect();
+                cell = undefined;
+            }
         }
     }
 }

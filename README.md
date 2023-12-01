@@ -1,6 +1,6 @@
 # uneventful: signals plus streams, minus the seams
 
-Reactive signals (like preact-signals) and streams (like rxjs) are both great ways of simplifying event-driven programming.  But each has different strengths, and making one do the work of the other is hard.  (And neither is that great at *sequential* asynchrony, the way CSP or goroutines are).
+Reactive signals (like preact-signals or maverick) and streams (like rxjs or wonka) are both great ways of simplifying event-driven programming.  But each has different strengths, and making one do the work of the other is hard.  (And neither is that great at *sequential* asynchrony, like CSP or goroutines.)
 
 Enter `uneventful`: a seamless blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a job subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the job ends -- or it or any parent job is canceled.  Likewise, if an effect spawns a job based on the value of a signal, the job is automatically canceled when the effect is rerun (or canceled by the end of an enclosing job).
 
@@ -136,7 +136,7 @@ effect(() => {
 ```
 ...you're gonna have a hard time.
 
-Instead, if you need to write code that runs "after" an effect, it needs to be done asynchronously: i.e., run by a promise, event stream, or job that's been triggered by the effect.  (Just like async functions results can only be seen by other async functions, or via `then()` callbacks.)  A side-effect can't even see the results of its *own* actions, let alone those of others.  (Except asynchronously.)
+Instead, if you need to write code that runs "after" an effect, it needs to be done asynchronously: i.e., run by a promise, event stream, or job that's been triggered by the effect.  (Just like async functions results can only be seen by other async functions, or via `then()` callbacks.)  A side-effect can't even see the results of its *own* actions! (Except via `peek()`.)
 
 In practice, this limitation isn't a big deal because the normal use of side effects is to update your application's *views* (or other "external" systems), and while they need to see every consistent update, they usually don't need to see their own changes -- they are, after all, the ones *making* those changes!
 

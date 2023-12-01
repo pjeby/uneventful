@@ -8,11 +8,31 @@ describe("Cycles and Side-Effects", () => {
         const v = value(99), w = cached(() => v.set(42));
         expect(w).to.throw("Side-effects not allowed")
     });
+    describe("effect() can set a value", () => {
+        it("before it peek()s it", () => {
+            // Given two values
+            const v1 = value(42), v2 = value(43);
+            // When the first value is set from the second, inside an effect
+            // that peeks at the result
+            effect(() => { v1.set(v2()); log(v1.peek()); });
+            // Then it should run once
+            runEffects(); see("43");
+            // And When it's run a second time,
+            ++v2.value;
+            // It still works (because there's no dependency and no conflict)
+            runEffects(); see("44");
+        });
+    });
     describe("effect() can't set a value", () => {
         it("after it reads it", () => {
             const v = value(99);
             effect(() => { v.set(v()+1); })
             expect(runEffects).to.throw(CircularDependency);
+        });
+        it("after it peek()s it", () => {
+            const v = value(99);
+            effect(() => { v.set(v.peek()+1); })
+            expect(runEffects).to.throw(WriteConflict);
         });
         it("before it reads it", () => {
             // Given a value
