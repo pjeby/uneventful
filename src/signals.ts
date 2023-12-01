@@ -9,7 +9,10 @@ export interface Signal<T> {
 }
 
 /**
- * A value or cached function (note: not directly instantiable)
+ * An observable value, as a zero-argument callable with extra methods.
+ *
+ * Note: this class is not directly instantiable - use {@link cached}() or call
+ * .{@link readonly}() on an existing signal instead.
  *
  * @category Signals
  */
@@ -24,6 +27,14 @@ export class Signal<T> extends Function {
     toJSON()    { return this(); }
     /** Get the signal's current value, without adding the signal as a dependency */
     peek()      { return noDeps(this as () => T); };
+
+    /** Get a read-only version of this signal */
+    readonly(): Signal<T> { return this; }
+
+    /** New writable signal with a custom setter */
+    withSet(set: (v: T) => unknown) { return mkSignal(() => this(), set); }
+
+    protected constructor() { super(); }
 }
 
 export interface Writable<T> {
@@ -32,13 +43,18 @@ export interface Writable<T> {
 }
 
 /**
- * A writable signal (note: not directly instantiable)
+ * A {@link Signal} with a {@link Writable.set .set()} method and writable
+ * {@link Writable.value .value} property.
+ *
+ * Note: this class is not directly instantiable - use {@link value}() or call
+ * .{@link Signal.withSet}() on an existing signal instead.
  *
  * @category Signals
  */
 export class Writable<T> extends Signal<T>  {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
+    readonly() { return mkSignal(() => this()); }
 }
 
 /**
@@ -48,9 +64,7 @@ export class Writable<T> extends Signal<T>  {
  */
 export function value<T>(val?: T): Writable<T> {
     const cell = Cell.mkValue(val);
-    const get = cell.getValue.bind(cell) as Writable<T>;
-    get.set = cell.setValue.bind(cell);
-    return Object.setPrototypeOf(get, Writable.prototype) as Writable<T>;
+    return mkSignal(cell.getValue.bind(cell), cell.setValue.bind(cell));
 }
 
 /**
@@ -62,7 +76,7 @@ export function cached<T>(compute: () => T): Signal<T>
 export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: () => T): Signal<T> {
     if (compute instanceof Signal) return compute;
-    return Object.setPrototypeOf(Cell.mkCached(compute), Signal.prototype) as Signal<T>;
+    return mkSignal(Cell.mkCached(compute));
 }
 
 /**
@@ -133,4 +147,12 @@ export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): 
     const old = current.cell;
     if (!old) return fn(...args);
     try { current.cell = null; return fn(...args); } finally { current.cell = old; }
+}
+
+
+function mkSignal<T>(get: () => T): Signal<T>
+function mkSignal<T>(get: () => T, set: (v: T) => void): Writable<T>
+function mkSignal<T>(get: () => T, set?: (v: T) => void) {
+    if (set) get["set"] = set;
+    return Object.setPrototypeOf(get, (set ? Writable : Signal).prototype);
 }
