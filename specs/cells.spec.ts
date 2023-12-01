@@ -122,10 +122,34 @@ describe("Consistent updates", () => {
     })
 });
 
-
-
-
-describe.skip("cached()", () => {});
+describe("cached()", () => {
+    it("caches error instances", () => {
+        // Given a cached that throws an error
+        const c = cached(() => { throw new Error; });
+        // When called more than once
+        function getError() { try { c(); } catch (e) { return e; } }
+        const e1 = getError();
+        const e2 = getError();
+        // It should return the exact same instance
+        expect(e1).to.be.instanceOf(Error);
+        expect(e2).to.be.instanceOf(Error);
+        expect(e1).to.equal(e2);
+    });
+    it("can recover after an error", () => {
+        // Given a cached that throws an error based on a flag
+        const flag = value(true);
+        const c = cached(() => { if (flag()) throw new Error; });
+        // When called with the true value
+        function getError() { try { c(); } catch (e) { return e; } }
+        const e1 = getError();
+        // Then it should get an error
+        expect(e1).to.be.instanceOf(Error);
+        // But when the flag is false
+        flag.set(false);
+        // Then it should return a value
+        expect(c()).to.be.undefined;
+    });
+});
 
 describe("effect()", () => {
     useTracker();

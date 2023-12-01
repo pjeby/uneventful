@@ -82,6 +82,7 @@ const enum Is {
     Effect = 1 << 0,
     Lazy   = 1 << 2,
     Dead   = 1 << 3,
+    Error  = 1 << 4,
     Running = 1 << 5,
     Computed = Effect | Lazy,
 }
@@ -178,6 +179,7 @@ export class Cell<T=any> {
                 // else it's already done, no need to do anything.
             }
         }
+        if (this.flags & Is.Error) throw this.value;
         return this.value;
     }
 
@@ -223,9 +225,16 @@ export class Cell<T=any> {
         this.flags |= Is.Running;
         try {
             if (this.flags & Is.Lazy) {
-                const future = this.compute(this.value);
-                if (future !== this.value || !this.lastChanged) {
-                    this.value = future;
+                this.flags &= ~Is.Error
+                try {
+                    const future = this.compute(this.value);
+                    if (future !== this.value || !this.lastChanged) {
+                        this.value = future;
+                        this.lastChanged = timestamp;
+                    }
+                } catch(e) {
+                    this.flags |= Is.Error
+                    this.value = e;
                     this.lastChanged = timestamp;
                 }
             } else {
