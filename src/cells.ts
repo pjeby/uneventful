@@ -139,7 +139,7 @@ export class Cell<T=any> {
     value: T
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
-    latestSource = 0; // max lastChanged of this cell or any ancestor source
+    latestSource = timestamp; // max lastChanged of this cell or any ancestor source
     flags = 0;
     ctx: Context;
     /** The subscription being added during the current calculation - used for uniqueness */
@@ -152,7 +152,7 @@ export class Cell<T=any> {
     compute: (val?: T) => any
 
     getValue() {
-        if (timestamp > this.validThrough && this.latestSource > this.validThrough) this.catchUp();
+        this.catchUp();
         const dep = current.cell;
         if (dep) {
             if (this.flags & Is.Running) throw new CircularDependency("Cached function dependency cycle");
@@ -196,21 +196,22 @@ export class Cell<T=any> {
     }
 
     catchUp() {
+        const {validThrough} = this;
+        if (validThrough >= timestamp) return;
+        this.validThrough = timestamp;
+        if (this.latestSource <= validThrough || !(this.flags & Is.Computed)) return;
         if (this.sources) {
-            const {validThrough} = this;
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
-                if (timestamp > s.validThrough && s.latestSource > s.validThrough) s.catchUp();
+                s.catchUp();
                 if (s.lastChanged > validThrough) {
                     return this.doRecalc();
                 }
             }
-        } else if (this.flags & Is.Computed) return this.doRecalc();
-        this.validThrough = timestamp;
+        } else return this.doRecalc();
     }
 
     doRecalc() {
-        this.validThrough = timestamp;
         const oldCtx = swapCtx(this.ctx);
         for(let sub = this.sources; sub; sub = sub.nS) {
             sub.ts = -1; // mark stale for possible reuse
@@ -299,7 +300,7 @@ export class Cell<T=any> {
     static mkValue<T>(val: T) {
         const cell = new Cell<T>;
         cell.value = val;
-        cell.lastChanged = cell.latestSource = timestamp;
+        cell.lastChanged = timestamp;
         return cell;
     }
 
@@ -307,7 +308,6 @@ export class Cell<T=any> {
         const cell = new Cell<T>;
         cell.value = initial;
         cell.compute = compute;
-        cell.latestSource = timestamp;  // force revalidation on first use
         cell.ctx = makeCtx(null, null, cell);
         cell.flags = Is.Lazy;
         cell.latestSource = Infinity;
