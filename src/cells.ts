@@ -1,6 +1,6 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
-import { ActiveTracker, OptionalCleanup, tracker } from "./tracking.ts";
+import { ActiveTracker, DisposeFn, OptionalCleanup, tracker } from "./tracking.ts";
 
 /**
  * Error indicating an effect has attempted to write a value it indirectly
@@ -20,48 +20,150 @@ export class WriteConflict extends Error {}
  */
 export class CircularDependency extends Error {}
 
-const effectQueue = new Set<Cell>;
 var timestamp = 1;
-var runningEffects = false;
 var currentEffect: Cell;
+var currentQueue: EffectScheduler;
 
 /**
- * Synchronously run pending effects (no-op if already running)
+ * A queue for effects to run during a particular kind of period, such as
+ * microtasks or animation frames.  (Can only be obtain or created via
+ * {@link effect.scheduler}().)
  *
- * (Note that you should normally only need to call this when you need
+ * @category Types and Interfaces
+ */
+export class EffectScheduler {
+    protected _queue = new Set<Cell>;
+    protected _isScheduled = false;
+
+    /** Is this scheduler currently flushing effects? */
+    isRunning() { return currentQueue === this; }
+
+    /**
+     * Is this scheduler currently empty? (i.e. no pending effects)
+     *
+     * Note: "pending" effects are ones with at least one changed ancestor
+     * dependency; this doesn't mean they will actually *do* anything,
+     * since intermediate cached() function results might end up unchanged.
+     */
+    isEmpty() { return !this._queue.size; }
+
+    protected static cache = new WeakMap<Function, EffectScheduler>();
+
+    /** @internal */
+    static for(scheduleFn: (cb: () => unknown) => unknown) {
+        this.cache.has(scheduleFn) || this.cache.set(scheduleFn, new this(scheduleFn));
+        return this.cache.get(scheduleFn);
+    }
+
+    protected constructor(protected readonly scheduleFn: (cb: () => unknown) => unknown) {}
+
+    /** @internal */
+    add(e: Cell) {
+        this._queue.size || this.schedule();
+        this._queue.add(e);
+    }
+
+    /** @internal */
+    delete(e: Cell) {
+        this._queue.delete(e);
+    }
+
+    protected schedule = () => {
+        if (this._isScheduled || currentQueue === this) return;
+        this._isScheduled = true;
+        this.scheduleFn(this.runScheduled);
+    }
+
+    protected runScheduled = () => {
+        this._isScheduled = false;
+        this.flush();
+    }
+
+    /** Run all pending effects. */
+    flush = () => {
+        // already running? skip it
+        if (currentQueue === this) return;
+        const {_queue} = this;
+        // nothing to do? skip it
+        if (!_queue.size) return;
+        // another queue is running? reschedule for later
+        if (currentQueue) return this.schedule();
+        currentQueue = this;
+        try {
+            // run effects marked dirty by value changes
+            for(currentEffect of _queue) {
+                currentEffect.catchUp();
+                _queue.delete(currentEffect);
+            }
+        } finally {
+            currentQueue = currentEffect = undefined;
+            // schedule again if we're stopping early due to error
+            if (_queue.size) this.schedule();
+        }
+    }
+
+    /**
+     * Subscribe a function to run every time certain values change.
+     *
+     * The function is run asynchronously, first after being created, then again
+     * after there are changes in any of the values or cached functions it read
+     * during its previous run.
+     *
+     * The created subscription is tied to the currently-active resource tracker
+     * (usually that of the enclosing flow).  So when that tracker is cleaned up (or
+     * the flow is ended), the effect will be terminated automatically.  You can
+     * also terminate it early by calling the "stop" function that is both passed to
+     * the effect function and returned by `effect()`.
+     *
+     * Note: this function will throw an error if called outside of a `track()`,
+     * `tracker().run()`, or another flow (i.e. another `job()`, `when()`, or
+     * `effect()`). If you need a standalone effect, use {@link effect.root}
+     * (or {@link EffectScheduler.root effect.scheduler().root()}) instead.
+     *
+     * @param fn The function that will be run each time its dependencies change. It
+     * is passed a single argument: a function that can be called to terminate the
+     * effect.
+     *
+     * @returns A function that can be called to terminate the effect.
+     */
+    effect = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
+        return Cell.mkEffect(fn, tracker, this);
+    };
+
+    /**
+     * Create a standalone ("root") effect that won't be tied to the current
+     * resource tracker or flow (and thus doesn't *need* an enclosing tracker or
+     * flow).
+     *
+     * Just like a plain {@link effect}() or {@link EffectScheduler.effect}(),
+     * except that the effect is *not* tied to the current flow or tracker, and
+     * will therefore remain active until the disposal callback is called, even
+     * if the enclosing tracker is cleaned up or flow is canceled.
+     */
+    root = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
+        return Cell.mkEffect(fn, undefined, this);
+    };
+}
+
+const defaultQueue = EffectScheduler.for(defer);
+
+/**
+ * Synchronously run pending effects from the default scheduler.
+ *
+ * Equivalent to calling {@link EffectScheduler.flush flush()} on
+ * {@link effect.scheduler}().
+ *
+ * Note that you should normally only need to call this when you need
  * side-effects to occur within a specific synchronous timeframe, e.g. if
- * effects need to be able to cancel a synchronous event, continue an IndexedDB
- * transaction, or run in an animation frame.)
+ * effects need to be able to cancel a synchronous event or continue an
+ * IndexedDB transaction.  You can also define effects to run in a specific
+ * timeframe by creating a {@link EffectScheduler} for them, via
+ * {@link effect.scheduler}().
  *
  * @category Signals
  */
-export function runEffects() {
-    if (runningEffects) return;
-    runningEffects = true;
-    try {
-        // run effects marked dirty by value changes
-        for(currentEffect of effectQueue) currentEffect.catchUp();
-        effectQueue.clear();
-    } finally {
-        currentEffect = undefined;
-        runningEffects = false;
-        if (effectQueue.size) scheduleEffects();
-    }
-}
+export const runEffects = defaultQueue.flush
 
-var runScheduled = false;
-
-function scheduleEffects() {
-    if (!runningEffects && !runScheduled) {
-        defer(scheduledRun);
-        runScheduled = true;
-    }
-}
-
-function scheduledRun() {
-    runScheduled = false;
-    runEffects();
-}
 
 const dirtyStack: Cell[] = [];
 
@@ -73,7 +175,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Effect) { effectQueue.add(tgt); runningEffects || scheduleEffects(); }
+            if (tgt.flags & Is.Effect) (tgt.value as EffectScheduler).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -138,8 +240,8 @@ function delsub(sub: Subscription) {
     freesubs = sub;
 }
 
-export class Cell<T=any> {
-    value: T
+export class Cell {
+    value: any // the value, or, for an effect, the scheduler
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
@@ -152,7 +254,7 @@ export class Cell<T=any> {
     /** Linked list of targets */
     subscribers: Subscription;
 
-    compute: (val?: T) => any
+    compute: () => any
 
     getValue() {
         this.catchUp();
@@ -185,7 +287,7 @@ export class Cell<T=any> {
         return this.value;
     }
 
-    setValue(val: T) {
+    setValue(val: any) {
         const cell = current.cell || currentEffect;
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
@@ -275,7 +377,7 @@ export class Cell<T=any> {
 
     disposeEffect() {
         this.flags |= Is.Dead;
-        effectQueue.delete(this);
+        (this.value as EffectScheduler).delete(this);
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
@@ -309,14 +411,14 @@ export class Cell<T=any> {
     }
 
     static mkValue<T>(val: T) {
-        const cell = new Cell<T>;
+        const cell = new Cell;
         cell.value = val;
         cell.lastChanged = timestamp;
         return cell;
     }
 
     static mkCached<T>(compute: () => T) {
-        const cell = new Cell<T>;
+        const cell = new Cell;
         cell.compute = compute;
         cell.ctx = makeCtx(null, null, cell);
         cell.flags = Is.Lazy;
@@ -324,15 +426,15 @@ export class Cell<T=any> {
         return cell.getValue.bind(cell);
     }
 
-    static mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveTracker) {
+    static mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveTracker, scheduler = defaultQueue) {
         if (parent) unlink = parent.addLink(stop);
         var cell = new Cell;
+        cell.value = scheduler;
         cell.compute = fn.bind(null, stop);
         cell.ctx = makeCtx(current.job, tracker(), cell);
         cell.flags = Is.Effect;
-        effectQueue.add(cell);
+        scheduler.add(cell);
         var unlink: () => void;
-        runningEffects || scheduleEffects();
         return stop;
         function stop() {
             if (unlink) unlink();

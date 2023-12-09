@@ -1,7 +1,9 @@
 import { current } from "./ambient.ts";
 import { DisposeFn, OptionalCleanup, tracker } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
-import { Cell } from "./cells.ts";
+import { Cell, EffectScheduler } from "./cells.ts";
+import { defer } from "./defer.ts";
+export { type EffectScheduler } from "./cells.ts";
 
 export interface Signal<T> {
     /** A signal object can be called to get its current value */
@@ -12,9 +14,9 @@ export interface Signal<T> {
  * An observable value, as a zero-argument callable with extra methods.
  *
  * Note: this class is not directly instantiable - use {@link cached}() or call
- * .{@link readonly}() on an existing signal instead.
+ * {@link readonly |.readonly()} on an existing signal instead.
  *
- * @category Signals
+ * @category Types and Interfaces
  */
 export class Signal<T> extends Function {
     /** The current value */
@@ -43,13 +45,13 @@ export interface Writable<T> {
 }
 
 /**
- * A {@link Signal} with a {@link Writable.set .set()} method and writable
- * {@link Writable.value .value} property.
+ * A {@link Signal} with a {@link Writable.set | .set()} method and writable
+ * {@link Writable.value | .value} property.
  *
  * Note: this class is not directly instantiable - use {@link value}() or call
- * .{@link Signal.withSet}() on an existing signal instead.
+ * {@link Signal.withSet | .withSet()} on an existing signal instead.
  *
- * @category Signals
+ * @category Types and Interfaces
  */
 export class Writable<T> extends Signal<T>  {
     get value() { return this(); }
@@ -95,7 +97,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  * Note: this function will throw an error if called outside of a `track()`,
  * `tracker().run()`, or another flow (i.e. another `job()`, `when()`, or
  * `effect()`). If you need a standalone effect, use {@link effect.root}
- * instead.
+ * (or {@link EffectScheduler.root effect.scheduler().root()}) instead.
  *
  * @param fn The function that will be run each time its dependencies change. It
  * is passed a single argument: a function that can be called to terminate the
@@ -129,6 +131,32 @@ export namespace effect {
      */
     export function root(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
         return Cell.mkEffect(fn, null);
+    }
+    /**
+     * Create an {@link EffectScheduler} from a callback-taking function, that
+     * you can then use to make effects that run in a specific time frame.
+     *
+     * ```ts
+     * // frame.effect and frame.root will now create nested or root effects
+     * const frame = effect.scheduler(requestAnimationFrame);
+     *
+     * frame.effect(() => {
+     *     // ... do stuff in an animation frame when signals read here change
+     * })
+     * ```
+     *
+     * Returns the default scheduler if no arguments are given.  If called with
+     * the same function more than once, it returns the same scheduler instance.
+     *
+     * @param scheduleFn A single-argument scheduling function (like
+     * requestAnimationFrame, setImmediate, or queueMicrotask).  The scheduler
+     * will call it from time to time with a single callback.  The scheduling
+     * function should then arrange for that callback to be invoked *once* at
+     * some future point, when it is the desired time for all pending effects on
+     * that scheduler to run.
+     */
+    export function scheduler(scheduleFn: (callback: () => unknown) => unknown = defer) {
+        return EffectScheduler.for(scheduleFn);
     }
 }
 

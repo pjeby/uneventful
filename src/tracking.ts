@@ -26,7 +26,7 @@ interface TrackerAPI extends ActiveTracker {
  * A cleanup function is any zero-argument function.  It will always be run in
  * the job context it was registered from.
  *
- * @category Resource Management
+ * @category Types and Interfaces
  */
 export type CleanupFn = () => unknown;
 
@@ -41,15 +41,15 @@ export type DisposeFn = () => void;
 /**
  * An optional cleanup parameter or return.
  *
- * @category Resource Management
+ * @category Types and Interfaces
  */
 export type OptionalCleanup = CleanupFn | Nothing;
 
 /**
  * The subset of the {@link ResourceTracker} interface that's also available on
- * the "current" tracker.
+ * the "current" {@link tracker}.
  *
- * @category Resource Management
+ * @category Types and Interfaces
  */
 export interface ActiveTracker {
     /**
@@ -125,7 +125,10 @@ export interface ActiveTracker {
  * `release()` method to run all of them in reverse order, thereby undoing
  * actions or releasing of used resources.
  *
- * @category Resource Management
+ * You can obtain a resource tracker using the {@link tracker} function, or use
+ * its methods to access the {@link ActiveTracker}, if there is one.
+ *
+ * @category Types and Interfaces
  */
 export interface ResourceTracker extends ActiveTracker {
     /**

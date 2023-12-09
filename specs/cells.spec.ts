@@ -1,6 +1,7 @@
-import { log, see, describe, expect, it, useTracker } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useTracker, spy } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
-import { CircularDependency, WriteConflict } from "../src/cells.ts";
+import { Cell, CircularDependency, WriteConflict } from "../src/cells.ts";
+import { defer } from "../src/defer.ts";
 
 describe("Cycles and Side-Effects", () => {
     useTracker();
@@ -211,5 +212,132 @@ describe("effect.root()", () => {
         } finally {
             dispose();
         }
+    });
+});
+
+describe("effect.scheduler()", () => {
+    it("returns the default scheduler by default", () => {
+        // Given a scheduler returned by effect.scheduler(defer)
+        const s = effect.scheduler(defer);
+        // Then it should be the same as effect.scheduler()
+        expect(s).to.equal(effect.scheduler());
+        // And its .flush should be the same as runEffects
+        expect(s.flush).to.equal(runEffects);
+    });
+    it("is idempotent for a given argument", () => {
+        // Given a scheduler returned by effect.scheduler(fn)
+        const fn = () => {}, s = effect.scheduler(fn);
+        // When effect.scheduler is called with the same function
+        // Then it should return the same EffectScheduler
+        expect(effect.scheduler(fn)).to.equal(s);
+    });
+    describe("returns an EffectScheduler that", () => {
+        useTracker();
+        it("calls the function on transition from empty", () => {
+            // Given a scheduler based on a spy
+            const cb = spy(), s = effect.scheduler(cb);
+            // When a cell is added to the scheduler
+            s.add(new Cell);
+            // Then the spy should be called with a function
+            expect(cb).to.have.been.calledOnce;
+            // And if another cell is added
+            s.add(new Cell);
+            // Then the spy should not have been called again
+            expect(cb).to.have.been.calledOnce;
+            // But if the scheduler is flushed by calling the callback it gave
+            cb.args[0][0]();
+            // The scheduler should be empty
+            expect(s.isEmpty()).to.be.true;
+            // And adding a cell again should schedule it again
+            s.add(new Cell);
+            expect(cb).to.have.been.calledTwice;
+        });
+        it("can be used to create effects that run separately", () => {
+            // Given a scheduler based on a spy
+            const cb = spy(), s = effect.scheduler(cb);
+            // When an effect is added to the scheduler
+            s.effect(() => log("run"));
+            // Then it should not run during normal runEffects()
+            runEffects(); see();
+            // But only when the requested callback is run
+            cb.args[0][0](); see("run");
+        });
+    });
+});
+
+describe("EffectScheduler", () => {
+    useTracker();
+    it("won't flush() while already flushing", () => {
+        // Given a scheduler and an effect that calls flush()
+        const v = value<Function>(), s = effect.scheduler(v.set);
+        s.effect(() => {
+            s.flush();
+            log(s.isEmpty());
+            log("done");
+        });
+        // When the scheduler is flushed
+        s.flush();
+        // Then the nested flush should not empty the scheduler
+        see("false", "done");
+    });
+    it("will defer its flush if another scheduler is flushing", () => {
+        // Given a populated scheduler
+        const v = value<Function>(), s = effect.scheduler(v.set);
+        s.effect(() => log("inner flush"));
+        // Which has therefore scheduled itself
+        const flush = v();
+        v.set(undefined);  // clear value so we can tell when it's scheduled again
+        // and a (main-schedule) effect that flushes it
+        effect(() => {
+            flush();
+            log(s.isEmpty());
+            log("outer flush");
+        });
+        // When the main schedule is flushed
+        runEffects();
+        // Then the nested flush should not run
+        see("false", "outer flush");
+        // Until the rescheduled scheduler runs
+        v()();
+        see("inner flush");
+    });
+    it("will reschedule itself if flush aborts and effects are still pending", () => {
+        // Given a scheduler with two effects (the first of which throws an error)
+        const v = value<Function>(), s = effect.scheduler(v.set);
+        s.effect(() => {throw new Error});
+        s.effect(() => log("run"));
+        // Which has therefore scheduled itself
+        const scheduledFlush = v(); v.set(undefined);
+        // When the scheduler is flushed and the error thrown
+        expect(scheduledFlush).to.throw(Error);
+        // Then the scheduler should have scheduled itself to run again
+        expect(v()).to.be.a("function");
+    });
+    it("won't reschedule itself if already flushing", () => {
+        // Given a scheduler with an effect that removes itself and adds another
+        const v = value<Function>();
+        const s = effect.scheduler(f => { v.set(f); log("scheduled"); });
+        const c = new Cell; c.catchUp = () => {
+            s.delete(c); s.add(new Cell);
+        }
+        s.add(c);
+        see("scheduled");
+        // When the scheduler is flushed on schedule
+        const scheduledFlush = v(); v.set(undefined);
+        scheduledFlush();
+        // Then it should not schedule itself again
+        see();
+        expect(v()).to.be.undefined;
+    });
+    it("won't reschedule itself if it hasn't been called back", () => {
+        // Given a scheduler with an item
+        const s = effect.scheduler(() => log("scheduled"));
+        const c = new Cell;
+        s.add(c);
+        see("scheduled");
+        // When the item is removed and then added again
+        s.delete(c); s.add(c);
+        // Then the scheduler should not have rescheduled
+        see();
     });
 });

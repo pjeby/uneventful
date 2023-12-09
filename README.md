@@ -48,7 +48,7 @@ All three kinds of flows are **composable**: you can wrap a `when()` in an `effe
 
 When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `onCleanup()` callbacks to release non-flow resources when the enclosing flow ends.)
 
-Of course, all this flow composition has to start *somewhere*, and usually that will be one or more root-level `job()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a `track()`, as we'll see in the next section.)
+Of course, all this flow composition has to start *somewhere*, and usually that will be one or more `job.root()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a call to`track()`, as we'll see in the next section.)
 
 ### Resource Tracking and Cleanup
 
@@ -85,7 +85,7 @@ class SomeComponentOrPlugin extends obsidian.Component {
         this.register(track(() => {
             // create effect(), job() or when() flows here
             // (They will all be stopped and resources cleaned
-            // up when the component is unloaded.)
+            // up when the component or plugin is unloaded.)
         }));
     }
 }
@@ -117,7 +117,7 @@ So if you're porting existing signal-based code to uneventful, you may need to r
 
 ##### Unique Batching Model
 
-The third and final big thing to be aware of is that Uneventful schedules effects differently than other frameworks.  By default, it's similar to Maverick's model, where you don't need to explicitly batch anything, and effects are run asynchronously unless you ask for them to be run right away.  But it's different in that 1) creating an effect *doesn't* run it right away, and 2) you can assign individual effects to custom event schedulers, so that you can e.g. run some effects only in animation frames, or when a button gets pushed, or really any other time you like.
+The third and final big thing to be aware of is that Uneventful schedules effects differently than other frameworks.  By default, it's similar to Maverick's model, where you don't need to explicitly batch anything, and effects are re-run asynchronously unless you ask for them to be run right away.  But it's different in that 1) creating an effect *doesn't* run it right away, and 2) you can assign individual effects to custom effect schedulers, so that you can e.g. run some effects only in animation frames, or when a button gets pushed, or really any other time you like.
 
 These two differences are related: if effects ran right away, then by definition they wouldn't be running when a button was pressed or in an animation frame!  So when you create an effect, it's *scheduled* right away, but won't do its first run until its scheduler tells it to.  (The default scheduler will run it in the next microtask if you don't ask it to flush the queue before then.)
 
@@ -168,11 +168,15 @@ In short: values and cached functions are for representing your application's *m
 
 ### Streams
 
+WIP
+
 ### Jobs
 
-
+WIP
 
 ## Current Status
 
 This library is currently under development, but the ideas and most of the implementation are already working well as a draft version inside [@ophidian/core](https://github.com/ophidian-lib/core), for creating complex interactive Obsidian plugins.  The draft version is based on preact-signals for its signals implementation and wonka for its streams, but both will be replaced with uneventful-native implementations in this library, to drop the extra wrapping code, streamline some features, and add others.  (For example, preact-signals doesn't support nested effects and wonka doesn't support stream errors; uneventful will support both.)
+
+As of this writing, uneventful's signals framework is fully functional; work on the stream and job frameworks is still ongoing.
 
