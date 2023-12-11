@@ -149,17 +149,6 @@ describe("Conduit", () => {
             // Then the callbacks should be run in reverse order
             see("last", "first");
         });
-        it("while other .onCleanup callbacks are running", () => {
-            // Given a conduit with two onCleanup callbacks, one of which calls a third
-            const c = new Conduit()
-                .onCleanup(() => log("first"))
-                .onCleanup(() => c.onCleanup(() => log("last")));
-            // When the conduit is closed
-            c.close();
-            // Then the callbacks should be run in reverse order,
-            // including the newly-pushed callback
-            see("last", "first");
-        });
     });
     describe("runs .onCleanup() callbacks asynchronously in FIFO order", () => {
         it("when already close()d", async () => {
@@ -183,6 +172,19 @@ describe("Conduit", () => {
             // Until the next microtask
             await Promise.resolve(); // one microtick
             see("first", "last");
+        });
+        it("while other .onCleanup callbacks are running", async () => {
+            // Given a conduit with two onCleanup callbacks, one of which calls a third
+            const c = new Conduit()
+                .onCleanup(() => log("first"))
+                .onCleanup(() => c.onCleanup(() => log("last")));
+            // When the conduit is closed
+            c.close();
+            // Then the initial callbacks should be run in reverse order,
+            see("first");
+            // but the newly-pushed callback should run asynchronously
+            await Promise.resolve();
+            see("last");
         });
     });
     function verifyWrite(makeWriter: <T>(c: Conduit, cb: Sink<T>) => (val: T) => boolean) {

@@ -110,8 +110,7 @@ export class Conduit {
      * any other resource tracker.
      */
     onCleanup(fn?: OptionalCleanup) {
-        const {_tracker} = this;
-        _tracker ? _tracker.onCleanup(fn) : fn && defer(fn);
+        this.isOpen() ? this._tracker.onCleanup(fn) : fn && defer(fn);
         return this;
     }
 
@@ -122,7 +121,7 @@ export class Conduit {
      * it after each call if it wishes to keep being called.
      */
     onPull(fn?: () => any) {
-        this._pull = fn;
+        if (this.isOpen()) this._pull = fn;
         return this;
     }
 
