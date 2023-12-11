@@ -1,6 +1,47 @@
 import { log, see, describe, expect, it, spy, useTracker } from "./dev_deps.ts";
-import { Conduit, Sink, Source, compose, pipe } from "../src/streams.ts";
-import { tracker } from "../mod.ts";
+import { Conduit } from "../src/streams.ts";
+import { tracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
+
+describe("connect()", () => {
+    it("calls source with sink and returns a Conduit", () => {
+        // Given a source and a sink
+        const t = tracker(), src = spy(), sink = spy();
+        // When connect() is called with them
+        const c = t.run(connect, src, sink);
+        // Then you should get a conduit
+        expect(c).to.be.an.instanceOf(Conduit);
+        // And the source should have been called with the sink and the conduit
+        expect(src).to.have.been.calledOnceWithExactly(sink, c);
+    });
+    it("can be invoked with an explicit null tracker", () => {
+        // Given a source and a sink
+        const src = spy(), sink = spy();
+        // When connect() is called with them and a null tracker
+        const c = connect(src, sink, null);
+        // Then you should get a conduit
+        expect(c).to.be.an.instanceOf(Conduit);
+        // And the source should have been called with the sink and the conduit
+        expect(src).to.have.been.calledOnceWithExactly(sink, c);
+    })
+    it("can be linked to a specific tracker", () => {
+        // Given a conduit opened by connect with a specific tracker
+        const t = tracker(), src = spy(), sink = spy();
+        const c = connect(src, sink, t);
+        // When the tracker is cleaned up
+        t.cleanup();
+        // Then the conduit should be closed
+        expect(c.isOpen()).to.be.false;
+    });
+    it("is linked to the running tracker by default", () => {
+        // Given a conduit opened by connect in the context of a tracker
+        const t = tracker(), src = spy(), sink = spy();
+        const c = t.run(connect, src, sink);
+        // When the tracker is cleaned up
+        t.cleanup();
+        // Then the conduit should be closed
+        expect(c.isOpen()).to.be.false;
+    });
+});
 
 describe("Conduit", () => {
     it("initially isOpen() and not hasError()", () => {
@@ -144,42 +185,50 @@ describe("Conduit", () => {
             see("first", "last");
         });
     });
-    describe(".push()", () => {
-        it("does nothing if conduit is closed", () => {
-            // Given a closed conduit
-            const c = new Conduit().close();
-            // When push() is called
-            const res = c.push(v => { log(v); return true; }, 42);
+    function verifyWrite(makeWriter: <T>(c: Conduit, cb: Sink<T>) => (val: T) => boolean) {
+        it("does nothing if the conduit is closed", () => {
+            // Given a writer of a closed conduit
+            const c = new Conduit(), w = makeWriter(c, v => { log(v); return true; });
+            c.close();
+            // When the writer is called
+            const res = w(42);
             // Then it returns false
             expect(res).to.be.false;
             // And the sink is not invoked
             see();
         });
         it("calls the sink and returns its return value", () => {
-            // Given a conduit
+            // Given a conduit and its writer()
             let ret = true;
             const c = new Conduit(), cb = spy(() => ret);
-            // When push() is called
+            const w = makeWriter(c, cb);
+            // When the writer is called
             // Then it returns the sink's return value
-            expect(c.push(cb, 42)).to.be.true;
+            expect(w(42)).to.be.true;
             ret = false;
-            expect(c.push(cb, 43)).to.be.false;
+            expect(w(43)).to.be.false;
             // And the sink is invoked with the value and conduit
             expect(cb).to.have.been.calledTwice;
             expect(cb).to.have.been.calledWithExactly(42, c);
             expect(cb).to.have.been.calledWithExactly(43, c);
         });
         it("traps errors and throws them", () => {
-            // Given a conduit and a callback that throws
-            const c = new Conduit, e = new Error;
+            // Given a conduit and a writer that throws
+            const c = new Conduit, e = new Error, w = makeWriter(c, cb);
             function cb() { throw e; return true; }
-            // When push() is called
-            const res = c.push(cb, 42);
+            // When the writer is called
+            const res = w(42);
             // Then false is returned and the conduit enters a thrown state
             expect(res).to.be.false;
             expect(c.hasError()).to.be.true;
             expect(c.reason).to.equal(e);
         });
+    }
+    describe(".writer() returns a value-taking function that", () => {
+        verifyWrite((c, cb) => c.writer(cb));
+    });
+    describe(".push()", () => {
+        verifyWrite((c, cb) => (val) => c.push(cb, val));
     });
     describe(".pull()", () => {
         let c: Conduit;

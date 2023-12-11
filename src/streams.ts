@@ -38,6 +38,28 @@ export type Sink<T> = (val: T, conn: Conduit) => boolean;
  */
 export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
 
+
+/**
+ * Subscribe a sink to a source, returning a conduit
+ *
+ * The returned conduit will be linked to the active
+ * {@link ResourceTracker tracker}, unless you explicitly provide a specific
+ * tracker to use instead.  (You can also pass an explicit `null` as the tracker
+ * if you want to create a standalone conduit that is not linked to any resource
+ * tracker.)
+ *
+ * Note: some sources may not begin sending events until after
+ * {@link Conduit.pull .pull()} is called on the returned conduit.
+ *
+ * @category Stream Consumers
+ */
+export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: ActiveTracker|null = tracker) {
+    const c = new Conduit(resourceTracker);
+    src(sink, c);
+    return c;
+}
+
+
 /**
  * The connection between an event {@link Source} and its {@link Sink}
  * (subscriber).
@@ -65,6 +87,7 @@ export class Conduit {
     /** The reason passed to throw(), if any */
     reason: any;
 
+    /** @internal */
     constructor(parent?: ActiveTracker) {
         this._tracker = parent ? parent.nested(this.close) : tracker();
     }
@@ -101,6 +124,17 @@ export class Conduit {
     onPull(fn?: () => any) {
         this._pull = fn;
         return this;
+    }
+
+    /**
+     * Return a bound version of .{@link push}() for a specific sink
+     *
+     * @returns a 1-argument function that sends its argument to the sink,
+     * returning the sink's return value, or false if the conduit is closed or
+     * thrown.  If the sink throws, the error is thrown to the conduit as well.
+     */
+    writer<T>(sink: Sink<T>): (val: T) => boolean {
+        return this.push.bind<this, [Sink<T>], [T], boolean>(this, sink);
     }
 
     /**
