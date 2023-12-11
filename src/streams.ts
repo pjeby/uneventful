@@ -9,7 +9,7 @@ import { ActiveTracker, OptionalCleanup, ResourceTracker, tracker } from "./trac
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (sink: Sink<T>, conn: Conduit) => void;
+export type Source<T> = (conn: Conduit, sink: Sink<T>) => void;
 
 /**
  * A `Sink` is a function that receives data from a {@link Source}. In addition
@@ -55,7 +55,7 @@ export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
  */
 export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: ActiveTracker|null = tracker) {
     const c = new Conduit(resourceTracker);
-    src(sink, c);
+    src(c, sink);
     return c;
 }
 
@@ -209,7 +209,7 @@ export class Conduit {
     fork<T>(src?: Source<T>, sink?: Sink<T>) {
         if (this.isOpen()) {
             const c = new Conduit(this._tracker);
-            if (src && sink) src(sink, c);
+            if (src && sink) src(c, sink);
             return c;
         }
         throw new Error("Can't fork or link a closed conduit")

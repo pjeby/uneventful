@@ -10,8 +10,8 @@ describe("connect()", () => {
         const c = t.run(connect, src, sink);
         // Then you should get a conduit
         expect(c).to.be.an.instanceOf(Conduit);
-        // And the source should have been called with the sink and the conduit
-        expect(src).to.have.been.calledOnceWithExactly(sink, c);
+        // And the source should have been called with the conduit and the sink
+        expect(src).to.have.been.calledOnceWithExactly(c, sink);
     });
     it("can be invoked with an explicit null tracker", () => {
         // Given a source and a sink
@@ -20,8 +20,8 @@ describe("connect()", () => {
         const c = connect(src, sink, null);
         // Then you should get a conduit
         expect(c).to.be.an.instanceOf(Conduit);
-        // And the source should have been called with the sink and the conduit
-        expect(src).to.have.been.calledOnceWithExactly(sink, c);
+        // And the source should have been called with the conduit and the sink
+        expect(src).to.have.been.calledOnceWithExactly(c, sink);
     })
     it("can be linked to a specific tracker", () => {
         // Given a conduit opened by connect with a specific tracker
@@ -329,8 +329,8 @@ describe("Conduit", () => {
             const c = new Conduit, src = spy(), sink = spy();
             // When the conduit is forked/linked
             const f = mkChild(c, src, sink);
-            // Then the source should be called with the sink and the new conduit
-            expect(src).to.have.been.calledOnceWithExactly(sink, f);
+            // Then the source should be called with the new conduit and the sink
+            expect(src).to.have.been.calledOnceWithExactly(f, sink);
         });
     }
     describe(".fork() returns a conduit that", () => {
