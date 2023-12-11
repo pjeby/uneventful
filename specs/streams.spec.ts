@@ -1,4 +1,4 @@
-import { log, see, describe, expect, it, spy, useTracker } from "./dev_deps.ts";
+import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { tracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
 
@@ -151,7 +151,8 @@ describe("Conduit", () => {
         });
     });
     describe("runs .onCleanup() callbacks asynchronously in FIFO order", () => {
-        it("when already close()d", async () => {
+        useClock();
+        it("when already close()d", () => {
             // Given a closed conduit
             const c = new Conduit().close();
             // When onCleanup() is called with two new callbacks
@@ -159,10 +160,10 @@ describe("Conduit", () => {
             // Then they should not be run
             see()
             // Until the next microtask
-            await Promise.resolve(); // one microtick
+            clock.tick(0);
             see("first", "last");
         });
-        it("when already throw()n", async () => {
+        it("when already throw()n", () => {
             // Given a thrown conduit
             const c = new Conduit().throw(new Error);
             // When onCleanup() is called with two new callbacks
@@ -170,10 +171,10 @@ describe("Conduit", () => {
             // Then they should not be run
             see()
             // Until the next microtask
-            await Promise.resolve(); // one microtick
+            clock.tick(0);
             see("first", "last");
         });
-        it("while other .onCleanup callbacks are running", async () => {
+        it("while other .onCleanup callbacks are running", () => {
             // Given a conduit with two onCleanup callbacks, one of which calls a third
             const c = new Conduit()
                 .onCleanup(() => log("first"))
@@ -183,7 +184,7 @@ describe("Conduit", () => {
             // Then the initial callbacks should be run in reverse order,
             see("first");
             // but the newly-pushed callback should run asynchronously
-            await Promise.resolve();
+            clock.tick(0);
             see("last");
         });
     });
@@ -237,66 +238,67 @@ describe("Conduit", () => {
         beforeEach(() => {
             c = new Conduit().onPull(() => log("pulled"));
         });
+        useClock();
         describe("does nothing if", () => {
-            it("conduit is already closed", async () => {
+            it("conduit is already closed", () => {
                 // Given a conduit with an onPull
                 // When the conduit is closed and pull()ed
                 c.close().pull();
                 // Then the callback is not invoked
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see();
             });
-            it("conduit is closed after the pull", async () => {
+            it("conduit is closed after the pull", () => {
                 // Given a conduit with an onPull
                 // When the conduit is pull()ed and closed
                 c.pull().close();
                 // Then the callback is not invoked
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see();
             });
-            it("no onPull() is set", async () => {
+            it("no onPull() is set", () => {
                 // Given a conduit without an onPull
                 c = new Conduit;
                 // When the conduit is pulled()
                 c.pull();
                 // Then nothing happens
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see();
             });
-            it("the onPull() is cleared", async () => {
+            it("the onPull() is cleared", () => {
                 // Given a conduit with an onPull
                 // When onPull() is called with no arguments before pull()
                 c.onPull().pull();
                 // Then nothing happens
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see();
             });
-            it("after the onPull() was used", async () => {
+            it("after the onPull() was used", () => {
                 // Given a conduit with an onPull
                 // When the conduit is pull()ed twice
                 c.pull();
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see("pulled");
                 c.pull();
                 // Then nothing should happen the second time
-                await Promise.resolve(); // one microtick
+                clock.tick(0);
                 see();
             });
         });
-        it("asynchronously calls the latest onPull() callback", async () => {
+        it("asynchronously calls the latest onPull() callback", () => {
             // Given a conduit with an onPull
             // When the conduit is pull()ed
             c.pull();
             // Then the onPull callback should be invoked asynchronously
             see(); // but not synchronously
-            await Promise.resolve(); // one microtick
+            clock.tick(0);
             see("pulled");
             // And When a new onPull() is set and pull()ed
             c.onPull(() => log("pulled again"));
             c.pull();
             // Then the new onPull callback should be invoked asynchronously
             see(); // but not synchronously
-            await Promise.resolve(); // one microtick
+            clock.tick(0);
             see("pulled again");
         });
     });
