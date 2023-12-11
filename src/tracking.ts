@@ -122,7 +122,7 @@ export interface ActiveTracker {
  * are used by flows (such as effects and jobs) or other units of work.
  *
  * By adding `onCleanup()` callbacks to a tracker, you can later call its
- * `release()` method to run all of them in reverse order, thereby undoing
+ * `cleanup()` method to run all of them in reverse order, thereby undoing
  * actions or releasing of used resources.
  *
  * You can obtain a resource tracker using the {@link tracker} function, or use
