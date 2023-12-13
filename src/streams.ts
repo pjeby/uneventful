@@ -169,10 +169,12 @@ export class Conduit {
      * Close the conduit, cleaning up resources and terminating child conduits.
      */
     close = () => {
-        this._open = false;
-        this._pull = undefined;
-        this._tracker?.destroy();
-        this._tracker = undefined;
+        if (this._open) {
+            this._open = false;
+            this._pull = undefined;
+            this._tracker.destroy();
+            this._tracker = undefined;
+        }
         return this;
     }
 

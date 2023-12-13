@@ -7,7 +7,7 @@ import * as sinon from "sinon";
 import * as sinon_chai from "sinon-chai";
 chai.use((sinon_chai["default"] ?? sinon_chai) as Chai.ChaiPlugin);
 
-export const { spy, mock } = sinon;
+export const { spy, mock, createStubInstance } = sinon;
 
 var _log: string[] =[];
 
@@ -15,7 +15,13 @@ var _log: string[] =[];
 export function log(s: any) { _log.push(""+s); }
 
 /** Clear the log without checking its contents */
-log.clear = function() { _log.length = 0; }
+log.clear = () => { _log.length = 0; }
+
+/** Get log contents */
+log.get = () => _log;
+
+/** log() as Event sink */
+log.emit = (s: any) => { log(s); return true; };
 
 /** Verify current log contents (and clear the log) */
 export function see(...lines: Array<string|RegExp>) {
@@ -30,6 +36,15 @@ export function see(...lines: Array<string|RegExp>) {
         } else expect(data.shift()).to.match(line, `Got ${data.join('\n')}`);
     }
     expect(data.length).to.equal(0, `Unexpected extra output: ${data.join('\n')}`);
+}
+
+/** For waiting a microtask */
+export const tick = Promise.resolve();
+
+/** Wait until a certain amount of output is present: WARNING - can loop indefinitely! */
+export async function waitAndSee(...args: Array<string|RegExp>) {
+    while (log.get().length < args.length) await tick;
+    see(...args);
 }
 
 import { after, before, reporters } from "mocha";
