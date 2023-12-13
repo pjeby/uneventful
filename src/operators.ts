@@ -53,7 +53,7 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
             inner ? inner.pull() : outer.pull();
             conn.onPull(resume);
         }
-        conn.onPull(resume);
+        return conn.onPull(resume);
     }
 }
 
@@ -90,7 +90,7 @@ export function filter<T,R extends T>(filter: (v: T, idx: number) => v is R): Tr
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T> {
     return src => (conn, sink) => {
-        let idx = 0; src(conn, v => filter(v, idx++) ? sink(v, conn) : true);
+        let idx = 0; return src(conn, v => filter(v, idx++) ? sink(v, conn) : true);
     }
 }
 
@@ -104,7 +104,7 @@ export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T
  */
 export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
     return src => (conn, sink) => {
-        let idx = 0; src(conn, v => sink(mapper(v, idx++), conn));
+        let idx = 0; return src(conn, v => sink(mapper(v, idx++), conn));
     }
 }
 
@@ -145,7 +145,7 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
             uplinks.forEach(u => u.pull());
             conn.onPull(resume);
         }
-        conn.onPull(resume);
+        return conn.onPull(resume);
     }
 }
 
@@ -210,6 +210,7 @@ export function share<T>(source: Source<T>): Source<T> {
             };
             conn.onPull(doPull);
         }
+        return conn;
     }
 }
 
@@ -236,7 +237,7 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (conn, sink) => {
         let taking = false;
         conn.link(notifier, (_, c) => { taking = true; c.close(); return false; });
-        src(conn, v => taking && sink(v, conn));
+        return src(conn, v => taking && sink(v, conn));
     }
 }
 
@@ -250,7 +251,7 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
 export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (conn, sink) => {
         let idx = 0, met = false;
-        src(conn, v => (met ||= !condition(v, idx++)) ? sink(v, conn) : true);
+        return src(conn, v => (met ||= !condition(v, idx++)) ? sink(v, conn) : true);
     };
 }
 
@@ -285,7 +286,7 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
             inner ? inner.pull() : outer.pull();
             conn.onPull(resume);
         }
-        conn.onPull(resume);
+        return conn.onPull(resume);
     }
 }
 
@@ -326,7 +327,7 @@ export function take<T>(n: number): Transformer<T> {
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (conn, sink) => {
         conn.link(notifier, () => { conn.close(); return false; }).pull();
-        src(conn, sink);
+        return src(conn, sink);
     }
 }
 
@@ -345,6 +346,6 @@ export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transfo
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (conn, sink) => {
         let idx = 0;
-        src(conn, v => condition(v, idx++) ? sink(v, conn) : (conn.close(), false));
+        return src(conn, v => condition(v, idx++) ? sink(v, conn) : (conn.close(), false));
     };
 }

@@ -36,7 +36,7 @@ export function emitter<T>(): Emitter<T> {
     emit.source = share<T>((conn, sink) => {
         write = conn.writer(sink);
         conduit = conn;
-        conn.onCleanup(() => write = conduit = undefined);
+        return conn.onCleanup(() => write = conduit = undefined);
     });
     emit.close = () => conduit?.close();
     emit.throw = (e: any) => conduit?.throw(e);
@@ -67,7 +67,7 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
         if (iter.return) conn.onCleanup(() => iter.return());
-        conn.onPull(loop);
+        return conn.onPull(loop);
         async function loop() {
             for(;;) try {
                 const {value, done} = await iter.next();
@@ -95,7 +95,7 @@ export function fromDomEvent<
     return (conn, sink) => {
         const push = conn.writer(sink);
         target.addEventListener(type, push, options);
-        conn.onCleanup(() => target.removeEventListener(type, push, options));
+        return conn.onCleanup(() => target.removeEventListener(type, push, options));
     }
 }
 
@@ -114,7 +114,7 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
         if (iter.return) conn.onCleanup(() => iter.return());
-        conn.onPull(loop);
+        return conn.onPull(loop);
         function loop() {
             try {
                 for(;;) {
@@ -146,6 +146,7 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
             v => (conn.push(sink, v), conn.close()),
             e => conn.throw(e)
         )
+        return conn;
     }
 }
 
@@ -162,7 +163,7 @@ export function fromSignal<T>(s: () => T): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink);
         s = cached(s);
-        conn.onPull(() => conn.onCleanup(effect.root(() => { send(s()); })));
+        return conn.onPull(() => conn.onCleanup(effect.root(() => { send(s()); })));
     }
 }
 
@@ -181,7 +182,7 @@ export function fromSignal<T>(s: () => T): Source<T> {
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (conn, sink) => {
-        conn.onPull(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); })));
+        return conn.onPull(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); })));
     }
 }
 
@@ -192,7 +193,7 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  */
 export function fromValue<T>(val: T): Source<T> {
     return (conn, sink) => {
-        conn.onPull(() => { conn.push(sink, val); conn.close(); });
+        return conn.onPull(() => { conn.push(sink, val); conn.close(); });
     }
 }
 
@@ -206,7 +207,7 @@ export function interval(ms: number): Source<number> {
     return (conn, sink) => {
         let idx = 0;
         const id = setInterval(() => conn.push(sink, idx++), ms);
-        conn.onCleanup(() => clearInterval(id));
+        return conn.onCleanup(() => clearInterval(id));
     }
 }
 
@@ -230,5 +231,5 @@ export function lazy<T>(factory: () => Source<T>): Source<T> {
  * @category Stream Producers
  */
 export function never(): Source<never> {
-    return () => {};
+    return (conn) => conn;
 }

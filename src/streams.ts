@@ -4,12 +4,16 @@ import { ActiveTracker, OptionalCleanup, ResourceTracker, tracker } from "./trac
 /**
  * A `Source` is a function that can be called to arrange for data to be
  * produced and sent to a {@link Sink} function for consumption, until the
- * associated {@link Conduit} is closed (either by the source or the sink,
- * e.g. if the sink doesn't want more data or the source has no more to send).
+ * associated {@link Conduit} is closed (either by the source or the sink, e.g.
+ * if the sink doesn't want more data or the source has no more to send).
+ *
+ * The function must return the conduit. (Mostly so TypeScript can tell what
+ * functions are actually sources, as otherwise any void function with
+ * no arguments would appear to be usable as a source.)
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (conn: Conduit, sink: Sink<T>) => void;
+export type Source<T> = (conn: Conduit, sink: Sink<T>) => Conduit;
 
 /**
  * A `Sink` is a function that receives data from a {@link Source}. In addition
