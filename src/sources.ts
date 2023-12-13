@@ -82,16 +82,35 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
 }
 
 /**
- * Create an event source from an HTML element, event type, and options
+ * Create an event source from an element, window, or other event target
+ *
+ * You can manually override the expected event type using a type parameter,
+ * e.g. `fromDomEvent<CustomEvent>(someTarget, "custom-event")`.
+ *
+ * @param target an HTMLElement, Window, Document, or other EventTarget.
+ * @param type the name of the event to add a listener for
+ * @param options a boolean capture option, or an object of event listener
+ * options
+ * @returns a source that can be subscribed or piped, issuing events from the
+ * target of the specified type.
  *
  * @category Stream Producers
  */
-export function fromDomEvent<
-    T extends HTMLElement,
-    K extends keyof HTMLElementEventMap
->(
+export function fromDomEvent<T extends HTMLElement, K extends keyof HTMLElementEventMap>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
-): Source<HTMLElementEventMap[K]> {
+): Source<HTMLElementEventMap[K]>;
+export function fromDomEvent<T extends Window, K extends keyof WindowEventMap>(
+    target: T, type: K, options?: boolean | AddEventListenerOptions
+): Source<WindowEventMap[K]>;
+export function fromDomEvent<T extends Document, K extends keyof DocumentEventMap>(
+    target: T, type: K, options?: boolean | AddEventListenerOptions
+): Source<DocumentEventMap[K]>;
+export function fromDomEvent<T extends Event>(
+    target: EventTarget, type: string, options?: boolean | AddEventListenerOptions
+): Source<T>
+export function fromDomEvent<T extends EventTarget, K extends string>(
+    target: T, type: K, options?: boolean | AddEventListenerOptions
+): Source<Event> {
     return (conn, sink) => {
         const push = conn.writer(sink);
         target.addEventListener(type, push, options);
