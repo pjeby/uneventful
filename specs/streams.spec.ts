@@ -1,6 +1,10 @@
 import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
-import { tracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
+import { tracker, ActiveTracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
+
+function mkConduit(parent: ActiveTracker = null) {
+    return new Conduit(parent);
+}
 
 describe("connect()", () => {
     it("calls source with sink and returns a Conduit", () => {
@@ -45,8 +49,8 @@ describe("connect()", () => {
 
 describe("Conduit", () => {
     it("initially isOpen() and not hasError()", () => {
-        // Given a new Conduit
-        const c = new Conduit;
+        // Given a Conduit
+        const c = mkConduit();
         // When its status is checked
         // Then it should be open and not have an error
         expect(c.isOpen()).to.be.true;
@@ -55,7 +59,7 @@ describe("Conduit", () => {
     });
     it(".hasError() and .reason when .throw()n", () => {
         // Given a conduit with a thrown error
-        const e = new Error, c = new Conduit().throw(e);
+        const e = new Error, c = mkConduit().throw(e);
         // When its status is checked
         // Then it should be closed and have an error
         expect(c.isOpen()).to.be.false;
@@ -65,7 +69,7 @@ describe("Conduit", () => {
     });
     it("is closed with no error when .close()d", () => {
         // Given a conduit that's closed
-        const c = new Conduit().close();
+        const c = mkConduit().close();
         // When its status is checked
         // Then it should be closed and not have an error
         expect(c.isOpen()).to.be.false;
@@ -73,7 +77,7 @@ describe("Conduit", () => {
     });
     it("closes when its enclosing tracker is cleaned up", () => {
         // Given a tracker and a conduit it's attached to
-        const t = tracker(), c = new Conduit(t);
+        const t = tracker(), c = mkConduit(t);
         expect(c.isOpen()).to.be.true;
         // When the tracker is cleaned up
         t.cleanup();
@@ -83,7 +87,7 @@ describe("Conduit", () => {
     describe("is inactive after closing:", () => {
         it("ignores close() if already thrown", () => {
             // Given a conduit with a thrown error
-            const e = new Error, c = new Conduit().throw(e);
+            const e = new Error, c = mkConduit().throw(e);
             // When it's close()d
             c.close();
             // Then it should still have its error and reason
@@ -92,7 +96,7 @@ describe("Conduit", () => {
         });
         it("ignores throw() if already thrown", () => {
             // Given a conduit with a thrown error
-            const e = new Error, c = new Conduit().throw(e);
+            const e = new Error, c = mkConduit().throw(e);
             // When it's thrown again
             c.throw(new Error);
             // Then it should still have its original reason
@@ -100,7 +104,7 @@ describe("Conduit", () => {
         });
         it("ignores throw() if already closed", () => {
             // Given a conduit that's closed
-            const c = new Conduit().close();
+            const c = mkConduit().close();
             // When it's thrown
             c.throw(new Error);
             // Then it should not have an error
@@ -108,7 +112,7 @@ describe("Conduit", () => {
         });
         it("won't fork() or link()", () => {
             // Given a closed conduit
-            const c = new Conduit().close();
+            const c = mkConduit().close();
             // When fork() or link() is called
             // Then an error should be thrown
             expect(() => c.fork()).to.throw("Can't fork or link a closed conduit");
@@ -118,7 +122,7 @@ describe("Conduit", () => {
     describe("runs .onCleanup() callbacks synchronously in LIFO order", () => {
         it("when close()d", () => {
             // Given a conduit with two onCleanup callbacks
-            const c = new Conduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
+            const c = mkConduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
             // When the conduit is closed
             c.close();
             // Then the callbacks should be run in reverse order
@@ -126,7 +130,7 @@ describe("Conduit", () => {
         });
         it("when thrown()", () => {
             // Given a conduit with two onCleanup callbacks
-            const c = new Conduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
+            const c = mkConduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
             // When the conduit is thrown()
             c.throw(new Error);
             // Then the callbacks should be run in reverse order
@@ -134,7 +138,7 @@ describe("Conduit", () => {
         });
         it("with the error state known", () => {
             // Given a conduit with an onCleanup callback
-            const c = new Conduit().onCleanup(() => { log(c.hasError()); log(c.reason); });
+            const c = mkConduit().onCleanup(() => { log(c.hasError()); log(c.reason); });
             // When the conduit is thrown()
             c.throw("this is the reason")
             // Then the callback should see the correct error state
@@ -142,7 +146,7 @@ describe("Conduit", () => {
         });
         it("when the enclosing tracker is cleaned up", () => {
             // Given a tracker and a conduit it's attached to
-            const t = tracker(), c = new Conduit(t);
+            const t = tracker(), c = mkConduit(t);
             // And two onCleanup callbacks
             c.onCleanup(() => log("first")).onCleanup(() => log("last"));
             // When the tracker is cleaned up
@@ -155,7 +159,7 @@ describe("Conduit", () => {
         useClock();
         it("when already close()d", () => {
             // Given a closed conduit
-            const c = new Conduit().close();
+            const c = mkConduit().close();
             // When onCleanup() is called with two new callbacks
             c.onCleanup(() => log("first")).onCleanup(() => log("last"))
             // Then they should not be run
@@ -166,7 +170,7 @@ describe("Conduit", () => {
         });
         it("when already throw()n", () => {
             // Given a thrown conduit
-            const c = new Conduit().throw(new Error);
+            const c = mkConduit().throw(new Error);
             // When onCleanup() is called with two new callbacks
             c.onCleanup(() => log("first")).onCleanup(() => log("last"))
             // Then they should not be run
@@ -177,7 +181,7 @@ describe("Conduit", () => {
         });
         it("while other .onCleanup callbacks are running", () => {
             // Given a conduit with two onCleanup callbacks, one of which calls a third
-            const c = new Conduit()
+            const c = mkConduit()
                 .onCleanup(() => log("first"))
                 .onCleanup(() => c.onCleanup(() => log("last")));
             // When the conduit is closed
@@ -192,7 +196,7 @@ describe("Conduit", () => {
     describe(".catch()", () => {
         it("prevents hasUncaught() before the fact", () => {
             // Given a conduit with .catch() called
-            const e = new Error, c = new Conduit().catch();
+            const e = new Error, c = mkConduit().catch();
             // When the conduit is thrown
             c.throw(e);
             // Then it should be considered caught
@@ -201,7 +205,7 @@ describe("Conduit", () => {
         });
         it("resets hasUncaught() after the fact", () => {
             // Given a conduit with a thrown error
-            const e = new Error, c = new Conduit().throw(e);
+            const e = new Error, c = mkConduit().throw(e);
             // Then it should be uncaught
             expect(c.hasUncaught()).to.be.true;
             // Until catch() is called
@@ -211,7 +215,7 @@ describe("Conduit", () => {
         });
         it("invokes its callback with the reason and connection", () => {
             // Given a conduit with a .catch callback
-            const e = new Error, cb = spy(), c = new Conduit().catch(cb);
+            const e = new Error, cb = spy(), c = mkConduit().catch(cb);
             // When the conduit is thrown
             c.throw(e);
             // Then it should be considered caught
@@ -224,7 +228,7 @@ describe("Conduit", () => {
     function verifyWrite(makeWriter: <T>(c: Conduit, cb: Sink<T>) => (val: T) => boolean) {
         it("does nothing if the conduit is closed", () => {
             // Given a writer of a closed conduit
-            const c = new Conduit(), w = makeWriter(c, v => { log(v); return true; });
+            const c = mkConduit(), w = makeWriter(c, v => { log(v); return true; });
             c.close();
             // When the writer is called
             const res = w(42);
@@ -236,7 +240,7 @@ describe("Conduit", () => {
         it("calls the sink and returns its return value", () => {
             // Given a conduit and its writer()
             let ret = true;
-            const c = new Conduit(), cb = spy(() => ret);
+            const c = mkConduit(), cb = spy(() => ret);
             const w = makeWriter(c, cb);
             // When the writer is called
             // Then it returns the sink's return value
@@ -250,7 +254,7 @@ describe("Conduit", () => {
         });
         it("traps errors and throws them", () => {
             // Given a conduit and a writer that throws
-            const c = new Conduit, e = new Error, w = makeWriter(c, cb);
+            const c = mkConduit(), e = new Error, w = makeWriter(c, cb);
             function cb() { throw e; return true; }
             // When the writer is called
             const res = w(42);
@@ -269,7 +273,7 @@ describe("Conduit", () => {
     describe(".pull()", () => {
         let c: Conduit;
         beforeEach(() => {
-            c = new Conduit().onPull(() => log("pulled"));
+            c = mkConduit().onPull(() => log("pulled"));
         });
         useClock();
         describe("does nothing if", () => {
@@ -291,7 +295,7 @@ describe("Conduit", () => {
             });
             it("no onPull() is set", () => {
                 // Given a conduit without an onPull
-                c = new Conduit;
+                c = mkConduit();
                 // When the conduit is pulled()
                 c.pull();
                 // Then nothing happens
@@ -339,14 +343,14 @@ describe("Conduit", () => {
     function testChildConduit(mkChild: <T>(c: Conduit, src?: Source<T>, sink?: Sink<T>) => Conduit) {
         it("is open", () => {
             // Given a conduit and its child
-            const c = new Conduit, f = mkChild(c);
+            const c = mkConduit(), f = mkChild(c);
             // Then the link should be open and not the conduit
             expect(f).to.not.equal(c);
             expect(f.isOpen()).to.be.true;
         });
         it("closes when the parent closes", () => {
             // Given a conduit and its child
-            const c = new Conduit, f = mkChild(c);
+            const c = mkConduit(), f = mkChild(c);
             // When the conduit is closed
             c.close();
             // Then the link should also be closed
@@ -354,7 +358,7 @@ describe("Conduit", () => {
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = new Conduit, f = mkChild(c);
+            const c = mkConduit(), f = mkChild(c);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error
@@ -363,7 +367,7 @@ describe("Conduit", () => {
         });
         it("subscribes a source if given one", () => {
             // Given a conduit, a source, and a sink
-            const c = new Conduit, src = spy(), sink = spy();
+            const c = mkConduit(), src = spy(), sink = spy();
             // When the conduit is forked/linked
             const f = mkChild(c, src, sink);
             // Then the source should be called with the new conduit and the sink
@@ -377,7 +381,7 @@ describe("Conduit", () => {
         testChildConduit((c, src?, sink?) => c.link(src, sink));
         it("throws to its parent when throw()n", () => {
             // Given a conduit and its link()ed child
-            const c = new Conduit, f = c.link(), e = new Error;
+            const c = mkConduit(), f = c.link(), e = new Error;
             // When the child is thrown
             f.throw(e);
             // Then it and its parent should have the same error
