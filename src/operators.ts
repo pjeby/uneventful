@@ -193,11 +193,11 @@ export function share<T>(source: Source<T>): Source<T> {
             if (!links.size) uplink?.close();
         });
         if (links.size === 1) {
-            uplink = connect(source, v => {
+            uplink = connect.root(source, v => {
                 pulled = false;
                 links.forEach(([s,l]) => pulled = l.push(s, v) || pulled)
                 return pulled;
-            }, null).onCleanup(() => {
+            }).onCleanup(() => {
                 const {reason} = uplink, err = uplink.hasError();
                 uplink = undefined;
                 links.forEach(([_,l]) => err ? l.throw(reason) : l.close());

@@ -47,21 +47,38 @@ export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
  * Subscribe a sink to a source, returning a conduit
  *
  * The returned conduit will be linked to the active
- * {@link ResourceTracker tracker}, unless you explicitly provide a specific
- * tracker to use instead.  (You can also pass an explicit `null` as the tracker
- * if you want to create a standalone conduit that is not linked to any resource
- * tracker.)
+ * {@link ResourceTracker tracker}.  (If you want to create a standalone conduit
+ * that is not linked to the current resource tracker, use
+ * {@link connect.root}() instead.)
  *
  * Note: some sources may not begin sending events until after
  * {@link Conduit.pull .pull()} is called on the returned conduit.
  *
  * @category Stream Consumers
  */
-export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: ActiveTracker|null = tracker) {
-    const c = new Conduit(resourceTracker);
+export function connect<T>(src: Source<T>, sink: Sink<T>) {
+    const c = new Conduit(tracker);
     src(c, sink);
     return c;
 }
+
+/**
+ * @category Stream Consumers
+ */
+export namespace connect {
+    /**
+     * Subscribe a sink to a source, returning a standalone conduit
+     *
+     * Just like {@link connect}(), but the returned conduit is not linked to
+     * the active tracker.
+     */
+    export function root<T>(src: Source<T>, sink: Sink<T>) {
+        const c = new Conduit(null);
+        src(c, sink);
+        return c;
+    }
+}
+
 
 const pulls = new Set<Conduit>;
 let isScheduled = false, isRunning = false;

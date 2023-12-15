@@ -17,26 +17,7 @@ describe("connect()", () => {
         // And the source should have been called with the conduit and the sink
         expect(src).to.have.been.calledOnceWithExactly(c, sink);
     });
-    it("can be invoked with an explicit null tracker", () => {
-        // Given a source and a sink
-        const src = spy(), sink = spy();
-        // When connect() is called with them and a null tracker
-        const c = connect(src, sink, null);
-        // Then you should get a conduit
-        expect(c).to.be.an.instanceOf(Conduit);
-        // And the source should have been called with the conduit and the sink
-        expect(src).to.have.been.calledOnceWithExactly(c, sink);
-    })
-    it("can be linked to a specific tracker", () => {
-        // Given a conduit opened by connect with a specific tracker
-        const t = tracker(), src = spy(), sink = spy();
-        const c = connect(src, sink, t);
-        // When the tracker is cleaned up
-        t.cleanup();
-        // Then the conduit should be closed
-        expect(c.isOpen()).to.be.false;
-    });
-    it("is linked to the running tracker by default", () => {
+    it("is linked to the running tracker", () => {
         // Given a conduit opened by connect in the context of a tracker
         const t = tracker(), src = spy(), sink = spy();
         const c = t.run(connect, src, sink);
@@ -45,6 +26,18 @@ describe("connect()", () => {
         // Then the conduit should be closed
         expect(c.isOpen()).to.be.false;
     });
+});
+describe("connect.root()", () => {
+    it("is connect() with a null tracker", () => {
+        // Given a source and a sink
+        const src = spy(), sink = spy();
+        // When connect() is called with them and a null tracker
+        const c = connect.root(src, sink);
+        // Then you should get a conduit
+        expect(c).to.be.an.instanceOf(Conduit);
+        // And the source should have been called with the conduit and the sink
+        expect(src).to.have.been.calledOnceWithExactly(c, sink);
+    })
 });
 
 describe("Conduit", () => {
