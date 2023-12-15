@@ -64,6 +64,14 @@ export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: Activ
 }
 
 
+/** Conduit state flags */
+const enum Is {
+    _ = 1,
+    Open   = _ << 0,
+    Error  = _ << 1,
+    Caught = _ << 2,
+}
+
 /**
  * The connection between an event {@link Source} and its {@link Sink}
  * (subscriber).
@@ -83,8 +91,7 @@ export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: Activ
  * @category Types and Interfaces
  */
 export class Conduit {
-    protected _open = true;
-    protected _err = false;
+    protected _flags = Is.Open;
     protected _tracker: ResourceTracker;
     protected _pull: () => any
 
@@ -98,12 +105,23 @@ export class Conduit {
 
     /** Is the conduit currently open? */
     isOpen(): boolean {
-        return this._open;
+        return !!(this._flags & Is.Open);
     }
 
     /** Has the comment been closed with an error? */
     hasError(): boolean {
-        return this._err;
+        return !!(this._flags & Is.Error);
+    }
+
+    /**
+     * Has the conduit been closed with an error without a corresponding
+     * {@link catch}()?
+     *
+     * Note: this always returns false if a catch() function has been
+     * registered, even if the catch() function hasn't been run yet.
+     */
+    hasUncaught(): boolean {
+        return (this._flags & (Is.Error|Is.Caught)) === Is.Error;
     }
 
     /**
@@ -173,8 +191,8 @@ export class Conduit {
      * Close the conduit, cleaning up resources and terminating child conduits.
      */
     close = () => {
-        if (this._open) {
-            this._open = false;
+        if (this._flags & Is.Open) {
+            this._flags &= ~Is.Open;
             this._pull = undefined;
             this._tracker.destroy();
             this._tracker = undefined;
@@ -192,11 +210,23 @@ export class Conduit {
      * {@link Conduit.reason .reason} property.
      */
     throw(reason: any) {
-        if (this._open) {
-            this._err = true;
+        if (this._flags & Is.Open) {
+            this._flags |= Is.Error;
             this.reason = reason;
             this.close();
         }
+        return this;
+    }
+
+    /**
+     * Add an asynchronous error handler that responds to throw()
+     *
+     * The handler will be called asynchronously if the conduit already has an
+     * error.
+     */
+    catch(handler?: (reason: any, conn: this) => unknown): this {
+        this._flags |= Is.Caught;
+        if (handler) return this.onCleanup(() => { if (this.hasError()) handler(this.reason, this); });
         return this;
     }
 

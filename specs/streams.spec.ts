@@ -51,6 +51,7 @@ describe("Conduit", () => {
         // Then it should be open and not have an error
         expect(c.isOpen()).to.be.true;
         expect(c.hasError()).to.be.false;
+        expect(c.hasUncaught()).to.be.false;
     });
     it(".hasError() and .reason when .throw()n", () => {
         // Given a conduit with a thrown error
@@ -186,6 +187,38 @@ describe("Conduit", () => {
             // but the newly-pushed callback should run asynchronously
             clock.tick(0);
             see("last");
+        });
+    });
+    describe(".catch()", () => {
+        it("prevents hasUncaught() before the fact", () => {
+            // Given a conduit with .catch() called
+            const e = new Error, c = new Conduit().catch();
+            // When the conduit is thrown
+            c.throw(e);
+            // Then it should be considered caught
+            expect(c.hasError()).to.be.true;
+            expect(c.hasUncaught()).to.be.false;
+        });
+        it("resets hasUncaught() after the fact", () => {
+            // Given a conduit with a thrown error
+            const e = new Error, c = new Conduit().throw(e);
+            // Then it should be uncaught
+            expect(c.hasUncaught()).to.be.true;
+            // Until catch() is called
+            c.catch();
+            // Then it should no longer be uncaught
+            expect(c.hasUncaught()).to.be.false;
+        });
+        it("invokes its callback with the reason and connection", () => {
+            // Given a conduit with a .catch callback
+            const e = new Error, cb = spy(), c = new Conduit().catch(cb);
+            // When the conduit is thrown
+            c.throw(e);
+            // Then it should be considered caught
+            expect(c.hasError()).to.be.true;
+            expect(c.hasUncaught()).to.be.false;
+            // And the callback should have been called with the reason and conduit
+            expect(cb).to.have.been.calledOnceWithExactly(e, c);
         });
     });
     function verifyWrite(makeWriter: <T>(c: Conduit, cb: Sink<T>) => (val: T) => boolean) {
