@@ -2,20 +2,20 @@ import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useTracker, createStubInstance, spy
 } from "./dev_deps.ts";
 import { connect, value, runEffects } from "../src/mod.ts";
+import { runPulls } from "../src/streams.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
     fromValue, fromSubscribe, interval, lazy, never
 } from "../src/sources.ts";
 
 describe("Sources", () => {
-    useClock();
     describe("emitter()", () => {
         useTracker();
         it("should emit/close the source when called", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit, null).pull(); clock.tick(0);
+            const c = connect(e.source, log.emit, null).pull(); runPulls();
             // Then calling the emitter should emit values
             e(42); see("42");
             e(43); see("43");
@@ -23,7 +23,7 @@ describe("Sources", () => {
             e.close();
             expect(c.isOpen()).to.be.false;
             // But it should still be subscribable
-            const c2 = connect(e.source, log.emit, null).pull(); clock.tick(0);
+            const c2 = connect(e.source, log.emit, null).pull(); runPulls();
             e(44); see("44");
             e(45); see("45");
             c2.close();
@@ -38,10 +38,10 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled with two sinks at different times
-            const c1 = connect(e.source, log.emit, null).pull(); clock.tick(0);
+            const c1 = connect(e.source, log.emit, null).pull(); runPulls();
             e(42); see("42");
             let emits = 0;
-            const c2 = connect(e.source, v => (emits++, true) , null).pull(); clock.tick(0);
+            const c2 = connect(e.source, v => (emits++, true) , null).pull(); runPulls();
             // Then it should emit to the currently-subscribed sinks
             e(43); see("43"); expect(emits).to.equal(1);
             // Until their connections close
@@ -54,7 +54,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit, null).pull(); clock.tick(0);
+            const c = connect(e.source, log.emit, null).pull(); runPulls();
             // And the emitter throws
             e.throw("a reason");
             // Then the connection should be thrown as well
@@ -65,7 +65,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit, null).pull(); clock.tick(0);
+            const c = connect(e.source, log.emit, null).pull(); runPulls();
             // And the emitter closes
             e.close();
             // Then the connection should be closed as well
@@ -113,7 +113,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null).pull();
             // Then it should asynchronously output it values after the next tick
             see();
-            clock.tick(0);
+            runPulls();
             await waitAndSee("1", "2", "3", "a", "b", "c");
             // And close the connection
             expect(c.isOpen()).to.be.false;
@@ -129,7 +129,7 @@ describe("Sources", () => {
             const c = connect(s, v => (log(v), v !== 3), null).pull();
             // Then it should output the values up to the pause after the next tick
             see();
-            clock.tick(0);
+            runPulls();
             await waitAndSee("1", "2", "3");
             // And the connection should still be open
             expect(c.isOpen()).to.be.true;
@@ -137,7 +137,7 @@ describe("Sources", () => {
             c.pull()
             // Then it should output the rest on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             await waitAndSee("a", "b", "c");
             // And close the connection
             expect(c.isOpen()).to.be.false;
@@ -156,7 +156,7 @@ describe("Sources", () => {
             // When it's subscribed and pulled with a pausing sink
             const c = connect(s, v => (log(v), v !== 3), null).pull();
             // Then it should output the values up to the pause on the next tick
-            clock.tick(0);
+            runPulls();
             see();
             await waitAndSee("1", "2", "3");
             // And the connection should still be open
@@ -178,7 +178,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null).pull();
             // Then it should output the values up to the error
             see();
-            clock.tick(0);
+            runPulls();
             await waitAndSee("1", "2", "3", "4", "5");
             // And then throw
             expect(c.isOpen()).to.be.false;
@@ -193,7 +193,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null).pull();
             // Then it should output all the values on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             see("1", "2", "3", "a", "b", "c");
             // And close the connection
             expect(c.isOpen()).to.be.false;
@@ -205,7 +205,7 @@ describe("Sources", () => {
             const c = connect(s, v => (log(v), v !== 3), null).pull();
             // Then it should output the values up to the pause on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             see("1", "2", "3");
             // And the connection should still be open
             expect(c.isOpen()).to.be.true;
@@ -213,7 +213,7 @@ describe("Sources", () => {
             c.pull()
             // Then it should output the rest on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             see("a", "b", "c");
             // And close the connection
             expect(c.isOpen()).to.be.false;
@@ -233,7 +233,7 @@ describe("Sources", () => {
             const c = connect(s, v => (log(v), v !== 3), null).pull();
             // Then it should output the values up to the pause on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             see("1", "2", "3");
             // And the connection should still be open
             expect(c.isOpen()).to.be.true;
@@ -254,7 +254,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null).pull();
             // Then it should output the values up to the error
             see();
-            clock.tick(0);
+            runPulls();
             see("1", "2", "3", "4", "5");
             // And then throw
             expect(c.isOpen()).to.be.false;
@@ -262,6 +262,7 @@ describe("Sources", () => {
         })
     });
     describe("fromPromise()", () => {
+        useClock();
         it("should resolve native Promises", async () => {
             // Given a fromPromise() of a resolved native promise
             const s = fromPromise(Promise.resolve(42));
@@ -326,7 +327,7 @@ describe("Sources", () => {
             // Given a fromSignal(value())
             const v = value(42), s = fromSignal(v);
             // When it's subscribed and pulled
-            connect(s, log.emit, null).pull(); clock.tick(0);
+            connect(s, log.emit, null).pull(); runPulls();
             // Then it should output the current value on the next effect run
             see(); runEffects(); see("42");
             // And output the latest current value on subsequent runs
@@ -338,7 +339,7 @@ describe("Sources", () => {
             const v1 = value(42), v2 = value(0);
             const f = () => v1() * v2(), s = fromSignal(f);
             // When it's subscribed and pulled
-            connect(s, log.emit, null).pull(); clock.tick(0);
+            connect(s, log.emit, null).pull(); runPulls();
             // Then it should output the current value on the next effect run
             see(); runEffects(); see("0");
             // And should not output duplicates even if dependencies change
@@ -360,7 +361,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null);
             // Then the subscribe function should not be called until pulled
             expect(subscribe).to.not.have.been.called;
-            c.pull(); clock.tick(0);
+            c.pull(); runPulls();
             expect(subscribe).to.have.been.calledOnce;
             expect(pusher).to.be.a("function");
             // And calling the pusher should emit the value and return void
@@ -380,13 +381,14 @@ describe("Sources", () => {
             const c = connect(s, log.emit, null).pull();
             // Then it should only output the value on the next tick
             see();
-            clock.tick(0);
+            runPulls();
             see("42")
             // And close the connection
             expect(c.isOpen()).to.be.false;
         });
     });
     describe("interval", () => {
+        useClock();
         it("emits 0-based numbers every N ms", () => {
             // Given an interval
             const s = interval(7);
@@ -417,7 +419,8 @@ describe("Sources", () => {
         });
     });
     describe("never()", () => {
-        useTracker()
+        useTracker();
+        useClock();
         it("does nothing", () => {
             // Given a never() stream
             const s = never();

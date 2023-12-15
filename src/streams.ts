@@ -63,6 +63,24 @@ export function connect<T>(src: Source<T>, sink: Sink<T>, resourceTracker: Activ
     return c;
 }
 
+const pulls = new Set<Conduit>;
+let isScheduled = false, isRunning = false;
+
+export function runPulls() {
+    isRunning = true;
+    try {
+        for(const conn of pulls) { pulls.delete(conn); conn.doPull(); }
+    } finally {
+        isRunning = false;
+        pulls.size && schedulePulls();
+    }
+}
+
+function schedulePulls() {
+    if (isRunning || isScheduled) return;
+    defer(() => { isScheduled = false; runPulls(); })
+}
+
 
 /** Conduit state flags */
 const enum Is {
@@ -179,12 +197,18 @@ export class Conduit {
      * exists when the microtask runs.
      */
     pull() {
-        if (this.isOpen()) defer(() => {
+        if (!this._pull) return this;
+        pulls.size || schedulePulls();
+        pulls.add(this);
+        return this;
+    }
+
+    doPull() {
+        if (this._pull) {
             const pull = this._pull;
             this._pull = undefined;
-            pull && pull()
-        });
-        return this;
+            pull();
+        };
     }
 
     /**

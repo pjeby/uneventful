@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
-import { Conduit } from "../src/streams.ts";
+import { Conduit, runPulls } from "../src/streams.ts";
 import { tracker, ActiveTracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
 
 function mkConduit(parent: ActiveTracker = null) {
@@ -275,14 +275,13 @@ describe("Conduit", () => {
         beforeEach(() => {
             c = mkConduit().onPull(() => log("pulled"));
         });
-        useClock();
         describe("does nothing if", () => {
             it("conduit is already closed", () => {
                 // Given a conduit with an onPull
                 // When the conduit is closed and pull()ed
                 c.close().pull();
                 // Then the callback is not invoked
-                clock.tick(0);
+                runPulls();
                 see();
             });
             it("conduit is closed after the pull", () => {
@@ -290,7 +289,7 @@ describe("Conduit", () => {
                 // When the conduit is pull()ed and closed
                 c.pull().close();
                 // Then the callback is not invoked
-                clock.tick(0);
+                runPulls();
                 see();
             });
             it("no onPull() is set", () => {
@@ -299,7 +298,7 @@ describe("Conduit", () => {
                 // When the conduit is pulled()
                 c.pull();
                 // Then nothing happens
-                clock.tick(0);
+                runPulls();
                 see();
             });
             it("the onPull() is cleared", () => {
@@ -307,18 +306,18 @@ describe("Conduit", () => {
                 // When onPull() is called with no arguments before pull()
                 c.onPull().pull();
                 // Then nothing happens
-                clock.tick(0);
+                runPulls();
                 see();
             });
             it("after the onPull() was used", () => {
                 // Given a conduit with an onPull
                 // When the conduit is pull()ed twice
                 c.pull();
-                clock.tick(0);
+                runPulls();
                 see("pulled");
                 c.pull();
                 // Then nothing should happen the second time
-                clock.tick(0);
+                runPulls();
                 see();
             });
         });
@@ -328,14 +327,14 @@ describe("Conduit", () => {
             c.pull();
             // Then the onPull callback should be invoked asynchronously
             see(); // but not synchronously
-            clock.tick(0);
+            runPulls();
             see("pulled");
             // And When a new onPull() is set and pull()ed
             c.onPull(() => log("pulled again"));
             c.pull();
             // Then the new onPull callback should be invoked asynchronously
             see(); // but not synchronously
-            clock.tick(0);
+            runPulls();
             see("pulled again");
         });
     });
