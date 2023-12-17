@@ -38,22 +38,15 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
         const outer = conn.link(sources, s => {
             inputs.push(s); startNext(); return false;
         }).onCleanup(() => {
-            if (!inputs.length) conn.close();
+            inputs.length || conn.close();
         });
         function startNext() {
-            if (inner) return;
-            if (!inputs.length) return outer.pull();
-            const s = inputs.shift();
-            inner = conn.link(s, sink).onCleanup(() => {
+            inner ||= conn.link(inputs.shift(), sink, conn).onCleanup(() => {
                 inner = undefined;
-                startNext();
-            }).pull();
+                inputs.length ? startNext() : outer.resume();
+            });
         }
-        function resume() {
-            inner ? inner.pull() : outer.pull();
-            conn.onPull(resume);
-        }
-        return conn.onPull(resume);
+        return conn;
     }
 }
 
@@ -132,20 +125,16 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
     return (conn, sink) => {
         const uplinks: Set<Conduit> = new Set;
         const outer = conn.link(sources, (s) => {
-            const c = conn.link(s, sink).onCleanup(() => {
+            const c = conn.link(s, sink, conn).onCleanup(() => {
                 uplinks.delete(c);
                 if (!uplinks.size && !outer.isOpen()) conn.close();
-            }).pull();
+            });
             uplinks.add(c);
             return true;
         }).onCleanup(() => {
             if (!uplinks.size) conn.close();
-        }).pull();
-        function resume() {
-            uplinks.forEach(u => u.pull());
-            conn.onPull(resume);
-        }
-        return conn.onPull(resume);
+        });
+        return conn;
     }
 }
 
@@ -169,7 +158,7 @@ export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transfo
  * The input source will be susbcribed when the output has at least one
  * subscriber, and unsubscribed when the output has no subscribers.  The input
  * will only be paused when all subscribers pause (i.e. all sinks return false),
- * and will be resumed when any subscriber pull()s.  All subscribers are closed
+ * and will be resumed when any subscriber resume()s.  All subscribers are closed
  * or thrown if the input source closes or throws.
  *
  * (Generally speaking, you should place the share call as late in your pipelines
@@ -183,32 +172,33 @@ export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transfo
  * @category Stream Operators
  */
 export function share<T>(source: Source<T>): Source<T> {
-    let uplink: Conduit, pulled = false;
+    let uplink: Conduit, resumed = false;
     let links = new Set<[sink: Sink<T>, link: Conduit]>;
     return (conn, sink) => {
         const self: [Sink<T>, Conduit] = [sink, conn];
         links.add(self);
-        conn.onPull(doPull).onCleanup(() => {
+        conn.onReady(resume).onCleanup(() => {
             links.delete(self);
             if (!links.size) uplink?.close();
         });
         if (links.size === 1) {
             uplink = connect.root(source, v => {
-                pulled = false;
-                links.forEach(([s,l]) => pulled = l.push(s, v) || pulled)
-                return pulled;
+                resumed = false;
+                for(const [s,l] of links) {
+                    if (l.push(s,v)) resumed = true; else l.onReady(resume);
+                }
+                return resumed;
             }).onCleanup(() => {
                 const {reason} = uplink, err = uplink.hasError();
                 uplink = undefined;
                 links.forEach(([_,l]) => err ? l.throw(reason) : l.close());
             })
         }
-        function doPull() {
-            if (!pulled) {
-                pulled = true;
-                uplink?.pull();
+        function resume() {
+            if (!resumed) {
+                resumed = true;
+                uplink?.resume();
             };
-            conn.onPull(doPull);
         }
         return conn;
     }
@@ -274,19 +264,15 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
         let inner: Conduit;
         const outer = conn.link(sources, s => {
             inner?.close();
-            inner = conn.link(s, sink).onCleanup(() => {
+            inner = conn.link(s, sink, conn).onCleanup(() => {
                 inner = undefined;
                 outer.isOpen() || conn.close();
-            }).pull();
+            });
             return true;
         }).onCleanup(() => {
             inner || conn.close();
         });
-        function resume() {
-            inner ? inner.pull() : outer.pull();
-            conn.onPull(resume);
-        }
-        return conn.onPull(resume);
+        return conn;
     }
 }
 
@@ -326,7 +312,7 @@ export function take<T>(n: number): Transformer<T> {
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (conn, sink) => {
-        conn.link(notifier, () => { conn.close(); return false; }).pull();
+        conn.link(notifier, () => { conn.close(); return false; });
         return src(conn, sink);
     }
 }

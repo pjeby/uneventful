@@ -59,7 +59,7 @@ export function empty(): Source<never> {
  * each item output by the iterator, then close the conduit.  The subscriber
  * must return `true` after each value to continue iteration, or `false` to
  * pause it. (Once paused, it must then call the conduit's
- * {@link Conduit.pull .pull()} method to resume iteration.)
+ * {@link Conduit.resume .resume()} method to resume iteration.)
  *
  * @category Stream Producers
  */
@@ -67,16 +67,13 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
         if (iter.return) conn.onCleanup(() => iter.return());
-        return conn.onPull(loop);
-        async function loop() {
-            for(;;) try {
-                const {value, done} = await iter.next();
-                if (done) return conn.close();
-                if (!send(value)) return conn.onPull(loop);
-            } catch (e) {
-                conn.throw(e);
-                return;
-            }
+        return conn.onReady(next);
+        function next() {
+            iter.next().then(({value, done}) => {
+                if (done) conn.close(); else conn.onReady(() => {
+                    if (send(value)) next(); else conn.onReady(next);
+                })
+            }, e => conn.throw(e));
         }
     }
 }
@@ -124,7 +121,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * Each time the resulting source is subscribed to, it will emit an event for
  * each item in the iterator, then close the conduit.  The subscriber must
  * return `true` after each value to continue iteration, or `false` to pause it.
- * (Once paused, it must then call the conduit's {@link Conduit.pull .pull()}
+ * (Once paused, it must then call the conduit's {@link Conduit.resume .resume()}
  * method to resume iteration.)
  *
  * @category Stream Producers
@@ -133,13 +130,13 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
         if (iter.return) conn.onCleanup(() => iter.return());
-        return conn.onPull(loop);
+        return conn.onReady(loop);
         function loop() {
             try {
                 for(;;) {
                     const {value, done} = iter.next();
                     if (done) return conn.close();
-                    if (!send(value)) return conn.onPull(loop);
+                    if (!send(value)) return conn.onReady(loop);
                 }
             } catch (e) {
                 conn.throw(e);
@@ -182,7 +179,7 @@ export function fromSignal<T>(s: () => T): Source<T> {
     return (conn, sink) => {
         const send = conn.writer(sink);
         s = cached(s);
-        return conn.onPull(() => conn.onCleanup(effect.root(() => { send(s()); })));
+        return conn.onReady(() => conn.onCleanup(effect.root(() => { send(s()); })));
     }
 }
 
@@ -201,7 +198,7 @@ export function fromSignal<T>(s: () => T): Source<T> {
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (conn, sink) => {
-        return conn.onPull(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); })));
+        return conn.onReady(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); })));
     }
 }
 
@@ -212,7 +209,7 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  */
 export function fromValue<T>(val: T): Source<T> {
     return (conn, sink) => {
-        return conn.onPull(() => { conn.push(sink, val); conn.close(); });
+        return conn.onReady(() => { conn.push(sink, val); conn.close(); });
     }
 }
 

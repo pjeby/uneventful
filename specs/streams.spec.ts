@@ -41,34 +41,37 @@ describe("connect.root()", () => {
 });
 
 describe("Conduit", () => {
-    it("initially isOpen() and not hasError()", () => {
+    it("initially isOpen(), isReady(), and not hasError()", () => {
         // Given a Conduit
         const c = mkConduit();
         // When its status is checked
         // Then it should be open and not have an error
         expect(c.isOpen()).to.be.true;
+        expect(c.isReady()).to.be.true;
         expect(c.hasError()).to.be.false;
         expect(c.hasUncaught()).to.be.false;
     });
-    it(".hasError() and .reason when .throw()n", () => {
+    it(".hasError(), .hasUncaught(), and .reason when .throw()n", () => {
         // Given a conduit with a thrown error
         const e = new Error, c = mkConduit().throw(e);
         // When its status is checked
         // Then it should be closed and have an error
         expect(c.isOpen()).to.be.false;
         expect(c.hasError()).to.be.true;
+        expect(c.hasUncaught()).to.be.true;
         // And the reason should be the thrown error
         expect(c.reason).to.equal(e);
     });
-    it("is closed with no error when .close()d", () => {
+    it("is closed(+unready) with no error when .close()d", () => {
         // Given a conduit that's closed
         const c = mkConduit().close();
         // When its status is checked
         // Then it should be closed and not have an error
         expect(c.isOpen()).to.be.false;
+        expect(c.isReady()).to.be.false;
         expect(c.hasError()).to.be.false;
     });
-    it("closes when its enclosing tracker is cleaned up", () => {
+    it("closes(+unready) when its enclosing tracker is cleaned up", () => {
         // Given a tracker and a conduit it's attached to
         const t = tracker(), c = mkConduit(t);
         expect(c.isOpen()).to.be.true;
@@ -76,6 +79,7 @@ describe("Conduit", () => {
         t.cleanup();
         // Then the conduit should be closed
         expect(c.isOpen()).to.be.false;
+        expect(c.isReady()).to.be.false;
     });
     describe("is inactive after closing:", () => {
         it("ignores close() if already thrown", () => {
@@ -186,6 +190,20 @@ describe("Conduit", () => {
             see("last");
         });
     });
+    describe(".isReady()", () => {
+        it("is false after pause(), true after resume() (if open)", () => {
+            // Given a conduit
+            const c = mkConduit()
+            // When it's paused, Then it shoud be unready
+            c.pause(); expect(c.isReady()).to.be.false;
+            // And when resumed it should be ready again
+            c.resume(); expect(c.isReady()).to.be.true;
+            // Unless it's closed
+            c.close(); expect(c.isReady()).to.be.false;
+            // In which case it should not be resumable
+            c.resume(); expect(c.isReady()).to.be.false;
+        });
+    });
     describe(".catch()", () => {
         it("prevents hasUncaught() before the fact", () => {
             // Given a conduit with .catch() called
@@ -263,72 +281,47 @@ describe("Conduit", () => {
     describe(".push()", () => {
         verifyWrite((c, cb) => (val) => c.push(cb, val));
     });
-    describe(".pull()", () => {
+    describe(".resume()", () => {
         let c: Conduit;
         beforeEach(() => {
-            c = mkConduit().onPull(() => log("pulled"));
+            // Given a paused conduit with an onReady
+            c = mkConduit().pause().onReady(() => log("resumed"));
         });
         describe("does nothing if", () => {
             it("conduit is already closed", () => {
-                // Given a conduit with an onPull
-                // When the conduit is closed and pull()ed
-                c.close().pull();
+                // Given a paused conduit with an onReady
+                // When the conduit is closed and resume()ed
+                see(); c.close(); c.resume();
                 // Then the callback is not invoked
-                runPulls();
-                see();
+                runPulls(); see();
             });
-            it("conduit is closed after the pull", () => {
-                // Given a conduit with an onPull
-                // When the conduit is pull()ed and closed
-                c.pull().close();
-                // Then the callback is not invoked
-                runPulls();
-                see();
-            });
-            it("no onPull() is set", () => {
-                // Given a conduit without an onPull
+            it("no onReady() is set", () => {
+                // Given a conduit without an onReady
                 c = mkConduit();
-                // When the conduit is pulled()
-                c.pull();
+                // When the conduit is resume()d
+                c.resume();
                 // Then nothing happens
                 runPulls();
                 see();
             });
-            it("the onPull() is cleared", () => {
-                // Given a conduit with an onPull
-                // When onPull() is called with no arguments before pull()
-                c.onPull().pull();
-                // Then nothing happens
-                runPulls();
-                see();
-            });
-            it("after the onPull() was used", () => {
-                // Given a conduit with an onPull
-                // When the conduit is pull()ed twice
-                c.pull();
-                runPulls();
-                see("pulled");
-                c.pull();
+            it("after the onReady() was used", () => {
+                // Given a paused conduit with an onReady
+                // When the conduit is resume()d twice
                 // Then nothing should happen the second time
-                runPulls();
-                see();
+                c.resume(); runPulls(); see("resumed");
+                c.resume(); runPulls(); see();
             });
         });
-        it("asynchronously calls the latest onPull() callback", () => {
-            // Given a conduit with an onPull
-            // When the conduit is pull()ed
-            c.pull();
-            // Then the onPull callback should be invoked asynchronously
+        it("synchronously runs callbacks", () => {
+            // Given a paused conduit with an onReady
+            // When the conduit is resume()d
+            // Then the onReady callback should be invoked
+            c.resume(); see("resumed");
+            // And When a new onReady() is set
+            c.onReady(() => log("resumed again"));
+            // Then the new callback should be invoked asynchronously
             see(); // but not synchronously
-            runPulls();
-            see("pulled");
-            // And When a new onPull() is set and pull()ed
-            c.onPull(() => log("pulled again"));
-            c.pull();
-            // Then the new onPull callback should be invoked asynchronously
-            see(); // but not synchronously
-            runPulls();
-            see("pulled again");
+            runPulls(); see("resumed again");
         });
     });
 

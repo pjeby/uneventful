@@ -23,7 +23,7 @@ export type Source<T> = (conn: Conduit, sink: Sink<T>) => Conduit;
  * A sink must return `true` if it can immediately (i.e. synchronously) be
  * called with the next value.  It should return `false` instead if a
  * synchronous source should wait before producing more values (and then call
- * the conduit's {@link Conduit.pull pull()} method when it's ready to receive
+ * the conduit's {@link Conduit.resume .resume()} method when it's ready to receive
  * the next value).
  *
  * (Note: the return value only affects *synchronous* sources, as async sources
@@ -42,6 +42,8 @@ export type Sink<T> = (val: T, conn: Conduit) => boolean;
  */
 export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
 
+type Producer = () => any
+
 
 /**
  * Subscribe a sink to a source, returning a conduit
@@ -52,7 +54,7 @@ export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
  * {@link connect.root}() instead.)
  *
  * Note: some sources may not begin sending events until after
- * {@link Conduit.pull .pull()} is called on the returned conduit.
+ * {@link Conduit.resume .resume()} is called on the returned conduit.
  *
  * @category Stream Consumers
  */
@@ -101,10 +103,16 @@ function schedulePulls() {
 
 /** Conduit state flags */
 const enum Is {
+    Unset = 0,
     _ = 1,
-    Open   = _ << 0,
-    Error  = _ << 1,
-    Caught = _ << 2,
+    Open    = _ << 0,
+    Error   = _ << 1,
+    Caught  = _ << 2,
+    Ready   = _ << 3,
+    Pulling = _ << 4,
+}
+function is(flags: Is, mask: Is, eq = mask) {
+    return (flags & mask) === eq;
 }
 
 /**
@@ -114,8 +122,8 @@ const enum Is {
  * Conduits simplify coding of stream transformers and event sources by managing
  * resource cleanup (via {@link onCleanup}() callbacks) and connection state.
  * Sources can {@link push}() data to a sink as long as the conduit is open, and
- * sinks can {@link pull}() to say, "I'm ready for more data".  (Which sources
- * can subscribe to via {@link onPull}().)
+ * sinks can {@link resume}() to say, "I'm ready for more data".  (Which sources
+ * can subscribe to via {@link onReady}().)
  *
  * Sources can also create child conduits (via a conduit's {@link link}() and
  * {@link fork}() methods), making it easier to implement operators like
@@ -126,27 +134,28 @@ const enum Is {
  * @category Types and Interfaces
  */
 export class Conduit {
-    protected _flags = Is.Open;
+    protected _flags = Is.Open | Is.Ready;
     protected _tracker: ResourceTracker;
-    protected _pull: () => any
+    protected _callbacks: Set<Producer>;
+    protected _root: Conduit;
 
     /** The reason passed to throw(), if any */
     reason: any;
 
     /** @internal */
-    constructor(parent?: ActiveTracker) {
+    constructor(parent?: ActiveTracker, root?: Conduit) {
+        this._root = root ?? this;
         this._tracker = parent ? parent.nested(this.close) : tracker();
     }
 
     /** Is the conduit currently open? */
-    isOpen(): boolean {
-        return !!(this._flags & Is.Open);
-    }
+    isOpen(): boolean { return is(this._flags, Is.Open); }
+
+    /** Is the conduit currently ready to receive data? */
+    isReady(): boolean { return is(this._root._flags, Is.Ready); }
 
     /** Has the comment been closed with an error? */
-    hasError(): boolean {
-        return !!(this._flags & Is.Error);
-    }
+    hasError(): boolean { return is(this._flags, Is.Error); }
 
     /**
      * Has the conduit been closed with an error without a corresponding
@@ -156,7 +165,7 @@ export class Conduit {
      * registered, even if the catch() function hasn't been run yet.
      */
     hasUncaught(): boolean {
-        return (this._flags & (Is.Error|Is.Caught)) === Is.Error;
+        return is(this._flags, (Is.Error|Is.Caught), Is.Error);
     }
 
     /**
@@ -173,12 +182,20 @@ export class Conduit {
 
     /**
      * Register a callback to run when an async consumer wishes to resume event
-     * production (i.e., when a sink calls {@link pull}()).  The callback is
+     * production (i.e., when a sink calls {@link resume}()).  The callback is
      * automatically unregistered when invoked, so the producer must re-register
      * it after each call if it wishes to keep being called.
      */
-    onPull(fn?: () => any) {
-        if (this.isOpen()) this._pull = fn;
+    onReady(cb: Producer) {
+        if (!this.isOpen()) return this;
+        const {_root} = this, _callbacks = (_root._callbacks ||= new Set);
+        const unlink = this._tracker.addLink(() => _callbacks.delete(wrapper));
+        if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
+            pulls.size || schedulePulls();
+            pulls.add(_root);
+        }
+        _callbacks.add(wrapper);
+        function wrapper() { unlink(); cb(); }
         return this;
     }
 
@@ -197,35 +214,45 @@ export class Conduit {
      * Send data to a sink, returning the result.  (Or false if the conduit is closed.)
      *
      * If the sink throws an error, the conduit closes with that error, and push() returns false.
+     * If the sink returns false, the conduit's root is marked paused.
      */
     push<T>(sink: Sink<T>, val: T): boolean {
         try {
-            return this.isOpen() && sink(val, this);
+            return this.isOpen() && (sink(val, this) || (this._root.pause(), false));
         } catch(e) {
             this.throw(e);
             return false;
         }
     }
 
-    /**
-     * Ask a synchronous source to resume pushing (as of the next microtask)
-     *
-     * Nothing will happen if the conduit is closed or no onPull() callback
-     * exists when the microtask runs.
-     */
-    pull() {
-        if (!this._pull) return this;
-        pulls.size || schedulePulls();
-        pulls.add(this);
-        return this;
-    }
+    pause() { this._flags &= ~Is.Ready; return this; } // XXX throw if not this?
 
     doPull() {
-        if (this._pull) {
-            const pull = this._pull;
-            this._pull = undefined;
-            pull();
-        };
+        if (is(this._flags, Is.Pulling)) return;
+        const {_callbacks} = this;
+        if (!_callbacks?.size) return;
+        this._flags |= Is.Pulling;
+        try {
+            for(let cb of _callbacks) {
+                if (!cb) return;  // reached sentinel
+                if (!this.isReady()) break;  // we're done
+                _callbacks.delete(cb);
+                cb() // XXX error handling?
+            }
+        } finally {
+            this._flags &= ~Is.Pulling;
+        }
+    }
+
+    /**
+     * Un-pause, and iterate backpressure-able sources' onReady callbacks to
+     * resume sending immediately.
+     */
+    resume() {
+        if (is(this._root._flags, (Is.Ready|Is.Open), Is.Open)) {
+            this._root._flags |= Is.Ready;
+        }
+        if (this.isOpen()) this._root.doPull();
     }
 
     /**
@@ -233,8 +260,7 @@ export class Conduit {
      */
     close = () => {
         if (this._flags & Is.Open) {
-            this._flags &= ~Is.Open;
-            this._pull = undefined;
+            this._flags &= ~(Is.Open|Is.Ready);
             this._tracker.destroy();
             this._tracker = undefined;
         }
@@ -282,9 +308,9 @@ export class Conduit {
      * explicitly handled.  If you want automatic error propagation, use
      * {@link link}() instead.)
      */
-    fork<T>(src?: Source<T>, sink?: Sink<T>) {
+    fork<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
         if (this.isOpen()) {
-            const c = new Conduit(this._tracker);
+            const c = new Conduit(this._tracker, root);
             if (src && sink) src(c, sink);
             return c;
         }
@@ -301,8 +327,8 @@ export class Conduit {
      * Errors in the child will automatically be propagated to the parent, so that
      * it will also throw if the child does.
      */
-    link<T>(src?: Source<T>, sink?: Sink<T>) {
-        const f = this.fork(src, sink).onCleanup(() => {
+    link<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
+        const f = this.fork(src, sink, root).onCleanup(() => {
             if (f.hasError()) this.throw(f.reason);
         });
         return f;
