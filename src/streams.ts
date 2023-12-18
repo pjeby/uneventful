@@ -1,5 +1,5 @@
 import { defer } from "./defer.ts";
-import { ActiveTracker, OptionalCleanup, ResourceTracker, tracker } from "./tracking.ts";
+import { ActiveTracker, CleanupFn, OptionalCleanup, ResourceTracker, tracker } from "./tracking.ts";
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -136,7 +136,7 @@ function is(flags: Is, mask: Is, eq = mask) {
 export class Conduit {
     protected _flags = Is.Open | Is.Ready;
     protected _tracker: ResourceTracker;
-    protected _callbacks: Set<Producer>;
+    protected _callbacks: Map<Producer, CleanupFn>;
     protected _root: Conduit;
 
     /** The reason passed to throw(), if any */
@@ -188,14 +188,13 @@ export class Conduit {
      */
     onReady(cb: Producer) {
         if (!this.isOpen()) return this;
-        const {_root} = this, _callbacks = (_root._callbacks ||= new Set);
-        const unlink = this._tracker.addLink(() => _callbacks.delete(wrapper));
+        const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
+        const unlink = this._tracker.addLink(() => _callbacks.delete(cb));
         if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
             pulls.size || schedulePulls();
             pulls.add(_root);
         }
-        _callbacks.add(wrapper);
-        function wrapper() { unlink(); cb(); }
+        _callbacks.set(cb, unlink);
         return this;
     }
 
@@ -233,8 +232,8 @@ export class Conduit {
         if (!_callbacks?.size) return;
         this._flags |= Is.Pulling;
         try {
-            for(let cb of _callbacks) {
-                if (!cb) return;  // reached sentinel
+            for(let [cb, unlink] of _callbacks) {
+                unlink()
                 if (!this.isReady()) break;  // we're done
                 _callbacks.delete(cb);
                 cb() // XXX error handling?

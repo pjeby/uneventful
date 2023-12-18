@@ -323,6 +323,15 @@ describe("Conduit", () => {
             see(); // but not synchronously
             runPulls(); see("resumed again");
         });
+        it("doesn't run duplicate onReady callbacks", () => {
+            // Given a paused conduit with added duplicate functions
+            const c = mkConduit().pause(), f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
+            c.onReady(f1).onReady(f2).onReady(f1).onReady(f2);
+            // When the conduit is resumed
+            c.resume();
+            // Then it should run each function only once
+            see("f1", "f2");
+        });
     });
 
     function testChildConduit(mkChild: <T>(c: Conduit, src?: Source<T>, sink?: Sink<T>) => Conduit) {
