@@ -309,6 +309,11 @@ export class Cell {
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
+                // if source is clean, skip it (most should be)
+                if (s.latestSource <= validThrough) continue;
+                // changed since our last compute? we're definitely dirty
+                if (sub.ts !== s.lastChanged) return this.doRecalc();
+                // not a simple yes or no -- "it's complicated" -- so recurse
                 s.catchUp();
                 if (s.lastChanged > validThrough) {
                     return this.doRecalc();
