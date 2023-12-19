@@ -141,7 +141,7 @@ export namespace effect {
      * const frame = effect.scheduler(requestAnimationFrame);
      *
      * frame.effect(() => {
-     *     // ... do stuff in an animation frame when signals read here change
+     *     // ... do stuff in an animation frame when signals used here change
      * })
      * ```
      *

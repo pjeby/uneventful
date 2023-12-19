@@ -26,7 +26,7 @@ var currentQueue: EffectScheduler;
 
 /**
  * A queue for effects to run during a particular kind of period, such as
- * microtasks or animation frames.  (Can only be obtain or created via
+ * microtasks or animation frames.  (Can only be obtained or created via
  * {@link effect.scheduler}().)
  *
  * @category Types and Interfaces
@@ -150,15 +150,15 @@ const defaultQueue = EffectScheduler.for(defer);
 /**
  * Synchronously run pending effects from the default scheduler.
  *
- * Equivalent to calling {@link EffectScheduler.flush flush()} on
+ * Equivalent to calling {@link EffectScheduler.flush .flush()} on
  * {@link effect.scheduler}().
  *
  * Note that you should normally only need to call this when you need
  * side-effects to occur within a specific synchronous timeframe, e.g. if
  * effects need to be able to cancel a synchronous event or continue an
- * IndexedDB transaction.  You can also define effects to run in a specific
+ * IndexedDB transaction.  (You can also define effects to run in a specific
  * timeframe by creating a {@link EffectScheduler} for them, via
- * {@link effect.scheduler}().
+ * {@link effect.scheduler}().)
  *
  * @category Signals
  */
