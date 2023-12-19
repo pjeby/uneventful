@@ -319,29 +319,51 @@ describe("Sources", () => {
         it("should output each value of the signal, including the first", () => {
             // Given a fromSignal(value())
             const v = value(42), s = fromSignal(v);
-            // When it's subscribed and pulled
-            connect.root(s, log.emit); runPulls();
-            // Then it should output the current value on the next effect run
-            see(); runEffects(); see("42");
+            // When it's subscribed
+            connect.root(s, log.emit);
+            // Then it should output the current value once effects+pulls run
+            see(); runEffects(); runPulls(); see("42");
             // And output the latest current value on subsequent runs
-            v.set(43); v.set(44);
-            see(); runEffects(); see("44");
+            v.set(43); runPulls(); v.set(44);
+            see(); runEffects(); runPulls(); see("44");
         });
         it("should not emit duplicate values", () => {
             // Given a fromSignal(func())
             const v1 = value(42), v2 = value(0);
             const f = () => v1() * v2(), s = fromSignal(f);
-            // When it's subscribed and pulled
-            connect.root(s, log.emit); runPulls();
-            // Then it should output the current value on the next effect run
-            see(); runEffects(); see("0");
+            // When it's subscribed
+            connect(s, log.emit);
+            // Then it should output the current value once effects+pulls run
+            see(); runEffects(); runPulls(); see("0");
             // And should not output duplicates even if dependencies change
             v1.set(43); v1.set(44);
-            see(); runEffects(); see();
+            see(); runEffects(); runPulls(); see();
             // But should still output changes to the result
             v2.set(1);
-            see(); runEffects(); see("44");
-        })
+            see(); runEffects(); runPulls(); see("44");
+        });
+        it("doesn't queue values when paused", () => {
+            // Given a fromSignal(value())
+            const v = value(42), s = fromSignal(v);
+            // When it's subscribed and paused, and set to various values
+            const c = connect.root(s, log.emit).pause();
+            // Then it should not output until resumed
+            v.set(43); runEffects(); runPulls(); see();
+            v.set(44); runEffects(); runPulls(); see();
+            // And only show the latest value
+            c.resume(); see("44");
+            c.close();
+        });
+        it("doesn't send values during its effect()", () => {
+            // Given a fromSignal(value())
+            const v = value(42), s = fromSignal(v);
+            // When it's subscribed and set to various values
+            connect(s, log.emit);
+            // Then the subscriber should not be called during effects
+            runEffects(); see();
+            // But only during the subsequent runPulls
+            runPulls(); see("42");
+        });
     });
     describe("fromSubscribe()", () => {
         it("should subscribe w/pusher on pull and unsub on close", () => {

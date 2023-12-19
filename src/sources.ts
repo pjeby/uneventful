@@ -176,10 +176,12 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
  * @category Stream Producers
  */
 export function fromSignal<T>(s: () => T): Source<T> {
+    s = cached(s);
     return (conn, sink) => {
-        const send = conn.writer(sink);
-        s = cached(s);
-        return conn.onReady(() => conn.onCleanup(effect.root(() => { send(s()); })));
+        let val: T;
+        function sendVal() { conn.push(sink, val); val = undefined; }
+        effect(() => { val = s(); conn.onReady(sendVal); });
+        return conn;
     }
 }
 
