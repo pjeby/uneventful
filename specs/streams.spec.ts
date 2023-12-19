@@ -1,6 +1,6 @@
 import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
 import { Conduit, runPulls } from "../src/streams.ts";
-import { tracker, ActiveTracker, connect, Sink, Source, compose, pipe } from "../mod.ts";
+import { tracker, ActiveTracker, connect, Sink, Source, compose, pipe, onCleanup } from "../mod.ts";
 
 function mkConduit(parent: ActiveTracker = null) {
     return new Conduit(parent);
@@ -25,6 +25,15 @@ describe("connect()", () => {
         t.cleanup();
         // Then the conduit should be closed
         expect(c.isOpen()).to.be.false;
+    });
+    it("calls the source with the conduit's tracker active", () => {
+        // Given a source and a sink
+        function sink() { return true; }
+        function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
+        // When connect() is called with them and closed
+        connect.root(src, sink).close();
+        // Then cleanups added by the source should be called
+        see("cleanup");
     });
 });
 describe("connect.root()", () => {
@@ -366,6 +375,16 @@ describe("Conduit", () => {
             const f = mkChild(c, src, sink);
             // Then the source should be called with the new conduit and the sink
             expect(src).to.have.been.calledOnceWithExactly(f, sink);
+        });
+        it("runs with the new conduit's tracker", () => {
+            // Given a conduit, a source and a sink
+            const c = mkConduit();
+            function sink() { return true; }
+            function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
+            // When the conduit is forked/linked and closed
+            mkChild(c, src, sink).close();
+            // Then cleanups added by the source should be called
+            see("cleanup");
         });
     }
     describe(".fork() returns a conduit that", () => {

@@ -9,7 +9,9 @@ import { ActiveTracker, CleanupFn, OptionalCleanup, ResourceTracker, tracker } f
  *
  * The function must return the conduit. (Mostly so TypeScript can tell what
  * functions are actually sources, as otherwise any void function with
- * no arguments would appear to be usable as a source.)
+ * no arguments would appear to be usable as a source.)  The source function
+ * is invoked with the conduit's resource tracker active, so it can freely
+ * use flows or resources that need {@link onCleanup} and the like.
  *
  * @category Types and Interfaces
  */
@@ -59,9 +61,7 @@ type Producer = () => any
  * @category Stream Consumers
  */
 export function connect<T>(src: Source<T>, sink: Sink<T>) {
-    const c = new Conduit(tracker);
-    src(c, sink);
-    return c;
+    return new Conduit(tracker, null, src, sink);
 }
 
 /**
@@ -75,9 +75,7 @@ export namespace connect {
      * the active tracker.
      */
     export function root<T>(src: Source<T>, sink: Sink<T>) {
-        const c = new Conduit(null);
-        src(c, sink);
-        return c;
+        return new Conduit(null, null, src, sink);
     }
 }
 
@@ -143,9 +141,10 @@ export class Conduit {
     reason: any;
 
     /** @internal */
-    constructor(parent?: ActiveTracker, root?: Conduit) {
+    constructor(parent?: ActiveTracker, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
         this._root = root ?? this;
         this._tracker = parent ? parent.nested(this.close) : tracker();
+        if (src && sink) this._tracker.run(src, this, sink);
     }
 
     /** Is the conduit currently open? */
@@ -309,9 +308,7 @@ export class Conduit {
      */
     fork<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
         if (this.isOpen()) {
-            const c = new Conduit(this._tracker, root);
-            if (src && sink) src(c, sink);
-            return c;
+            return new Conduit(this._tracker, root, src, sink);
         }
         throw new Error("Can't fork or link a closed conduit")
     }
