@@ -1,5 +1,5 @@
 import {
-    log, waitAndSee, see, describe, expect, it, useClock, clock, useTracker, createStubInstance, spy
+    log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
 import { connect, value, runEffects } from "../src/mod.ts";
 import { runPulls } from "../src/streams.ts";
@@ -10,7 +10,7 @@ import {
 
 describe("Sources", () => {
     describe("emitter()", () => {
-        useTracker();
+        useRoot();
         it("should emit/close the source when called", () => {
             // Given an emitter
             const e = emitter<any>();
@@ -315,7 +315,7 @@ describe("Sources", () => {
         });
     });
     describe("fromSignal()", () => {
-        useTracker();
+        useRoot();
         it("should output each value of the signal, including the first", () => {
             // Given a fromSignal(value())
             const v = value(42), s = fromSignal(v);
@@ -434,7 +434,7 @@ describe("Sources", () => {
         });
     });
     describe("never()", () => {
-        useTracker();
+        useRoot();
         useClock();
         it("does nothing", () => {
             // Given a never() stream

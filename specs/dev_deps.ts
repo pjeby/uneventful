@@ -50,16 +50,16 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { tracker } from "../src/tracking.ts";
+import { flow } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
 
-/** Arrange for each test in the current suite to be wrapped in a tracker() for cleanup */
-export function useTracker() {
-    var b = tracker();
-    beforeEach(() => { current.tracker = b; log.clear(); });
-    afterEach(() => { b.cleanup(); current.tracker = null; log.clear(); });
+/** Arrange for each test in the current suite to be wrapped in a root() for cleanup */
+export function useRoot() {
+    var b = flow();
+    beforeEach(() => { current.flow = b; log.clear(); });
+    afterEach(() => { b.cleanup(); current.flow = null; log.clear(); });
 }
 
 export let clock: sinon.SinonFakeTimers;

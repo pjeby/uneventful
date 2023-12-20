@@ -1,4 +1,4 @@
-import { log, see, describe, expect, it, useTracker } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useRoot } from "./dev_deps.ts";
 import { runEffects, value, cached, effect, noDeps, WriteConflict, Signal, Writable } from "../mod.ts";
 
 // Verify a signal of a given value returns the right things from its methods
@@ -17,7 +17,7 @@ function verifyMulti(f: <T>(v: T) => Signal<T>) {
 }
 
 describe("Signal Constructors/Interfaces", () => {
-    useTracker();
+    useRoot();
     describe("value()", () => {
         it("implements the Signal interface", () => { verifyMulti(value); });
         it("is a Writable instance", () => {
@@ -107,7 +107,7 @@ describe("Signal Constructors/Interfaces", () => {
 });
 
 describe("Dependency tracking", () => {
-    useTracker();
+    useRoot();
     describe("noDeps()", () => {
         describe("returns the result of calling the function", () => {
             it("with no arguments", () => {
@@ -145,7 +145,7 @@ describe("Dependency tracking", () => {
 });
 
 describe("Signal invariants", () => {
-    useTracker();
+    useRoot();
 
     it("Updates are immediate outside of effects", () => {
         // Given a value

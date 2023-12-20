@@ -1,25 +1,35 @@
 /**
- * A resource tracker tracks and releases resources (or runs undo actions) that
- * are used by flows (such as effects and jobs) or other units of work.
+ * A "flow" is an activity that tracks and releases resources (or runs undo
+ * actions) upon termination or restart.
  *
- * By adding `onCleanup()` callbacks to a tracker, you can later call its
+ * By adding `onCleanup()` callbacks to a flow, you can later call its
  * `cleanup()` method to run all of them in reverse order, thereby undoing
  * actions or releasing used resources.
  *
- * The `tracker` export lets you create new trackers, and perform operations on
- * the "current" tracker, if there is one. e.g. `tracker.add(callback)` will add
- * `callback` to the active tracker, or throw an error if there is none. (You
- * can use `tracker.active` to check if there is a currently active tracker, or
+ * The `flow` export lets you create new flows, and perform operations on the
+ * "current" flow, if there is one. e.g. `flow.onCleanup(callback)` will add
+ * `callback` to the active flow, or throw an error if there is none. (You can
+ * use {@link flow.isActive}() to check if there is a currently active flow, or
  * make one active using its `.run()` method.)
  *
- * @category Resource Management
+ * @category Types and Interfaces
  */
-interface TrackerAPI extends ActiveTracker {
-    /** Is there a currently active tracker? */
-    active(): boolean;
+export interface FlowAPI extends ActiveFlow {
+    /** Is there a currently active flow? */
+    isActive(): boolean;
 
-    /** Return an empty ResourceTracker (new or recycled) */
-    (): ResourceTracker;
+    /**
+     * Get a standalone (root) Flow object
+     * @category Flows
+     */
+    (): Flow;
+
+    /**
+     * Create a temporary nested flow -- like an {@link effect}() without any
+     * dependency tracking, except that the supplied action is run
+     * synchronously.
+     */
+    (action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn;
 }
 
 /**
@@ -46,93 +56,94 @@ export type DisposeFn = () => void;
 export type OptionalCleanup = CleanupFn | Nothing;
 
 /**
- * The subset of the {@link ResourceTracker} interface that's also available on
- * the "current" {@link tracker}.
+ * The subset of the {@link Flow} interface that's also available on
+ * the "current" {@link flow}.
  *
  * @category Types and Interfaces
  */
-export interface ActiveTracker {
+export interface ActiveFlow {
     /**
-     * Add a callback to be run when the tracker is released. (Non-function
-     * values are ignored.)
+     * Add a callback to be run when the flow is released. (Non-function values
+     * are ignored.)
      */
     onCleanup(cleanup?: OptionalCleanup): void;
 
     /**
-     * Like {@link onCleanup}(), except a function is returned that will remove
-     * the cleanup function from the tracker, if it's still present.  (Also, the
-     * cleanup function isn't optional.)
+     * Like {@link onCleanup}(), except a function is returned that will
+     * *remove* the cleanup function from the flow, if it's still present.
+     * (Also, the cleanup function isn't optional.)
+     *
+     * (This is mostly used to implement the {@link link}() and {@link nested}()
+     * methods, but some custom flow types may also find it useful.)
      */
     addLink(cleanup: CleanupFn): () => void;
 
     /**
-     * Link an "inner" tracker to this one, such that the inner tracker will
-     * remove itself from the outer tracker when cleaned up, and the outer
-     * tracker will clean the inner if cleaned first.
+     * Link an "inner" flow to this one, such that the inner flow will
+     * remove itself from the outer flow when cleaned up, and the outer
+     * flow will clean the inner if cleaned first.
      *
      * Long-lived jobs or event streams often spin off lots of subordinate tasks
      * that will end before the parent does, but which still need to stop when
-     * the parent does. Simply adding them to the parent's tracker would
+     * the parent does. Simply adding them to the parent's flow would
      * accumulate a lot of garbage, though: an endless list of cleanup functions
      * to shut down things that were already shut down a long time ago.  So
-     * link() and addLink() can be used to create inner trackers for subordinate
-     * jobs that will unlink themselves from the outer trackers, if they finish
+     * link() and addLink() can be used to create inner flows for subordinate
+     * jobs that will unlink themselves from the outer flows, if they finish
      * first.
      *
      * This method is shorthand for `inner.onCleanup(outer.addLink(stop ??
-     * inner.cleanup))`. (Similar to {@link ActiveTracker.nested}, except that
-     * you supply the inner tracker instead of it being created automatically.)
+     * inner.cleanup))`. (Similar to {@link ActiveFlow.nested}, except that
+     * you supply the inner flow instead of it being created automatically.)
      *
-     * (Note that the link is a one-time thing: if you reuse the inner tracker
+     * (Note that the link is a one-time thing: if you reuse the inner flow
      * after it's been cleaned up, you'll need to link() it again, to re-attach
-     * it to the outer tracker or attach it to a different one.)
+     * it to the outer flow or attach it to a different one.)
      *
-     * @param inner The tracker to link.
-     * @param stop The function the outer tracker should call to clean up the
+     * @param inner The flow to link.
+     * @param stop The function the outer flow should call to clean up the
      * inner; defaults to the inner's `cleanup()` method if not given.
-     * @returns The inner tracker.
+     * @returns The inner flow.
      */
-    link(inner: ResourceTracker, stop?: CleanupFn): ResourceTracker
+    link(inner: Flow, stop?: CleanupFn): Flow
 
     /**
-     * Create an inner tracker that cleans up when the outer tracker does,
-     * or unlinks itself from the outer tracker if the inner tracker is cleaned
-     * up first.
+     * Create an inner flow that cleans up when the outer flow does, or unlinks
+     * itself from the outer flow if the inner flow is cleaned up first.
      *
-     * This is shorthand for `inner = tracker(); outer.link(inner, stop));`.
-     * When the inner tracker is cleaned up, it will remove its cleanup from the
-     * outer tracker, preventing defunct cleanup functions from accumulating in
-     * the outer tracker.
+     * This is shorthand for `inner = root(); outer.link(inner, stop));`. When
+     * the inner flow is cleaned up, it will remove its cleanup from the outer
+     * flow, preventing defunct cleanup functions from accumulating in the outer
+     * flow.
      *
-     * (Note that the link is a one-time thing: if you reuse the inner tracker
+     * (Note that the link is a one-time thing: if you reuse the inner flow
      * after it's been cleaned up, you'll need to use `outer.link(inner, stop?)`
-     * to re-attach it to the outer tracker or attach it to a different one.)
+     * to re-attach it to the outer flow or attach it to a different one.)
      *
-     * @param stop The function the outer tracker should call to clean up the
-     * inner tracker; defaults to the new tracker's `cleanup()` method if not
-     * given.
+     * @param stop The function the outer flow should call to clean up the inner
+     * flow; defaults to the new flow's `cleanup()` method if not given.
      *
-     * @returns A new linked tracker
+     * @returns A new linked flow
      */
-    nested(stop?: CleanupFn): ResourceTracker
+    nested(stop?: CleanupFn): Flow
 }
 
 /**
- * A resource tracker tracks and releases resources (or runs undo actions) that
- * are used by flows (such as effects and jobs) or other units of work.
+ * A Flow object tracks and releases resources (or runs undo actions) that are
+ * used by specific flow implementations (such as effects and jobs).
  *
- * By adding `onCleanup()` callbacks to a tracker, you can later call its
+ * By adding `onCleanup()` callbacks to a flow, you can later call its
  * `cleanup()` method to run all of them in reverse order, thereby undoing
  * actions or releasing of used resources.
  *
- * You can obtain a resource tracker using the {@link tracker} function, or use
- * its methods to access the {@link ActiveTracker}, if there is one.
+ * You can obtain a flow using the {@link flow}() or {@link flow.root}()
+ * functions, or use methods of the {@link ActiveFlow}, if there is one.
  *
  * @category Types and Interfaces
  */
-export interface ResourceTracker extends ActiveTracker {
+export interface Flow extends ActiveFlow {
     /**
-     * Release all resources held by the tracker.
+     * Release all resources held by the flow.
      *
      * All added cleanup functions will be called in last-in-first-out order,
      * removing them in the process.
@@ -142,14 +153,14 @@ export interface ResourceTracker extends ActiveTracker {
      * error).
      *
      * Note: this method is a bound function, so you can pass it as a callback
-     * to another tracker, event handler, etc.
+     * to another flow, event handler, etc.
      */
     readonly cleanup: () => void;
 
     /**
-     * Invoke a function with this tracker as the active one, so that
-     * `tracker.add()` will add things to it, `tracker.nested()` will fork it,
-     * and so on.
+     * Invoke a function with this flow as the active one, so that
+     * `flow.onCleanup()` will add cleanups to it, `flow.nested()` will
+     * create a flow nested in it, and so on.
      *
      * @param fn The function to call
      * @param args The arguments to call it with, if any
@@ -158,56 +169,41 @@ export interface ResourceTracker extends ActiveTracker {
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
 
     /**
-     * Release all resources, deallocate the tracker, and recycle it for future use
+     * Release all resources, deallocate the flow object, and recycle it for
+     * future use
      *
-     * Do not use this method unless you can *guarantee* there are no outstanding
-     * references to the tracker, or else Bad Things Will Happen.
-     *
-     * Note: this method is a bound function, so you can pass it as a callback
-     * to another tracker, event handler, etc.
+     * Do not use this method unless you can *guarantee* there are no
+     * outstanding references to the flow, or else Bad Things Will Happen.
      */
-    readonly destroy: () => void;
+    destroy(): void;
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Job, Nothing, PlainFunction } from "./types.ts";
 
-const recycledTrackers = [] as ResourceTracker[];
+const recycledFlows = [] as Flow[];
 
-/**
- * Create a {@link ResourceTracker} or manage the {@link ActiveTracker}.
- *
- * The {@link tracker} function object is also an {@link ActiveTracker}
- * instance, with its methods applying to the currently active tracker.  (If
- * there is no active tracker, an error will be thrown when you try to use those
- * methods.)
- *
- * You can check if there is an active tracker by calling
- * {@link tracker.active}().
- *
- * @category Resource Management
- */
-export const tracker: TrackerAPI = (() => {
+export const flow: FlowAPI = (() => {
 
-    function getTracker() {
-        const {tracker} = current;
-        if (tracker) return tracker;
-        throw new Error("No resource tracker is currently active");
+    function getFlow() {
+        const {flow} = current;
+        if (flow) return flow;
+        throw new Error("No flow is currently active");
     }
 
     var freelist: CleanupNode;
 
-    class _tracker implements ResourceTracker {
+    class _flow implements Flow {
 
-        static active() { return !!current.tracker; }
-        static onCleanup(cleanup?: OptionalCleanup) { return getTracker().onCleanup(cleanup); }
-        static addLink(cleanup: CleanupFn) { return getTracker().addLink(cleanup); }
-        static link(inner: ResourceTracker, stop?: CleanupFn) { return getTracker().link(inner, stop); }
-        static nested(stop?: CleanupFn) { return getTracker().nested(stop); }
+        static isActive() { return !!current.flow; }
+        static onCleanup(cleanup?: OptionalCleanup) { return getFlow().onCleanup(cleanup); }
+        static addLink(cleanup: CleanupFn) { return getFlow().addLink(cleanup); }
+        static link(inner: Flow, stop?: CleanupFn) { return getFlow().link(inner, stop); }
+        static nested(stop?: CleanupFn) { return getFlow().nested(stop); }
 
         destroy() {
             this.cleanup();
-            recycledTrackers.push(this);
+            recycledFlows.push(this);
         }
 
         cleanup = () => {
@@ -236,11 +232,11 @@ export const tracker: TrackerAPI = (() => {
             return () => { freeCN(rb); rb = null; };
         }
 
-        nested(stop?: CleanupFn): ResourceTracker {
-            return this.link(tracker(), stop);
+        nested(stop?: CleanupFn): Flow {
+            return this.link(flow(), stop);
         }
 
-        link(nested: ResourceTracker, stop?: CleanupFn): ResourceTracker {
+        link(nested: Flow, stop?: CleanupFn): Flow {
             nested.onCleanup(this.addLink(stop || nested.cleanup));
             return nested;
         }
@@ -253,14 +249,15 @@ export const tracker: TrackerAPI = (() => {
         }
     }
 
-    function tracker(): ResourceTracker {
-        if (this instanceof tracker) throw new Error("Use tracker() without new")
-        return recycledTrackers.pop() || new _tracker;
+    function flow(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn;
+    function flow(): Flow;
+    function flow(action?: (destroy: DisposeFn) => OptionalCleanup): Flow | DisposeFn {
+        return action ? wrapAction(_flow.nested, action) : (recycledFlows.pop() || new _flow);
     }
 
-    tracker.prototype = _tracker.prototype;
-    tracker.prototype.constructor = tracker;
-    return Object.setPrototypeOf(tracker, _tracker);
+    flow.prototype = _flow.prototype;
+    flow.prototype.constructor = flow;
+    return Object.setPrototypeOf(flow, _flow);
 
     type CleanupNode = {
         _next: CleanupNode,
@@ -294,31 +291,33 @@ export const tracker: TrackerAPI = (() => {
 })();
 
 /**
- * Add a cleanup function to the active tracker. Non-function values are
- * ignored.
+ * Add a cleanup function to the active flow. Non-function values are ignored.
  *
  * @category Resource Management
  */
-export const onCleanup = tracker.onCleanup;
+export const onCleanup = flow.onCleanup;
 
 /**
- * Create a temporary tracker, running a function in it and returning a
- * callback that will safely dispose of the tracker and its resources.  (The
- * same callback will be also be passed as the first argument to the
- * function, so the tracker can be destroyed from either inside or outside the
- * function.)
+ * Create a temporary, standalone flow, running a function in it and returning a
+ * callback that will safely dispose of the flow and its resources.  (The same
+ * callback will be also be passed as the first argument to the function, so the
+ * flow can be destroyed from either inside or outside the function.)
  *
- * If the called function returns a function, it will be added to the new
- * tracker's cleanup callbacks.  If the function throws an error, the
- * tracker will be cleaned up, and the error re-thrown.
+ * If the called function returns a function, it will be added to the new flow's
+ * cleanup callbacks.  If the function throws an error, the flow will be cleaned
+ * up, and the error re-thrown.
  *
- * @returns the temporary tracker's `destroy()` callback
+ * @returns a callback that will destroy the temporary flow
  *
  * @category Resource Management
  */
-export function track(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    var t = tracker();
-    t.onCleanup(t.run(action, destroy));
+export function root(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
+    return wrapAction(flow, action);
+}
+
+function wrapAction(factory: () => Flow, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
+    let flow = factory();
+    const destroy = () => { flow?.destroy(); flow = undefined; }
+    flow.onCleanup(flow.run(action, destroy));
     return destroy;
-    function destroy() { t?.destroy(); t = undefined; }
 }

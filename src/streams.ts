@@ -1,5 +1,5 @@
 import { defer } from "./defer.ts";
-import { ActiveTracker, CleanupFn, OptionalCleanup, ResourceTracker, tracker } from "./tracking.ts";
+import { ActiveFlow, CleanupFn, OptionalCleanup, Flow, flow } from "./tracking.ts";
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -8,10 +8,10 @@ import { ActiveTracker, CleanupFn, OptionalCleanup, ResourceTracker, tracker } f
  * if the sink doesn't want more data or the source has no more to send).
  *
  * The function must return the conduit. (Mostly so TypeScript can tell what
- * functions are actually sources, as otherwise any void function with
- * no arguments would appear to be usable as a source.)  The source function
- * is invoked with the conduit's resource tracker active, so it can freely
- * use flows or resources that need {@link onCleanup} and the like.
+ * functions are actually sources, as otherwise any void function with no
+ * arguments would appear to be usable as a source.)  The source function is
+ * invoked with the conduit's flow active, so it can freely use flows or
+ * resources that need {@link onCleanup} and the like.
  *
  * @category Types and Interfaces
  */
@@ -50,10 +50,9 @@ type Producer = () => any
 /**
  * Subscribe a sink to a source, returning a conduit
  *
- * The returned conduit will be linked to the active
- * {@link ResourceTracker tracker}.  (If you want to create a standalone conduit
- * that is not linked to the current resource tracker, use
- * {@link connect.root}() instead.)
+ * The returned conduit will be linked to the active flow. (If you want to
+ * create a standalone conduit that is not linked to the current flow, or
+ * there is no active flow, use {@link connect.root}() instead.)
  *
  * Note: some sources may not begin sending events until after
  * {@link Conduit.resume .resume()} is called on the returned conduit.
@@ -61,7 +60,7 @@ type Producer = () => any
  * @category Stream Consumers
  */
 export function connect<T>(src: Source<T>, sink: Sink<T>) {
-    return new Conduit(tracker, null, src, sink);
+    return new Conduit(flow, null, src, sink);
 }
 
 /**
@@ -72,7 +71,7 @@ export namespace connect {
      * Subscribe a sink to a source, returning a standalone conduit
      *
      * Just like {@link connect}(), but the returned conduit is not linked to
-     * the active tracker.
+     * the active flow.
      */
     export function root<T>(src: Source<T>, sink: Sink<T>) {
         return new Conduit(null, null, src, sink);
@@ -133,7 +132,7 @@ function is(flags: Is, mask: Is, eq = mask) {
  */
 export class Conduit {
     protected _flags = Is.Open | Is.Ready;
-    protected _tracker: ResourceTracker;
+    protected _flow: Flow;
     protected _callbacks: Map<Producer, CleanupFn>;
     protected _root: Conduit;
 
@@ -141,10 +140,10 @@ export class Conduit {
     reason: any;
 
     /** @internal */
-    constructor(parent?: ActiveTracker, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
+    constructor(parent?: ActiveFlow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
         this._root = root ?? this;
-        this._tracker = parent ? parent.nested(this.close) : tracker();
-        if (src && sink) this._tracker.run(src, this, sink);
+        this._flow = parent ? parent.nested(this.close) : flow();
+        if (src && sink) this._flow.run(src, this, sink);
     }
 
     /** Is the conduit currently open? */
@@ -172,10 +171,10 @@ export class Conduit {
      *
      * If the conduit is already closed, the function will run in the next
      * microtask.  Otherwise, cleanup callbacks run in reverse order as with
-     * any other resource tracker.
+     * any other flow.
      */
     onCleanup(fn?: OptionalCleanup) {
-        this.isOpen() ? this._tracker.onCleanup(fn) : fn && defer(fn);
+        this.isOpen() ? this._flow.onCleanup(fn) : fn && defer(fn);
         return this;
     }
 
@@ -188,7 +187,7 @@ export class Conduit {
     onReady(cb: Producer) {
         if (!this.isOpen()) return this;
         const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
-        const unlink = this._tracker.addLink(() => _callbacks.delete(cb));
+        const unlink = this._flow.addLink(() => _callbacks.delete(cb));
         if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
             pulls.size || schedulePulls();
             pulls.add(_root);
@@ -259,8 +258,8 @@ export class Conduit {
     close = () => {
         if (this._flags & Is.Open) {
             this._flags &= ~(Is.Open|Is.Ready);
-            this._tracker.destroy();
-            this._tracker = undefined;
+            this._flow.destroy();
+            this._flow = undefined;
         }
         return this;
     }
@@ -308,7 +307,7 @@ export class Conduit {
      */
     fork<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
         if (this.isOpen()) {
-            return new Conduit(this._tracker, root, src, sink);
+            return new Conduit(this._flow, root, src, sink);
         }
         throw new Error("Can't fork or link a closed conduit")
     }

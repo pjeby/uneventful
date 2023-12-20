@@ -1,15 +1,15 @@
 import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
 import { Conduit, runPulls } from "../src/streams.ts";
-import { tracker, ActiveTracker, connect, Sink, Source, compose, pipe, onCleanup } from "../mod.ts";
+import { flow, ActiveFlow, connect, Sink, Source, compose, pipe, onCleanup } from "../mod.ts";
 
-function mkConduit(parent: ActiveTracker = null) {
+function mkConduit(parent: ActiveFlow = null) {
     return new Conduit(parent);
 }
 
 describe("connect()", () => {
     it("calls source with sink and returns a Conduit", () => {
         // Given a source and a sink
-        const t = tracker(), src = spy(), sink = spy();
+        const t = flow(), src = spy(), sink = spy();
         // When connect() is called with them
         const c = t.run(connect, src, sink);
         // Then you should get a conduit
@@ -17,16 +17,16 @@ describe("connect()", () => {
         // And the source should have been called with the conduit and the sink
         expect(src).to.have.been.calledOnceWithExactly(c, sink);
     });
-    it("is linked to the running tracker", () => {
-        // Given a conduit opened by connect in the context of a tracker
-        const t = tracker(), src = spy(), sink = spy();
-        const c = t.run(connect, src, sink);
-        // When the tracker is cleaned up
-        t.cleanup();
+    it("is linked to the running flow", () => {
+        // Given a conduit opened by connect in the context of a flow
+        const f = flow(), src = spy(), sink = spy();
+        const c = f.run(connect, src, sink);
+        // When the flow is cleaned up
+        f.cleanup();
         // Then the conduit should be closed
         expect(c.isOpen()).to.be.false;
     });
-    it("calls the source with the conduit's tracker active", () => {
+    it("calls the source with the conduit's flow active", () => {
         // Given a source and a sink
         function sink() { return true; }
         function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
@@ -37,10 +37,10 @@ describe("connect()", () => {
     });
 });
 describe("connect.root()", () => {
-    it("is connect() with a null tracker", () => {
+    it("is connect() with a null flow", () => {
         // Given a source and a sink
         const src = spy(), sink = spy();
-        // When connect() is called with them and a null tracker
+        // When connect.root() is called with them
         const c = connect.root(src, sink);
         // Then you should get a conduit
         expect(c).to.be.an.instanceOf(Conduit);
@@ -80,11 +80,11 @@ describe("Conduit", () => {
         expect(c.isReady()).to.be.false;
         expect(c.hasError()).to.be.false;
     });
-    it("closes(+unready) when its enclosing tracker is cleaned up", () => {
-        // Given a tracker and a conduit it's attached to
-        const t = tracker(), c = mkConduit(t);
+    it("closes(+unready) when its enclosing flow is cleaned up", () => {
+        // Given a flow and a conduit it's attached to
+        const t = flow(), c = mkConduit(t);
         expect(c.isOpen()).to.be.true;
-        // When the tracker is cleaned up
+        // When the flow is cleaned up
         t.cleanup();
         // Then the conduit should be closed
         expect(c.isOpen()).to.be.false;
@@ -150,13 +150,13 @@ describe("Conduit", () => {
             // Then the callback should see the correct error state
             see("true", "this is the reason");
         });
-        it("when the enclosing tracker is cleaned up", () => {
-            // Given a tracker and a conduit it's attached to
-            const t = tracker(), c = mkConduit(t);
+        it("when the enclosing flow is cleaned up", () => {
+            // Given a flow and a conduit it's attached to
+            const f = flow(), c = mkConduit(f);
             // And two onCleanup callbacks
             c.onCleanup(() => log("first")).onCleanup(() => log("last"));
-            // When the tracker is cleaned up
-            t.cleanup();
+            // When the flow is cleaned up
+            f.cleanup();
             // Then the callbacks should be run in reverse order
             see("last", "first");
         });
@@ -376,7 +376,7 @@ describe("Conduit", () => {
             // Then the source should be called with the new conduit and the sink
             expect(src).to.have.been.calledOnceWithExactly(f, sink);
         });
-        it("runs with the new conduit's tracker", () => {
+        it("runs with the new conduit's flow", () => {
             // Given a conduit, a source and a sink
             const c = mkConduit();
             function sink() { return true; }

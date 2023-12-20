@@ -1,10 +1,10 @@
-import { log, see, describe, expect, it, useTracker, spy } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
 import { Cell, CircularDependency, WriteConflict } from "../src/cells.ts";
 import { defer } from "../src/defer.ts";
 
 describe("Cycles and Side-Effects", () => {
-    useTracker();
+    useRoot();
     it("cached() can't create side-effects", () => {
         const v = value(99), w = cached(() => v.set(42));
         expect(w).to.throw("Side-effects not allowed")
@@ -73,7 +73,7 @@ describe("Cycles and Side-Effects", () => {
 
 
 describe("Consistent updates", () => {
-    useTracker();
+    useRoot();
     it("with multiple paths to common element", () => {
         // Given an effect with two paths to a common value
         const start = value(22);
@@ -167,7 +167,7 @@ describe("cached()", () => {
 });
 
 describe("effect()", () => {
-    useTracker();
+    useRoot();
     it("should call the function on tick", () => {
         effect(() => log("called"));
         runEffects();
@@ -232,7 +232,7 @@ describe("effect.scheduler()", () => {
         expect(effect.scheduler(fn)).to.equal(s);
     });
     describe("returns an EffectScheduler that", () => {
-        useTracker();
+        useRoot();
         it("calls the function on transition from empty", () => {
             // Given a scheduler based on a spy
             const cb = spy(), s = effect.scheduler(cb);
@@ -266,7 +266,7 @@ describe("effect.scheduler()", () => {
 });
 
 describe("EffectScheduler", () => {
-    useTracker();
+    useRoot();
     it("won't flush() while already flushing", () => {
         // Given a scheduler and an effect that calls flush()
         const v = value<Function>(), s = effect.scheduler(v.set);

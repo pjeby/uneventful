@@ -1,5 +1,5 @@
 import { current } from "./ambient.ts";
-import { DisposeFn, OptionalCleanup, tracker } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, flow } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, EffectScheduler } from "./cells.ts";
 import { defer } from "./defer.ts";
@@ -88,20 +88,20 @@ export function cached<T>(compute: () => T): Signal<T> {
  * after there are changes in any of the values or cached functions it read
  * during its previous run.
  *
- * The created subscription is tied to the currently-active resource tracker
- * (usually that of the enclosing flow).  So when that tracker is cleaned up (or
- * the flow is ended), the effect will be terminated automatically.  You can
- * also terminate it early by calling the "stop" function that is both passed to
- * the effect function and returned by `effect()`.
+ * The created subscription is tied to the currently-active flow.  So when that
+ * flow is ended or restarted, the effect will be terminated automatically.  You
+ * can also terminate it early by calling the "stop" function that is both
+ * passed to the effect function and returned by `effect()`.
  *
- * Note: this function will throw an error if called outside of a `track()`,
- * `tracker().run()`, or another flow (i.e. another `job()`, `when()`, or
- * `effect()`). If you need a standalone effect, use {@link effect.root}
- * (or {@link EffectScheduler.root effect.scheduler().root()}) instead.
+ * Note: this function will throw an error if called without an active flow. If
+ * you need a standalone effect, use {@link effect.root} (or
+ * {@link EffectScheduler.root effect.scheduler().root()}) instead.
  *
- * @param fn The function that will be run each time its dependencies change. It
- * is passed a single argument: a function that can be called to terminate the
- * effect.
+ * @param fn The function that will be run each time its dependencies change.
+ * The function will be run in a fresh flow each time, with any resources used
+ * by the previous run being cleaned up.  The function is passed a single
+ * argument: a function that can be called to terminate the effect.   The
+ * function should return a cleanup function or void.
  *
  * @returns A function that can be called to terminate the effect.
  *
@@ -109,7 +109,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  * @category Flows
  */
 export function effect(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-    return Cell.mkEffect(fn, tracker);
+    return Cell.mkEffect(fn, flow);
 }
 
 /**
@@ -121,13 +121,12 @@ export function effect(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
 export namespace effect {
     /**
      * Create a standalone ("root") effect that won't be tied to the current
-     * resource tracker or flow (and thus doesn't *need* an enclosing tracker or
-     * flow).
+     * flow (and thus doesn't *need* an enclosing flow).
      *
-     * Just like a plain `effect()` except that the effect is *not* tied to the
-     * current flow or tracker, and will therefore remain active until the
-     * disposal callback is called, even if the enclosing tracker is cleaned up
-     * or flow is canceled.
+     * Just like a plain {@link effect}() or {@link EffectScheduler.effect}(),
+     * except that the effect is *not* tied to the current flow, and will
+     * therefore remain active until the "stop" function or dispose callback is
+     * called, even if the enclosing flow is ended or restarted.
      */
     export function root(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
         return Cell.mkEffect(fn, null);
