@@ -205,7 +205,7 @@ export const tracker: TrackerAPI = (() => {
         static link(inner: ResourceTracker, stop?: CleanupFn) { return getTracker().link(inner, stop); }
         static nested(stop?: CleanupFn) { return getTracker().nested(stop); }
 
-        destroy = () => {
+        destroy() {
             this.cleanup();
             recycledTrackers.push(this);
         }
@@ -317,7 +317,8 @@ export const onCleanup = tracker.onCleanup;
  * @category Resource Management
  */
 export function track(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    const t = tracker();
-    t.onCleanup(t.run(action, t.destroy));
-    return t.destroy;
+    var t = tracker();
+    t.onCleanup(t.run(action, destroy));
+    return destroy;
+    function destroy() { t?.destroy(); t = undefined; }
 }

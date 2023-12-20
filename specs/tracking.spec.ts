@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, spy } from "./dev_deps.ts";
+import { afterEach, beforeEach, describe, expect, it, log, see, spy } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
 import { CleanupFn, ResourceTracker, tracker, onCleanup, track } from "../mod.ts";
 
@@ -29,10 +29,10 @@ describe("tracker", () => {
     });
     describe("track()", () => {
         it("runs with a new tracker active, passing in a destroy", () => {
-            var active: ResourceTracker, d: () => void;
-            const b = track((destroy) => { d = destroy; active = current.tracker; });
-            expect(active.destroy).to.equal(b);
-            expect(d).to.equal(b);
+            var d: () => void;
+            const dispose = track((destroy) => { d = destroy; onCleanup(() => log("destroy")) });
+            expect(d).to.equal(dispose);
+            see(); dispose(); see("destroy");
         });
         it("adds the return value if it's a function", () => {
             const cb = spy();
@@ -41,6 +41,13 @@ describe("tracker", () => {
             b();
             expect(cb).to.have.been.calledOnce;
         });
+        it("doesn't destroy recycled trackers", () => {
+            const d1 = track(() => { onCleanup(() => log("destroy")) });
+            d1(); see("destroy");
+            const d2 = track(() => { onCleanup(() => log("destroy")) });
+            d1(); see();
+            d2(); see("destroy");
+        })
     })
     describe("calls methods on the active tracker", () => {
         var t1 = tracker(), cb = spy();
