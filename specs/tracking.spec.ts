@@ -15,6 +15,30 @@ describe("makeFlow()", () => {
         const flow2 = makeFlow();
         expect(flow2, "should be recycled").to.equal(flow1);
     });
+    describe("creates nested flows,", () => {
+        var f: Flow, cb = spy();
+        beforeEach(() => { cb = spy(); f = makeFlow(); });
+        it("calling the stop function if outer is cleaned up", () => {
+            makeFlow(f, cb);
+            expect(cb).to.not.have.been.called;
+            f.cleanup();
+            expect(cb).to.have.been.calledOnce;
+        });
+        it("not calling the stop function if inner is cleaned up", () => {
+            const inner = makeFlow(f, cb);
+            expect(cb).to.not.have.been.called;
+            inner.cleanup();
+            f.cleanup();
+            expect(cb).to.not.have.been.called;
+        });
+        it("cleaning up the inner as the default stop action", () => {
+            const inner = makeFlow(f);
+            inner.onCleanup(cb);
+            expect(cb).to.not.have.been.called;
+            f.cleanup();
+            expect(cb).to.have.been.calledOnce;
+        });
+    });
 });
 
 describe("flow(action)", () => {
@@ -208,30 +232,6 @@ describe("Flow instances", () => {
             cancel();
             f.cleanup();
             expect(cb).to.not.have.been.called;
-        });
-    });
-    describe("makeFlow() nested", () => {
-        var cb = spy();
-        beforeEach(() => { cb = spy(); });
-        it("calls the stop function if outer is cleaned up", () => {
-            makeFlow(f, cb);
-            expect(cb).to.not.have.been.called;
-            f.cleanup();
-            expect(cb).to.have.been.calledOnce;
-        });
-        it("doesn't call the stop function if inner is cleaned up", () => {
-            const inner = makeFlow(f, cb);
-            expect(cb).to.not.have.been.called;
-            inner.cleanup();
-            f.cleanup();
-            expect(cb).to.not.have.been.called;
-        });
-        it("cleans up the inner as the default stop action", () => {
-            const inner = makeFlow(f);
-            inner.onCleanup(cb);
-            expect(cb).to.not.have.been.called;
-            f.cleanup();
-            expect(cb).to.have.been.calledOnce;
         });
     });
     describe(".run()", () => {

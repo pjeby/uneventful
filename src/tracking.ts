@@ -76,13 +76,13 @@ import { Job, Nothing, PlainFunction } from "./types.ts";
 
 const recycledFlows = [] as Flow[];
 
-    function getFlow() {
-        const {flow} = current;
-        if (flow) return flow;
-        throw new Error("No flow is currently active");
-    }
+function getFlow() {
+    const {flow} = current;
+    if (flow) return flow;
+    throw new Error("No flow is currently active");
+}
 
-    var freelist: CleanupNode;
+var freelist: CleanupNode;
 
 /**
  * A Flow object tracks and releases resources (or runs undo actions) that are
@@ -97,85 +97,85 @@ const recycledFlows = [] as Flow[];
  * @category Types and Interfaces
  */
 export class Flow {
-        /** @internal */
-        static create(parent?: Flow, stop?: CleanupFn) {
-            const flow = recycledFlows.shift() || new Flow;
-            if (parent || stop) flow.onCleanup(
-                (parent || current.flow).linkedCleanup(stop || flow.cleanup)
-            );
-            return flow;
-        }
-
-        protected constructor() {};
-
-        destroy() {
-            this.cleanup();
-            recycledFlows.push(this);
-        }
-
-        readonly cleanup = () => {
-            const old = swapCtx(makeCtx());
-            for (var rb = this._next; rb; freeCN(rb), rb = this._next) {
-                try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
-            }
-            freeCtx(swapCtx(old));
-        }
-
-        run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F> {
-            const old = swapCtx(makeCtx(current.job, this));
-            try {
-                return fn.apply(null, args);
-            } catch(e) {
-                this.cleanup(); throw e;
-            } finally { freeCtx(swapCtx(old)); }
-        }
-
-        onCleanup(cleanup?: OptionalCleanup) {
-            if (typeof cleanup === "function") this._push(cleanup);
-        }
-
-        linkedCleanup(cleanup: CleanupFn): () => void {
-            var rb = this._push(() => { rb = null; cleanup(); });
-            return () => { freeCN(rb); rb = null; };
-        }
-
-        protected _next: CleanupNode = undefined;
-        protected _push(cb: CleanupFn) {
-            let rb = makeCN(cb, current.job, this._next, this as unknown as CleanupNode);
-            if (this._next) this._next._prev = rb;
-            return this._next = rb;
-        }
+    /** @internal */
+    static create(parent?: Flow, stop?: CleanupFn) {
+        const flow = recycledFlows.shift() || new Flow;
+        if (parent || stop) flow.onCleanup(
+            (parent || current.flow).linkedCleanup(stop || flow.cleanup)
+        );
+        return flow;
     }
 
-    type CleanupNode = {
-        _next: CleanupNode,
-        _prev: CleanupNode,
-        _cb: CleanupFn,
-        _job: Job<any>
+    protected constructor() {};
+
+    destroy() {
+        this.cleanup();
+        recycledFlows.push(this);
     }
 
-    function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode, prev: CleanupNode): CleanupNode {
-        if (freelist) {
-            let node = freelist;
-            freelist = node._next;
-            node._next = next;
-            node._prev = prev;
-            node._cb = cb;
-            node._job = job;
-            return node;
+    readonly cleanup = () => {
+        const old = swapCtx(makeCtx());
+        for (var rb = this._next; rb; freeCN(rb), rb = this._next) {
+            try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
         }
-        return {_next: next, _prev: prev, _cb: cb, _job: job}
+        freeCtx(swapCtx(old));
     }
 
-    function freeCN(rb: CleanupNode) {
-        if (rb) {
-            if (rb._next) rb._next._prev = rb._prev;
-            if (rb._prev) rb._prev._next = rb._next;
-            rb._next = freelist;
-            freelist = rb;
-            rb._prev = rb._cb = rb._job = undefined;
-        }
+    run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F> {
+        const old = swapCtx(makeCtx(current.job, this));
+        try {
+            return fn.apply(null, args);
+        } catch(e) {
+            this.cleanup(); throw e;
+        } finally { freeCtx(swapCtx(old)); }
     }
+
+    onCleanup(cleanup?: OptionalCleanup) {
+        if (typeof cleanup === "function") this._push(cleanup);
+    }
+
+    linkedCleanup(cleanup: CleanupFn): () => void {
+        var rb = this._push(() => { rb = null; cleanup(); });
+        return () => { freeCN(rb); rb = null; };
+    }
+
+    protected _next: CleanupNode = undefined;
+    protected _push(cb: CleanupFn) {
+        let rb = makeCN(cb, current.job, this._next, this as unknown as CleanupNode);
+        if (this._next) this._next._prev = rb;
+        return this._next = rb;
+    }
+}
+
+type CleanupNode = {
+    _next: CleanupNode,
+    _prev: CleanupNode,
+    _cb: CleanupFn,
+    _job: Job<any>
+}
+
+function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode, prev: CleanupNode): CleanupNode {
+    if (freelist) {
+        let node = freelist;
+        freelist = node._next;
+        node._next = next;
+        node._prev = prev;
+        node._cb = cb;
+        node._job = job;
+        return node;
+    }
+    return {_next: next, _prev: prev, _cb: cb, _job: job}
+}
+
+function freeCN(rb: CleanupNode) {
+    if (rb) {
+        if (rb._next) rb._next._prev = rb._prev;
+        if (rb._prev) rb._prev._next = rb._next;
+        rb._next = freelist;
+        freelist = rb;
+        rb._prev = rb._cb = rb._job = undefined;
+    }
+}
 
 /**
  * Add a cleanup function to the active flow. Non-function values are ignored.
@@ -287,7 +287,7 @@ export const makeFlow = Flow.create;
  * within the current resource tracking context (if any), it will create a
  * standalone (i.e. root) flow.
  *
- * @category Resource Management
+ * @category Flows
  */
 export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
     return <T> function (...args) {
