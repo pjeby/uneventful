@@ -1,15 +1,17 @@
-import { log, see, describe, expect, it, spy, useClock, clock } from "./dev_deps.ts";
+import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit, runPulls } from "../src/streams.ts";
-import { flow, ActiveFlow, connect, Sink, Source, compose, pipe, onCleanup } from "../mod.ts";
+import { type Flow, connect, Sink, Source, compose, pipe, onCleanup, detached, makeFlow } from "../mod.ts";
 
-function mkConduit(parent: ActiveFlow = null) {
+function mkConduit(parent: Flow = null) {
+    if (!parent) return detached(() => new Conduit())();
     return new Conduit(parent);
 }
 
 describe("connect()", () => {
+    useRoot();
     it("calls source with sink and returns a Conduit", () => {
         // Given a source and a sink
-        const t = flow(), src = spy(), sink = spy();
+        const t = makeFlow(), src = spy(), sink = spy();
         // When connect() is called with them
         const c = t.run(connect, src, sink);
         // Then you should get a conduit
@@ -19,7 +21,7 @@ describe("connect()", () => {
     });
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
-        const f = flow(), src = spy(), sink = spy();
+        const f = makeFlow(), src = spy(), sink = spy();
         const c = f.run(connect, src, sink);
         // When the flow is cleaned up
         f.cleanup();
@@ -31,22 +33,10 @@ describe("connect()", () => {
         function sink() { return true; }
         function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
         // When connect() is called with them and closed
-        connect.root(src, sink).close();
+        connect(src, sink).close();
         // Then cleanups added by the source should be called
         see("cleanup");
     });
-});
-describe("connect.root()", () => {
-    it("is connect() with a null flow", () => {
-        // Given a source and a sink
-        const src = spy(), sink = spy();
-        // When connect.root() is called with them
-        const c = connect.root(src, sink);
-        // Then you should get a conduit
-        expect(c).to.be.an.instanceOf(Conduit);
-        // And the source should have been called with the conduit and the sink
-        expect(src).to.have.been.calledOnceWithExactly(c, sink);
-    })
 });
 
 describe("Conduit", () => {
@@ -82,7 +72,7 @@ describe("Conduit", () => {
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a conduit it's attached to
-        const t = flow(), c = mkConduit(t);
+        const t = makeFlow(), c = mkConduit(t);
         expect(c.isOpen()).to.be.true;
         // When the flow is cleaned up
         t.cleanup();
@@ -152,7 +142,7 @@ describe("Conduit", () => {
         });
         it("when the enclosing flow is cleaned up", () => {
             // Given a flow and a conduit it's attached to
-            const f = flow(), c = mkConduit(f);
+            const f = makeFlow(), c = mkConduit(f);
             // And two onCleanup callbacks
             c.onCleanup(() => log("first")).onCleanup(() => log("last"));
             // When the flow is cleaned up

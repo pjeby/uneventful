@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, log, see, spy, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, flow, onCleanup, root } from "../mod.ts";
+import { CleanupFn, Flow, flow, isFlowActive, onCleanup, root, linkedCleanup, makeFlow, detached } from "../mod.ts";
 
-describe("flow()", () => {
+describe("makeFlow()", () => {
     it("returns new standalone flows", () => {
-        const flow1 = flow(), flow2 = flow();
-        expect(flow1).to.be.instanceof(flow);
-        expect(flow2).to.be.instanceof(flow);
+        const flow1 = makeFlow(), flow2 = makeFlow();
+        expect(flow1).to.be.instanceof(Flow);
+        expect(flow2).to.be.instanceof(Flow);
         expect(flow1).to.not.equal(flow2);
     });
     it("recycles destroyed flows", () => {
-        const flow1 = flow();
+        const flow1 = makeFlow();
         flow1.destroy();
-        const flow2 = flow();
+        const flow2 = makeFlow();
         expect(flow2, "should be recycled").to.equal(flow1);
     });
 });
@@ -80,64 +80,65 @@ describe("root(action)", () => {
     });
 });
 
+describe("detached(factory)", () => {
+    it("throws in response to onCleanup()", () => {
+        // Given a detached flow factory that uses onCleanup
+        const d = detached(() => {
+            onCleanup(() => log("cleanup"));
+        })
+        // When it's invoked Then it should throw an error
+        expect(d).to.throw("Can't add cleanups in a detached flow");
+    });
+    it("allows creating 'nested' flows", () => {
+        // Given a detached flow factory that creates a flow
+        const cleanup = detached(() => flow(() => {
+            onCleanup(() => log("cleanup"));
+        }))();
+        see();
+        // When the flow's cleanup is called
+        cleanup();
+        // Then cleanups registered in the flow should run
+        see("cleanup");
+    });
+});
 
-describe("flow", () => {
-    it(".active() is true during run()", () => {
+describe("Flow API", () => {
+    it("isFlowActive() is true during run()", () => {
         var tested: boolean;
-        expect(flow.isActive(), "Shouldn't be active before run()").to.be.false;
-        flow().run(()=> {
-            expect(flow.isActive(), "Should be active during run()").to.be.true;
+        expect(isFlowActive(), "Shouldn't be active before run()").to.be.false;
+        makeFlow().run(()=> {
+            expect(isFlowActive(), "Should be active during run()").to.be.true;
             tested = true;
         })
         expect(tested, "Should have called the run function").to.be.true;
-        expect(flow.isActive(), "Shouldn't be active after run()").to.be.false;
+        expect(isFlowActive(), "Shouldn't be active after run()").to.be.false;
     });
     describe("calls methods on the active flow", () => {
-        var t1 = flow(), cb = spy();
-        beforeEach(() => { t1 = flow(); cb = spy(); current.flow = t1; });
+        var t1 = makeFlow(), cb = spy();
+        beforeEach(() => { t1 = makeFlow(); cb = spy(); current.flow = t1; });
         afterEach(() => { current.flow = undefined; });
-        it("cleanup", () => {
+        it("onCleanup", () => {
             const m = spy(t1, "onCleanup");
             expect(onCleanup(cb)).to.be.undefined;
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
         })
-        it(".onCleanup()", () => {
-            const m = spy(t1, "onCleanup");
-            expect(flow.onCleanup(cb)).to.be.undefined;
-            expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
-        });
-        it(".addlink()", () => {
-            const m = spy(t1, "addLink");
-            const unlink = flow.addLink(cb);
+        it("linkedCleanup()", () => {
+            const m = spy(t1, "linkedCleanup");
+            const unlink = linkedCleanup(cb);
             expect(unlink).to.be.a("function");
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(unlink);
         });
-        it(".link()", () => {
-            const m = spy(t1, "link");
-            const t2 = flow();
-            flow.link(t2, cb);
-            expect(m).to.have.been.calledOnceWithExactly(t2, cb).and.returned(t2);
-        });
-        it(".nested()", () => {
-            const m = spy(t1, "nested");
-            const t2 = flow.nested(cb);
-            expect(m).to.have.been.calledOnceWithExactly(cb);
-            expect(t2).to.be.instanceOf(flow);
-        });
     });
-    describe("throwing when there's no active flow", () => {
+    describe("throws when there's no active flow", () => {
         const msg = "No flow is currently active";
         it("onCleanup()", () => { expect(() => onCleanup(() => {})).to.throw(msg); });
-        it(".onCleanup()", () => { expect(() => flow.onCleanup(() => {})).to.throw(msg); });
-        it(".addlink()", () => { expect(() => flow.addLink(() => {})).to.throw(msg); });
-        it(".link()", () => { expect(() => flow.link(flow(), () => {})).to.throw(msg); });
-        it(".nested", () => { expect(() => flow.nested(() => {})).to.throw(msg); });
+        it("linkedCleanup()", () => { expect(() => linkedCleanup(() => {})).to.throw(msg); });
     });
 });
 
 describe("Flow instances", () => {
     var f: Flow;
-    beforeEach(() => { f = flow(); });
+    beforeEach(() => { f = makeFlow(); });
     describe(".onCleanup()", () => {
         it("can be called without a callback", () => {
             f.onCleanup(); f.cleanup();
@@ -192,68 +193,41 @@ describe("Flow instances", () => {
         f.destroy();
         expect(cb).to.have.been.calledOnce;
     });
-    describe("addLink()", () => {
+    describe(".linkedCleanup()", () => {
         it("calls the callback on cleanup", () => {
             const cb = spy();
-            f.addLink(cb);
+            f.linkedCleanup(cb);
             expect(cb).to.not.have.been.called;
             f.cleanup();
             expect(cb).to.have.been.calledOnce;
         });
-        it("can be canceled", () => {
+        it("can be cancelled", () => {
             const cb = spy();
-            const cancel = f.addLink(cb);
+            const cancel = f.linkedCleanup(cb);
             expect(cb).to.not.have.been.called;
             cancel();
             f.cleanup();
             expect(cb).to.not.have.been.called;
         });
     });
-    describe("nested()", () => {
+    describe("makeFlow() nested", () => {
         var cb = spy();
         beforeEach(() => { cb = spy(); });
         it("calls the stop function if outer is cleaned up", () => {
-            f.nested(cb);
+            makeFlow(f, cb);
             expect(cb).to.not.have.been.called;
             f.cleanup();
             expect(cb).to.have.been.calledOnce;
         });
         it("doesn't call the stop function if inner is cleaned up", () => {
-            const inner = f.nested(cb);
+            const inner = makeFlow(f, cb);
             expect(cb).to.not.have.been.called;
             inner.cleanup();
             f.cleanup();
             expect(cb).to.not.have.been.called;
         });
         it("cleans up the inner as the default stop action", () => {
-            const inner = f.nested();
-            inner.onCleanup(cb);
-            expect(cb).to.not.have.been.called;
-            f.cleanup();
-            expect(cb).to.have.been.calledOnce;
-        });
-    });
-    describe("link()", () => {
-        var cb = spy(), inner = flow();
-        beforeEach(() => {
-            cb = spy();
-            inner = flow();
-        });
-        it("calls the stop function if outer is cleaned up", () => {
-            f.link(inner, cb);
-            expect(cb).to.not.have.been.called;
-            f.cleanup();
-            expect(cb).to.have.been.calledOnce;
-        });
-        it("doesn't call the stop function if inner is cleaned up", () => {
-            f.link(inner, cb);
-            expect(cb).to.not.have.been.called;
-            inner.cleanup();
-            f.cleanup();
-            expect(cb).to.not.have.been.called;
-        });
-        it("cleans up the inner as the default stop action", () => {
-            f.link(inner);
+            const inner = makeFlow(f);
             inner.onCleanup(cb);
             expect(cb).to.not.have.been.called;
             f.cleanup();
@@ -269,13 +243,13 @@ describe("Flow instances", () => {
             expect(current.flow).to.be.undefined;
         });
         it("restores the context, even on error", () => {
-            const b1 = flow();
+            const f1 = makeFlow();
             expect(current.flow).to.be.undefined;
             f.run(() => {
                 expect(current.flow).to.equal(f);
-                b1.run(() => expect(current.flow).to.equal(b1));
+                f1.run(() => expect(current.flow).to.equal(f1));
                 try {
-                    b1.run(() => { throw new Error; });
+                    f1.run(() => { throw new Error; });
                 } catch (e) {
                     expect(current.flow).to.equal(f);
                 }

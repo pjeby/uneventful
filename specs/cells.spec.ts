@@ -1,6 +1,6 @@
 import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
 import { runEffects, value, cached, effect } from "../mod.ts";
-import { Cell, CircularDependency, WriteConflict } from "../src/cells.ts";
+import { Cell, CircularDependency, EffectScheduler, WriteConflict } from "../src/cells.ts";
 import { defer } from "../src/defer.ts";
 
 describe("Cycles and Side-Effects", () => {
@@ -203,39 +203,27 @@ describe("effect()", () => {
     });
 });
 
-describe("effect.root()", () => {
-    it("should call the function on tick", () => {
-        const dispose = effect.root(() => log("called"));
-        try {
-            runEffects();
-            see("called");
-        } finally {
-            dispose();
-        }
-    });
-});
-
-describe("effect.scheduler()", () => {
+describe("EffectScheduler.for()", () => {
     it("returns the default scheduler by default", () => {
-        // Given a scheduler returned by effect.scheduler(defer)
-        const s = effect.scheduler(defer);
-        // Then it should be the same as effect.scheduler()
-        expect(s).to.equal(effect.scheduler());
+        // Given a scheduler returned by EffectScheduler.for(defer)
+        const s = EffectScheduler.for(defer);
+        // Then it should be the same as EffectScheduler.for()
+        expect(s).to.equal(EffectScheduler.for());
         // And its .flush should be the same as runEffects
         expect(s.flush).to.equal(runEffects);
     });
     it("is idempotent for a given argument", () => {
-        // Given a scheduler returned by effect.scheduler(fn)
-        const fn = () => {}, s = effect.scheduler(fn);
-        // When effect.scheduler is called with the same function
+        // Given a scheduler returned by EffectScheduler.for(fn)
+        const fn = () => {}, s = EffectScheduler.for(fn);
+        // When EffectScheduler.for is called with the same function
         // Then it should return the same EffectScheduler
-        expect(effect.scheduler(fn)).to.equal(s);
+        expect(EffectScheduler.for(fn)).to.equal(s);
     });
     describe("returns an EffectScheduler that", () => {
         useRoot();
         it("calls the function on transition from empty", () => {
             // Given a scheduler based on a spy
-            const cb = spy(), s = effect.scheduler(cb);
+            const cb = spy(), s = EffectScheduler.for(cb);
             // When a cell is added to the scheduler
             s.add(new Cell);
             // Then the spy should be called with a function
@@ -254,7 +242,7 @@ describe("effect.scheduler()", () => {
         });
         it("can be used to create effects that run separately", () => {
             // Given a scheduler based on a spy
-            const cb = spy(), s = effect.scheduler(cb);
+            const cb = spy(), s = EffectScheduler.for(cb);
             // When an effect is added to the scheduler
             s.effect(() => log("run"));
             // Then it should not run during normal runEffects()
@@ -269,7 +257,7 @@ describe("EffectScheduler", () => {
     useRoot();
     it("won't flush() while already flushing", () => {
         // Given a scheduler and an effect that calls flush()
-        const v = value<Function>(), s = effect.scheduler(v.set);
+        const v = value<Function>(), s = EffectScheduler.for(v.set);
         s.effect(() => {
             s.flush();
             log(s.isEmpty());
@@ -282,7 +270,7 @@ describe("EffectScheduler", () => {
     });
     it("will defer its flush if another scheduler is flushing", () => {
         // Given a populated scheduler
-        const v = value<Function>(), s = effect.scheduler(v.set);
+        const v = value<Function>(), s = EffectScheduler.for(v.set);
         s.effect(() => log("inner flush"));
         // Which has therefore scheduled itself
         const flush = v();
@@ -303,7 +291,7 @@ describe("EffectScheduler", () => {
     });
     it("will reschedule itself if flush aborts and effects are still pending", () => {
         // Given a scheduler with two effects (the first of which throws an error)
-        const v = value<Function>(), s = effect.scheduler(v.set);
+        const v = value<Function>(), s = EffectScheduler.for(v.set);
         s.effect(() => {throw new Error});
         s.effect(() => log("run"));
         // Which has therefore scheduled itself
@@ -316,7 +304,7 @@ describe("EffectScheduler", () => {
     it("won't reschedule itself if already flushing", () => {
         // Given a scheduler with an effect that removes itself and adds another
         const v = value<Function>();
-        const s = effect.scheduler(f => { v.set(f); log("scheduled"); });
+        const s = EffectScheduler.for(f => { v.set(f); log("scheduled"); });
         const c = new Cell; c.catchUp = () => {
             s.delete(c); s.add(new Cell);
         }
@@ -331,7 +319,7 @@ describe("EffectScheduler", () => {
     });
     it("won't reschedule itself if it hasn't been called back", () => {
         // Given a scheduler with an item
-        const s = effect.scheduler(() => log("scheduled"));
+        const s = EffectScheduler.for(() => log("scheduled"));
         const c = new Cell;
         s.add(c);
         see("scheduled");

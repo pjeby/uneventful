@@ -1,38 +1,4 @@
 /**
- * A "flow" is an activity that tracks and releases resources (or runs undo
- * actions) upon termination or restart.
- *
- * By adding `onCleanup()` callbacks to a flow, you can later call its
- * `cleanup()` method to run all of them in reverse order, thereby undoing
- * actions or releasing used resources.
- *
- * The `flow` export lets you create new flows, and perform operations on the
- * "current" flow, if there is one. e.g. `flow.onCleanup(callback)` will add
- * `callback` to the active flow, or throw an error if there is none. (You can
- * use {@link flow.isActive}() to check if there is a currently active flow, or
- * make one active using its `.run()` method.)
- *
- * @category Types and Interfaces
- */
-export interface FlowAPI extends ActiveFlow {
-    /** Is there a currently active flow? */
-    isActive(): boolean;
-
-    /**
-     * Get a standalone (root) Flow object
-     * @category Flows
-     */
-    (): Flow;
-
-    /**
-     * Create a temporary nested flow -- like an {@link effect}() without any
-     * dependency tracking, except that the supplied action is run
-     * synchronously.
-     */
-    (action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn;
-}
-
-/**
  * A cleanup function is any zero-argument function.  It will always be run in
  * the job context it was registered from.
  *
@@ -55,93 +21,20 @@ export type DisposeFn = () => void;
  */
 export type OptionalCleanup = CleanupFn | Nothing;
 
-/**
- * The subset of the {@link Flow} interface that's also available on
- * the "current" {@link flow}.
- *
- * @category Types and Interfaces
- */
-export interface ActiveFlow {
+export interface Flow {
     /**
-     * Add a callback to be run when the flow is released. (Non-function values
-     * are ignored.)
+     * Add a callback to be run when the flow is cleaned up. (Non-function
+     * values are ignored.)
      */
     onCleanup(cleanup?: OptionalCleanup): void;
 
     /**
-     * Like {@link onCleanup}(), except a function is returned that will
-     * *remove* the cleanup function from the flow, if it's still present.
-     * (Also, the cleanup function isn't optional.)
-     *
-     * (This is mostly used to implement the {@link link}() and {@link nested}()
-     * methods, but some custom flow types may also find it useful.)
+     * Like {@link Flow.onCleanup onCleanup()}, except a function is
+     * returned that will *remove* the cleanup function from the flow, if it's
+     * still present. (Also, the cleanup function isn't optional.)
      */
-    addLink(cleanup: CleanupFn): () => void;
+    linkedCleanup(cleanup: CleanupFn): () => void;
 
-    /**
-     * Link an "inner" flow to this one, such that the inner flow will
-     * remove itself from the outer flow when cleaned up, and the outer
-     * flow will clean the inner if cleaned first.
-     *
-     * Long-lived jobs or event streams often spin off lots of subordinate tasks
-     * that will end before the parent does, but which still need to stop when
-     * the parent does. Simply adding them to the parent's flow would
-     * accumulate a lot of garbage, though: an endless list of cleanup functions
-     * to shut down things that were already shut down a long time ago.  So
-     * link() and addLink() can be used to create inner flows for subordinate
-     * jobs that will unlink themselves from the outer flows, if they finish
-     * first.
-     *
-     * This method is shorthand for `inner.onCleanup(outer.addLink(stop ??
-     * inner.cleanup))`. (Similar to {@link ActiveFlow.nested}, except that
-     * you supply the inner flow instead of it being created automatically.)
-     *
-     * (Note that the link is a one-time thing: if you reuse the inner flow
-     * after it's been cleaned up, you'll need to link() it again, to re-attach
-     * it to the outer flow or attach it to a different one.)
-     *
-     * @param inner The flow to link.
-     * @param stop The function the outer flow should call to clean up the
-     * inner; defaults to the inner's `cleanup()` method if not given.
-     * @returns The inner flow.
-     */
-    link(inner: Flow, stop?: CleanupFn): Flow
-
-    /**
-     * Create an inner flow that cleans up when the outer flow does, or unlinks
-     * itself from the outer flow if the inner flow is cleaned up first.
-     *
-     * This is shorthand for `inner = root(); outer.link(inner, stop));`. When
-     * the inner flow is cleaned up, it will remove its cleanup from the outer
-     * flow, preventing defunct cleanup functions from accumulating in the outer
-     * flow.
-     *
-     * (Note that the link is a one-time thing: if you reuse the inner flow
-     * after it's been cleaned up, you'll need to use `outer.link(inner, stop?)`
-     * to re-attach it to the outer flow or attach it to a different one.)
-     *
-     * @param stop The function the outer flow should call to clean up the inner
-     * flow; defaults to the new flow's `cleanup()` method if not given.
-     *
-     * @returns A new linked flow
-     */
-    nested(stop?: CleanupFn): Flow
-}
-
-/**
- * A Flow object tracks and releases resources (or runs undo actions) that are
- * used by specific flow implementations (such as effects and jobs).
- *
- * By adding `onCleanup()` callbacks to a flow, you can later call its
- * `cleanup()` method to run all of them in reverse order, thereby undoing
- * actions or releasing of used resources.
- *
- * You can obtain a flow using the {@link flow}() or {@link flow.root}()
- * functions, or use methods of the {@link ActiveFlow}, if there is one.
- *
- * @category Types and Interfaces
- */
-export interface Flow extends ActiveFlow {
     /**
      * Release all resources held by the flow.
      *
@@ -183,8 +76,6 @@ import { Job, Nothing, PlainFunction } from "./types.ts";
 
 const recycledFlows = [] as Flow[];
 
-export const flow: FlowAPI = (() => {
-
     function getFlow() {
         const {flow} = current;
         if (flow) return flow;
@@ -193,20 +84,36 @@ export const flow: FlowAPI = (() => {
 
     var freelist: CleanupNode;
 
-    class _flow implements Flow {
+/**
+ * A Flow object tracks and releases resources (or runs undo actions) that are
+ * used by specific flow implementations (such as effects and jobs).
+ *
+ * By adding `onCleanup()` callbacks to a flow, you can later call its
+ * `cleanup()` method to run all of them in reverse order, thereby undoing
+ * actions or releasing of used resources.
+ *
+ * You can obtain/create a flow using {@link makeFlow}().
+ *
+ * @category Types and Interfaces
+ */
+export class Flow {
+        /** @internal */
+        static create(parent?: Flow, stop?: CleanupFn) {
+            const flow = recycledFlows.shift() || new Flow;
+            if (parent || stop) flow.onCleanup(
+                (parent || current.flow).linkedCleanup(stop || flow.cleanup)
+            );
+            return flow;
+        }
 
-        static isActive() { return !!current.flow; }
-        static onCleanup(cleanup?: OptionalCleanup) { return getFlow().onCleanup(cleanup); }
-        static addLink(cleanup: CleanupFn) { return getFlow().addLink(cleanup); }
-        static link(inner: Flow, stop?: CleanupFn) { return getFlow().link(inner, stop); }
-        static nested(stop?: CleanupFn) { return getFlow().nested(stop); }
+        protected constructor() {};
 
         destroy() {
             this.cleanup();
             recycledFlows.push(this);
         }
 
-        cleanup = () => {
+        readonly cleanup = () => {
             const old = swapCtx(makeCtx());
             for (var rb = this._next; rb; freeCN(rb), rb = this._next) {
                 try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
@@ -227,18 +134,9 @@ export const flow: FlowAPI = (() => {
             if (typeof cleanup === "function") this._push(cleanup);
         }
 
-        addLink(cleanup: CleanupFn): () => void {
+        linkedCleanup(cleanup: CleanupFn): () => void {
             var rb = this._push(() => { rb = null; cleanup(); });
             return () => { freeCN(rb); rb = null; };
-        }
-
-        nested(stop?: CleanupFn): Flow {
-            return this.link(flow(), stop);
-        }
-
-        link(nested: Flow, stop?: CleanupFn): Flow {
-            nested.onCleanup(this.addLink(stop || nested.cleanup));
-            return nested;
         }
 
         protected _next: CleanupNode = undefined;
@@ -248,16 +146,6 @@ export const flow: FlowAPI = (() => {
             return this._next = rb;
         }
     }
-
-    function flow(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn;
-    function flow(): Flow;
-    function flow(action?: (destroy: DisposeFn) => OptionalCleanup): Flow | DisposeFn {
-        return action ? wrapAction(_flow.nested, action) : (recycledFlows.pop() || new _flow);
-    }
-
-    flow.prototype = _flow.prototype;
-    flow.prototype.constructor = flow;
-    return Object.setPrototypeOf(flow, _flow);
 
     type CleanupNode = {
         _next: CleanupNode,
@@ -288,14 +176,32 @@ export const flow: FlowAPI = (() => {
             rb._prev = rb._cb = rb._job = undefined;
         }
     }
-})();
 
 /**
  * Add a cleanup function to the active flow. Non-function values are ignored.
  *
  * @category Resource Management
  */
-export const onCleanup = flow.onCleanup;
+export function onCleanup(cleanup?: OptionalCleanup) {
+    return getFlow().onCleanup(cleanup);
+}
+
+/**
+ * Create a temporary nested flow -- like an {@link effect}() without any
+ * dependency tracking, except that the supplied action is run synchronously.
+ *
+ * The action function is invoked with a callback that can be used to destroy
+ * the flow and release any resources it used. (The same callback is also
+ * returned from the `flow()` call)
+ *
+ * As with an effect, the action function can register cleanups with
+ * {@link onCleanup} and/or by returning a cleanup callback.
+ *
+ * @category Flows
+ */
+export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
+    return wrapAction(makeFlow(getFlow()), action);
+}
 
 /**
  * Create a temporary, standalone flow, running a function in it and returning a
@@ -309,15 +215,93 @@ export const onCleanup = flow.onCleanup;
  *
  * @returns a callback that will destroy the temporary flow
  *
- * @category Resource Management
+ * @category Flows
  */
 export function root(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    return wrapAction(flow, action);
+    return wrapAction(makeFlow(), action);
 }
 
-function wrapAction(factory: () => Flow, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    let flow = factory();
-    const destroy = () => { flow?.destroy(); flow = undefined; }
+function wrapAction(flow: Flow, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
+    function destroy() { flow?.destroy(); flow = undefined; }
     flow.onCleanup(flow.run(action, destroy));
     return destroy;
 }
+
+/**
+ * Is there a currently active flow? (i.e., can you safely use
+ * {@link onCleanup}() and {@link linkedCleanup}() right now?)
+ *
+ * @category Flows
+ */
+export function isFlowActive() { return !!current.flow; }
+
+/**
+ * Like {@link onCleanup}(), except a function is returned that will *remove*
+ * the cleanup function from the flow, if it's still present. (Also, the cleanup
+ * function isn't optional.)
+ *
+ * @category Resource Management
+ */
+export function linkedCleanup(cleanup: CleanupFn): DisposeFn {
+    return getFlow().linkedCleanup(cleanup);
+}
+
+
+/**
+ * Return a new or recycled Flow instance.  If *either* a parent parameter or
+ * stop function are given, a nested flow is returned.
+ *
+ * @param parent The parent flow to which the new flow should be attached.
+ * Defaults to the currently-active flow if none given (assuming a stop
+ * parameter is provided).
+ *
+ * @param stop The function to call to destroy the nested flow.  Defaults to the
+ * {@link Flow.cleanup} method of the new flow if none is given (assuming a
+ * parent parameter is provided).
+ *
+ * @returns A nested Flow instance is returned if any arguments are given, or a
+ * root/standalone Flow otherwise.
+ *
+ * @category Flows
+ */
+export const makeFlow = Flow.create;
+
+
+/**
+ * Wrap a flow function to create a "detached" (standalone, unnested) version
+ *
+ * Wrapping a flow factory (like {@link connect}, {@link effect}, {@link job},
+ * etc.) with `detached()` creates a standalone version that:
+ *
+ * 1. doesn't need to run inside another flow, and
+ * 2. isn't linked to the active flow even if there is one.
+ *
+ * So for example `detached(effect)(() => {})` creates a standalone effect that
+ * won't be disposed of when the enclosing flow does, and it won't throw an
+ * error if there isn't an enclosing flow.
+ *
+ * @param flowFn Any function that creates a nested flow, but does not register
+ * {@link onCleanup} functions.
+ *
+ * @returns A function with the same signature as the input.  Instead of nesting
+ * within the current resource tracking context (if any), it will create a
+ * standalone (i.e. root) flow.
+ *
+ * @category Resource Management
+ */
+export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
+    return <T> function (...args) {
+        const old = current.flow;
+        current.flow = detachedFlow as Flow;
+        try { return flowFn.apply(this, args); } finally { current.flow = old; }
+    };
+}
+
+function noop() {}
+
+const detachedFlow: Pick<Flow, "onCleanup" | "linkedCleanup"> = {
+    onCleanup(_cleanup?: OptionalCleanup) {
+        throw new Error("Can't add cleanups in a detached flow");
+    },
+    linkedCleanup(_cleanup: CleanupFn): () => void { return noop; },
+};

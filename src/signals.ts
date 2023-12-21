@@ -1,5 +1,5 @@
 import { current } from "./ambient.ts";
-import { DisposeFn, OptionalCleanup, flow } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, EffectScheduler } from "./cells.ts";
 import { defer } from "./defer.ts";
@@ -94,8 +94,8 @@ export function cached<T>(compute: () => T): Signal<T> {
  * passed to the effect function and returned by `effect()`.
  *
  * Note: this function will throw an error if called without an active flow. If
- * you need a standalone effect, use {@link effect.root} (or
- * {@link EffectScheduler.root effect.scheduler().root()}) instead.
+ * you need a standalone effect, use {@link root} or {@link detached} to wrap
+ * the call to effect.
  *
  * @param fn The function that will be run each time its dependencies change.
  * The function will be run in a fresh flow each time, with any resources used
@@ -109,54 +109,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  * @category Flows
  */
 export function effect(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-    return Cell.mkEffect(fn, flow);
-}
-
-/**
- * Static methods of {@link effect}
- *
- * @category Signals
- * @category Flows
- */
-export namespace effect {
-    /**
-     * Create a standalone ("root") effect that won't be tied to the current
-     * flow (and thus doesn't *need* an enclosing flow).
-     *
-     * Just like a plain {@link effect}() or {@link EffectScheduler.effect}(),
-     * except that the effect is *not* tied to the current flow, and will
-     * therefore remain active until the "stop" function or dispose callback is
-     * called, even if the enclosing flow is ended or restarted.
-     */
-    export function root(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-        return Cell.mkEffect(fn, null);
-    }
-    /**
-     * Create an {@link EffectScheduler} from a callback-taking function, that
-     * you can then use to make effects that run in a specific time frame.
-     *
-     * ```ts
-     * // frame.effect and frame.root will now create nested or root effects
-     * const frame = effect.scheduler(requestAnimationFrame);
-     *
-     * frame.effect(() => {
-     *     // ... do stuff in an animation frame when signals used here change
-     * })
-     * ```
-     *
-     * Returns the default scheduler if no arguments are given.  If called with
-     * the same function more than once, it returns the same scheduler instance.
-     *
-     * @param scheduleFn A single-argument scheduling function (like
-     * requestAnimationFrame, setImmediate, or queueMicrotask).  The scheduler
-     * will call it from time to time with a single callback.  The scheduling
-     * function should then arrange for that callback to be invoked *once* at
-     * some future point, when it is the desired time for all pending effects on
-     * that scheduler to run.
-     */
-    export function scheduler(scheduleFn: (callback: () => unknown) => unknown = defer) {
-        return EffectScheduler.for(scheduleFn);
-    }
+    return Cell.mkEffect(fn);
 }
 
 /**

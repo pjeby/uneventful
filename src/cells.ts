@@ -1,6 +1,6 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
-import { ActiveFlow, DisposeFn, OptionalCleanup, flow } from "./tracking.ts";
+import { DisposeFn, makeFlow, OptionalCleanup, linkedCleanup } from "./tracking.ts";
 
 /**
  * Error indicating an effect has attempted to write a value it indirectly
@@ -27,9 +27,9 @@ var currentQueue: EffectScheduler;
 /**
  * A queue for effects to run during a particular kind of period, such as
  * microtasks or animation frames.  (Can only be obtained or created via
- * {@link effect.scheduler}().)
+ * {@link EffectScheduler.for}().)
  *
- * @category Types and Interfaces
+ * @category Signals
  */
 export class EffectScheduler {
     protected _queue = new Set<Cell>;
@@ -49,8 +49,30 @@ export class EffectScheduler {
 
     protected static cache = new WeakMap<Function, EffectScheduler>();
 
-    /** @internal */
-    static for(scheduleFn: (cb: () => unknown) => unknown) {
+    /**
+     * Create an {@link EffectScheduler} from a callback-taking function, that
+     * you can then use to make effects that run in a specific time frame.
+     *
+     * ```ts
+     * // frame.effect will now create effects that run during animation fames
+     * const frame = EffectScheduler.for(requestAnimationFrame);
+     *
+     * frame.effect(() => {
+     *     // ... do stuff in an animation frame when signals used here change
+     * })
+     * ```
+     *
+     * Returns the default scheduler if no arguments are given.  If called with
+     * the same function more than once, it returns the same scheduler instance.
+     *
+     * @param scheduleFn A single-argument scheduling function (like
+     * requestAnimationFrame, setImmediate, or queueMicrotask).  The scheduler
+     * will call it from time to time with a single callback.  The scheduling
+     * function should then arrange for that callback to be invoked *once* at
+     * some future point, when it is the desired time for all pending effects on
+     * that scheduler to run.
+     */
+    static for(scheduleFn: (cb: () => unknown) => unknown = defer) {
         this.cache.has(scheduleFn) || this.cache.set(scheduleFn, new this(scheduleFn));
         return this.cache.get(scheduleFn);
     }
@@ -109,39 +131,25 @@ export class EffectScheduler {
      * after there are changes in any of the values or cached functions it read
      * during its previous run.
      *
-     * The created subscription is tied to the currently-active flow.  So when
-     * that flow is ended or restarted, the effect will be terminated
-     * automatically.  You can also terminate it early by calling the "stop"
-     * function that is both passed to the effect function and returned by
-     * `effect()`.
+     * The created subscription is tied to the currently-active flow.  So when that
+     * flow is ended or restarted, the effect will be terminated automatically.  You
+     * can also terminate it early by calling the "stop" function that is both
+     * passed to the effect function and returned by `effect()`.
      *
-     * Note: this function will throw an error if called without an active flow.
-     * If you need a standalone effect, use {@link effect.root} (or
-     * {@link EffectScheduler.root effect.scheduler().root()}) instead.
+     * Note: this function will throw an error if called without an active flow. If
+     * you need a standalone effect, use {@link root} or {@link detached} to wrap
+     * the call to effect.
      *
-     * @param fn The function that will be run each time its dependencies
-     * change.  The function will be run in a fresh flow each time, with any
-     * resources used by the previous run being cleaned up.  The function is
-     * passed a single argument: a function that can be called to terminate the
-     * effect.   The function should return a cleanup function or void.
+     * @param fn The function that will be run each time its dependencies change.
+     * The function will be run in a fresh flow each time, with any resources used
+     * by the previous run being cleaned up.  The function is passed a single
+     * argument: a function that can be called to terminate the effect.   The
+     * function should return a cleanup function or void.
      *
      * @returns A function that can be called to terminate the effect.
      */
     effect = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
-        return Cell.mkEffect(fn, flow, this);
-    };
-
-    /**
-     * Create a standalone ("root") effect that won't be tied to the current
-     * flow (and thus doesn't *need* an enclosing flow).
-     *
-     * Just like a plain {@link effect}() or {@link EffectScheduler.effect}(),
-     * except that the effect is *not* tied to the current flow, and will
-     * therefore remain active until the "stop" function or dispose callback is
-     * called, even if the enclosing flow is ended or restarted.
-     */
-    root = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
-        return Cell.mkEffect(fn, undefined, this);
+        return Cell.mkEffect(fn, this);
     };
 }
 
@@ -431,15 +439,14 @@ export class Cell {
         return cell.getValue.bind(cell);
     }
 
-    static mkEffect(fn: (stop: () => void) => OptionalCleanup, parent: ActiveFlow, scheduler = defaultQueue) {
-        if (parent) unlink = parent.addLink(stop);
+    static mkEffect(fn: (stop: () => void) => OptionalCleanup, scheduler = defaultQueue) {
+        var unlink = linkedCleanup(stop);
         var cell = new Cell;
         cell.value = scheduler;
         cell.compute = fn.bind(null, stop);
-        cell.ctx = makeCtx(current.job, flow(), cell);
+        cell.ctx = makeCtx(current.job, makeFlow(), cell);
         cell.flags = Is.Effect;
         scheduler.add(cell);
-        var unlink: () => void;
         return stop;
         function stop() {
             if (unlink) unlink();

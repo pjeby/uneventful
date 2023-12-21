@@ -1,5 +1,5 @@
 import { defer } from "./defer.ts";
-import { ActiveFlow, CleanupFn, OptionalCleanup, Flow, flow } from "./tracking.ts";
+import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -48,11 +48,7 @@ type Producer = () => any
 
 
 /**
- * Subscribe a sink to a source, returning a conduit
- *
- * The returned conduit will be linked to the active flow. (If you want to
- * create a standalone conduit that is not linked to the current flow, or
- * there is no active flow, use {@link connect.root}() instead.)
+ * Subscribe a sink to a source, returning a conduit linked to the active flow.
  *
  * Note: some sources may not begin sending events until after
  * {@link Conduit.resume .resume()} is called on the returned conduit.
@@ -60,22 +56,7 @@ type Producer = () => any
  * @category Stream Consumers
  */
 export function connect<T>(src: Source<T>, sink: Sink<T>) {
-    return new Conduit(flow, null, src, sink);
-}
-
-/**
- * @category Stream Consumers
- */
-export namespace connect {
-    /**
-     * Subscribe a sink to a source, returning a standalone conduit
-     *
-     * Just like {@link connect}(), but the returned conduit is not linked to
-     * the active flow.
-     */
-    export function root<T>(src: Source<T>, sink: Sink<T>) {
-        return new Conduit(null, null, src, sink);
-    }
+    return new Conduit(null, null, src, sink);
 }
 
 
@@ -140,9 +121,9 @@ export class Conduit {
     reason: any;
 
     /** @internal */
-    constructor(parent?: ActiveFlow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
+    constructor(parent?: Flow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
         this._root = root ?? this;
-        this._flow = parent ? parent.nested(this.close) : flow();
+        this._flow = makeFlow(parent, this.close);
         if (src && sink) this._flow.run(src, this, sink);
     }
 
@@ -187,7 +168,7 @@ export class Conduit {
     onReady(cb: Producer) {
         if (!this.isOpen()) return this;
         const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
-        const unlink = this._flow.addLink(() => _callbacks.delete(cb));
+        const unlink = this._flow.linkedCleanup(() => _callbacks.delete(cb));
         if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
             pulls.size || schedulePulls();
             pulls.add(_root);
