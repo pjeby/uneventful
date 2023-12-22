@@ -1,5 +1,6 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
-import { Conduit, runPulls } from "../src/streams.ts";
+import { Conduit } from "../src/streams.ts";
+import { runPulls } from "../src/scheduling.ts";
 import { type Flow, connect, Sink, Source, compose, pipe, onCleanup, detached, makeFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {

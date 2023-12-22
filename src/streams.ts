@@ -1,4 +1,5 @@
 import { defer } from "./defer.ts";
+import { pulls } from "./scheduling.ts";
 import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
 
 /**
@@ -58,26 +59,6 @@ type Producer = () => any
 export function connect<T>(src: Source<T>, sink: Sink<T>) {
     return new Conduit(null, null, src, sink);
 }
-
-
-const pulls = new Set<Conduit>;
-let isScheduled = false, isRunning = false;
-
-export function runPulls() {
-    isRunning = true;
-    try {
-        for(const conn of pulls) { pulls.delete(conn); conn.doPull(); }
-    } finally {
-        isRunning = false;
-        pulls.size && schedulePulls();
-    }
-}
-
-function schedulePulls() {
-    if (isRunning || isScheduled) return;
-    defer(() => { isScheduled = false; runPulls(); })
-}
-
 
 /** Conduit state flags */
 const enum Is {
@@ -170,7 +151,6 @@ export class Conduit {
         const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
         const unlink = this._flow.linkedCleanup(() => _callbacks.delete(cb));
         if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
-            pulls.size || schedulePulls();
             pulls.add(_root);
         }
         _callbacks.set(cb, unlink);

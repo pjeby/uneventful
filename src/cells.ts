@@ -1,5 +1,6 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
+import { RunQueue } from "./scheduling.ts";
 import { DisposeFn, makeFlow, OptionalCleanup, linkedCleanup } from "./tracking.ts";
 
 /**
@@ -32,22 +33,21 @@ var currentQueue: EffectScheduler;
  * @category Signals
  */
 export class EffectScheduler {
-    protected _queue = new Set<Cell>;
-    protected _isScheduled = false;
-
-    /** Is this scheduler currently flushing effects? */
-    isRunning() { return currentQueue === this; }
-
-    /**
-     * Is this scheduler currently empty? (i.e. no pending effects)
-     *
-     * Note: "pending" effects are ones with at least one changed ancestor
-     * dependency; this doesn't mean they will actually *do* anything,
-     * since intermediate cached() function results might end up unchanged.
-     */
-    isEmpty() { return !this._queue.size; }
 
     protected static cache = new WeakMap<Function, EffectScheduler>();
+
+    protected readonly q: RunQueue<Cell>;
+
+    /**
+     * Run all pending effects on this scheduler.
+     *
+     * This is a bound method
+     *
+     * (Note: "pending" effects are ones with at least one changed ancestor
+     * dependency; this doesn't mean they will actually *do* anything,
+     * since intermediate cached() function results might end up unchanged.)
+     */
+    flush: typeof this.q.flush;
 
     /**
      * Create an {@link EffectScheduler} from a callback-taking function, that
@@ -77,96 +77,83 @@ export class EffectScheduler {
         return this.cache.get(scheduleFn);
     }
 
-    protected constructor(protected readonly scheduleFn: (cb: () => unknown) => unknown) {}
-
-    /** @internal */
-    add(e: Cell) {
-        this._queue.size || this.schedule();
-        this._queue.add(e);
-    }
-
-    /** @internal */
-    delete(e: Cell) {
-        this._queue.delete(e);
-    }
-
-    protected schedule = () => {
-        if (this._isScheduled || currentQueue === this) return;
-        this._isScheduled = true;
-        this.scheduleFn(this.runScheduled);
-    }
-
-    protected runScheduled = () => {
-        this._isScheduled = false;
-        this.flush();
-    }
-
-    /** Run all pending effects. */
-    flush = () => {
-        // already running? skip it
-        if (currentQueue === this) return;
-        const {_queue} = this;
-        // nothing to do? skip it
-        if (!_queue.size) return;
-        // another queue is running? reschedule for later
-        if (currentQueue) return this.schedule();
-        currentQueue = this;
-        try {
-            // run effects marked dirty by value changes
-            for(currentEffect of _queue) {
-                currentEffect.catchUp();
-                _queue.delete(currentEffect);
+    protected constructor(_scheduleFn: (cb: () => unknown) => unknown = defer) {
+        this.q = new RunQueue<Cell>(_scheduleFn, _queue => {
+            // another queue is running? reschedule for later
+            if (currentQueue) return;
+            currentQueue = this;
+            try {
+                // run effects marked dirty by value changes
+                for(currentEffect of _queue) {
+                    currentEffect.catchUp();
+                    _queue.delete(currentEffect);
+                }
+            } finally {
+                currentQueue = currentEffect = undefined;
             }
-        } finally {
-            currentQueue = currentEffect = undefined;
-            // schedule again if we're stopping early due to error
-            if (_queue.size) this.schedule();
-        }
+        });
+        this.flush = this.q.flush;
     }
 
     /**
-     * Subscribe a function to run every time certain values change.
+     * @inheritdoc effect tied to a specific scheduler.  See {@link effect} for
+     * more details.
      *
-     * The function is run asynchronously, first after being created, then again
-     * after there are changes in any of the values or cached functions it read
-     * during its previous run.
+     * @remarks The effect will only run during its matching
+     * {@link EffectScheduler.flush}().
      *
-     * The created subscription is tied to the currently-active flow.  So when that
-     * flow is ended or restarted, the effect will be terminated automatically.  You
-     * can also terminate it early by calling the "stop" function that is both
-     * passed to the effect function and returned by `effect()`.
-     *
-     * Note: this function will throw an error if called without an active flow. If
-     * you need a standalone effect, use {@link root} or {@link detached} to wrap
-     * the call to effect.
-     *
-     * @param fn The function that will be run each time its dependencies change.
-     * The function will be run in a fresh flow each time, with any resources used
-     * by the previous run being cleaned up.  The function is passed a single
-     * argument: a function that can be called to terminate the effect.   The
-     * function should return a cleanup function or void.
-     *
-     * @returns A function that can be called to terminate the effect.
+     * This is a bound method, so you can use it independently of the scheduler
+     * it came from.
      */
     effect = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
-        return Cell.mkEffect(fn, this);
+        return Cell.mkEffect(fn, this.q);
     };
 }
 
 const defaultQueue = EffectScheduler.for(defer);
 
 /**
+ * Subscribe a function to run every time certain values change.
+ *
+ * @remarks
+ * The function is run asynchronously, first after being created, then again
+ * after there are changes in any of the values or cached functions it read
+ * during its previous run.
+ *
+ * The created subscription is tied to the currently-active flow.  So when that
+ * flow is ended or restarted, the effect will be terminated automatically.  You
+ * can also terminate it early by calling the "stop" function that is both
+ * passed to the effect function and returned by `effect()`.
+ *
+ * Note: this function will throw an error if called without an active flow. If
+ * you need a standalone effect, use {@link root} or {@link detached} to wrap
+ * the call to effect.
+ *
+ * @param fn The function that will be run each time its dependencies change.
+ * The function will be run in a fresh flow each time, with any resources used
+ * by the previous run being cleaned up.  The function is passed a single
+ * argument: a function that can be called to terminate the effect.   The
+ * function should return a cleanup function or void.
+ *
+ * @returns A function that can be called to terminate the effect.
+ *
+ * @category Signals
+ * @category Flows
+ */
+export const effect = defaultQueue.effect;
+
+/**
  * Synchronously run pending effects from the default scheduler.
  *
- * Equivalent to calling {@link EffectScheduler.flush .flush()} on
- * {@link effect.scheduler}().
+ * @remarks Equivalent to calling
+ * {@link EffectScheduler.for}(defer).{@link EffectScheduler.flush flush}().
  *
  * Note that you should normally only need to call this when you need
  * side-effects to occur within a specific synchronous timeframe, e.g. if
  * effects need to be able to cancel a synchronous event or continue an
  * IndexedDB transaction.  (You can also define effects to run in a specific
  * timeframe by creating a {@link EffectScheduler} for them, via
- * {@link effect.scheduler}().)
+ * {@link EffectScheduler.for}.)
  *
  * @category Signals
  */
@@ -183,7 +170,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Effect) (tgt.value as EffectScheduler).add(tgt);
+            if (tgt.flags & Is.Effect) (tgt.value as RunQueue<Cell>).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -390,7 +377,7 @@ export class Cell {
 
     disposeEffect() {
         this.flags |= Is.Dead;
-        (this.value as EffectScheduler).delete(this);
+        (this.value as RunQueue<Cell>).delete(this);
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
@@ -439,7 +426,7 @@ export class Cell {
         return cell.getValue.bind(cell);
     }
 
-    static mkEffect(fn: (stop: () => void) => OptionalCleanup, scheduler = defaultQueue) {
+    static mkEffect(fn: (stop: () => void) => OptionalCleanup, scheduler: RunQueue<Cell>) {
         var unlink = linkedCleanup(stop);
         var cell = new Cell;
         cell.value = scheduler;

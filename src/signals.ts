@@ -1,9 +1,7 @@
 import { current } from "./ambient.ts";
-import { DisposeFn, OptionalCleanup } from "./tracking.ts";
 import { PlainFunction } from "./types.ts";
-import { Cell, EffectScheduler } from "./cells.ts";
-import { defer } from "./defer.ts";
-export { type EffectScheduler } from "./cells.ts";
+import { Cell } from "./cells.ts";
+export { EffectScheduler, effect } from "./cells.ts";
 
 export interface Signal<T> {
     /** A signal object can be called to get its current value */
@@ -79,37 +77,6 @@ export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: () => T): Signal<T> {
     if (compute instanceof Signal) return compute;
     return mkSignal(Cell.mkCached(compute));
-}
-
-/**
- * Subscribe a function to run every time certain values change.
- *
- * The function is run asynchronously, first after being created, then again
- * after there are changes in any of the values or cached functions it read
- * during its previous run.
- *
- * The created subscription is tied to the currently-active flow.  So when that
- * flow is ended or restarted, the effect will be terminated automatically.  You
- * can also terminate it early by calling the "stop" function that is both
- * passed to the effect function and returned by `effect()`.
- *
- * Note: this function will throw an error if called without an active flow. If
- * you need a standalone effect, use {@link root} or {@link detached} to wrap
- * the call to effect.
- *
- * @param fn The function that will be run each time its dependencies change.
- * The function will be run in a fresh flow each time, with any resources used
- * by the previous run being cleaned up.  The function is passed a single
- * argument: a function that can be called to terminate the effect.   The
- * function should return a cleanup function or void.
- *
- * @returns A function that can be called to terminate the effect.
- *
- * @category Signals
- * @category Flows
- */
-export function effect(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-    return Cell.mkEffect(fn);
 }
 
 /**

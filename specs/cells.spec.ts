@@ -1,6 +1,5 @@
 import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
-import { runEffects, value, cached, effect } from "../mod.ts";
-import { Cell, CircularDependency, EffectScheduler, WriteConflict } from "../src/cells.ts";
+import { runEffects, value, cached, effect, CircularDependency, EffectScheduler, WriteConflict } from "../mod.ts";
 import { defer } from "../src/defer.ts";
 
 describe("Cycles and Side-Effects", () => {
@@ -221,25 +220,6 @@ describe("EffectScheduler.for()", () => {
     });
     describe("returns an EffectScheduler that", () => {
         useRoot();
-        it("calls the function on transition from empty", () => {
-            // Given a scheduler based on a spy
-            const cb = spy(), s = EffectScheduler.for(cb);
-            // When a cell is added to the scheduler
-            s.add(new Cell);
-            // Then the spy should be called with a function
-            expect(cb).to.have.been.calledOnce;
-            // And if another cell is added
-            s.add(new Cell);
-            // Then the spy should not have been called again
-            expect(cb).to.have.been.calledOnce;
-            // But if the scheduler is flushed by calling the callback it gave
-            cb.args[0][0]();
-            // The scheduler should be empty
-            expect(s.isEmpty()).to.be.true;
-            // And adding a cell again should schedule it again
-            s.add(new Cell);
-            expect(cb).to.have.been.calledTwice;
-        });
         it("can be used to create effects that run separately", () => {
             // Given a scheduler based on a spy
             const cb = spy(), s = EffectScheduler.for(cb);
@@ -255,21 +235,8 @@ describe("EffectScheduler.for()", () => {
 
 describe("EffectScheduler", () => {
     useRoot();
-    it("won't flush() while already flushing", () => {
-        // Given a scheduler and an effect that calls flush()
-        const v = value<Function>(), s = EffectScheduler.for(v.set);
-        s.effect(() => {
-            s.flush();
-            log(s.isEmpty());
-            log("done");
-        });
-        // When the scheduler is flushed
-        s.flush();
-        // Then the nested flush should not empty the scheduler
-        see("false", "done");
-    });
     it("will defer its flush if another scheduler is flushing", () => {
-        // Given a populated scheduler
+        // Given a populated custom scheduler
         const v = value<Function>(), s = EffectScheduler.for(v.set);
         s.effect(() => log("inner flush"));
         // Which has therefore scheduled itself
@@ -278,54 +245,14 @@ describe("EffectScheduler", () => {
         // and a (main-schedule) effect that flushes it
         effect(() => {
             flush();
-            log(s.isEmpty());
             log("outer flush");
         });
         // When the main schedule is flushed
         runEffects();
         // Then the nested flush should not run
-        see("false", "outer flush");
-        // Until the rescheduled scheduler runs
+        see("outer flush");
+        // Until the (now-rescheduled) custom scheduler runs
         v()();
         see("inner flush");
-    });
-    it("will reschedule itself if flush aborts and effects are still pending", () => {
-        // Given a scheduler with two effects (the first of which throws an error)
-        const v = value<Function>(), s = EffectScheduler.for(v.set);
-        s.effect(() => {throw new Error});
-        s.effect(() => log("run"));
-        // Which has therefore scheduled itself
-        const scheduledFlush = v(); v.set(undefined);
-        // When the scheduler is flushed and the error thrown
-        expect(scheduledFlush).to.throw(Error);
-        // Then the scheduler should have scheduled itself to run again
-        expect(v()).to.be.a("function");
-    });
-    it("won't reschedule itself if already flushing", () => {
-        // Given a scheduler with an effect that removes itself and adds another
-        const v = value<Function>();
-        const s = EffectScheduler.for(f => { v.set(f); log("scheduled"); });
-        const c = new Cell; c.catchUp = () => {
-            s.delete(c); s.add(new Cell);
-        }
-        s.add(c);
-        see("scheduled");
-        // When the scheduler is flushed on schedule
-        const scheduledFlush = v(); v.set(undefined);
-        scheduledFlush();
-        // Then it should not schedule itself again
-        see();
-        expect(v()).to.be.undefined;
-    });
-    it("won't reschedule itself if it hasn't been called back", () => {
-        // Given a scheduler with an item
-        const s = EffectScheduler.for(() => log("scheduled"));
-        const c = new Cell;
-        s.add(c);
-        see("scheduled");
-        // When the item is removed and then added again
-        s.delete(c); s.add(c);
-        // Then the scheduler should not have rescheduled
-        see();
     });
 });

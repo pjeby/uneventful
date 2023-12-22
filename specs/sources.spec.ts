@@ -2,7 +2,7 @@ import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
 import { connect, value, runEffects } from "../src/mod.ts";
-import { runPulls } from "../src/streams.ts";
+import { runPulls } from "../src/scheduling.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
     fromValue, fromSubscribe, interval, lazy, never
