@@ -34,8 +34,10 @@ var currentQueue: EffectScheduler;
  */
 export class EffectScheduler {
 
+    /** @internal */
     protected static cache = new WeakMap<Function, EffectScheduler>();
 
+    /** @internal */
     protected readonly q: RunQueue<Cell>;
 
     /**
@@ -47,7 +49,7 @@ export class EffectScheduler {
      * dependency; this doesn't mean they will actually *do* anything,
      * since intermediate cached() function results might end up unchanged.)
      */
-    flush: typeof this.q.flush;
+    flush: () => void;
 
     /**
      * Create an {@link EffectScheduler} from a callback-taking function, that
@@ -235,6 +237,7 @@ function delsub(sub: Subscription) {
     freesubs = sub;
 }
 
+/** @internal */
 export class Cell {
     value: any // the value, or, for an effect, the scheduler
     validThrough = 0; // timestamp of most recent validation or recalculation
@@ -382,7 +385,7 @@ export class Cell {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
             if (this.ctx.flow) {
-                this.ctx.flow.destroy();
+                this.ctx.flow.cleanup();
                 this.ctx.flow = null;
             }
         }

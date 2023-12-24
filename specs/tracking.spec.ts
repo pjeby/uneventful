@@ -5,15 +5,9 @@ import { CleanupFn, Flow, flow, isFlowActive, onCleanup, root, linkedCleanup, ma
 describe("makeFlow()", () => {
     it("returns new standalone flows", () => {
         const flow1 = makeFlow(), flow2 = makeFlow();
-        expect(flow1).to.be.instanceof(Flow);
-        expect(flow2).to.be.instanceof(Flow);
+        expect(flow1.cleanup).to.be.a("function");
+        expect(flow2.cleanup).to.be.a("function");
         expect(flow1).to.not.equal(flow2);
-    });
-    it("recycles destroyed flows", () => {
-        const flow1 = makeFlow();
-        flow1.destroy();
-        const flow2 = makeFlow();
-        expect(flow2, "should be recycled").to.equal(flow1);
     });
     describe("creates nested flows,", () => {
         var f: Flow, cb = spy();
@@ -210,13 +204,6 @@ describe("Flow instances", () => {
             expect(reason.message).to.equal("caught me!");
         })
     })
-    it(".destroy() cleans up the flow", () => {
-        const cb = spy();
-        f.onCleanup(cb);
-        expect(cb).to.not.have.been.called;
-        f.destroy();
-        expect(cb).to.have.been.calledOnce;
-    });
     describe(".linkedCleanup()", () => {
         it("calls the callback on cleanup", () => {
             const cb = spy();

@@ -21,6 +21,18 @@ export type DisposeFn = () => void;
  */
 export type OptionalCleanup = CleanupFn | Nothing;
 
+/**
+ * A Flow object tracks and releases resources (or runs undo actions) that are
+ * used by specific flow implementations (such as effects and jobs).
+ *
+ * By adding `onCleanup()` callbacks to a flow, you can later call its
+ * `cleanup()` method to run all of them in reverse order, thereby undoing
+ * actions or releasing of used resources.
+ *
+ * You can create a Flow using {@link makeFlow}().
+ *
+ * @category Types and Interfaces
+ */
 export interface Flow {
     /**
      * Add a callback to be run when the flow is cleaned up. (Non-function
@@ -60,21 +72,11 @@ export interface Flow {
      * @returns The result of calling fn(...args)
      */
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
-
-    /**
-     * Release all resources, deallocate the flow object, and recycle it for
-     * future use
-     *
-     * Do not use this method unless you can *guarantee* there are no
-     * outstanding references to the flow, or else Bad Things Will Happen.
-     */
-    destroy(): void;
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Job, Nothing, PlainFunction } from "./types.ts";
 
-const recycledFlows = [] as Flow[];
 
 function getFlow() {
     const {flow} = current;
@@ -84,22 +86,10 @@ function getFlow() {
 
 var freelist: CleanupNode;
 
-/**
- * A Flow object tracks and releases resources (or runs undo actions) that are
- * used by specific flow implementations (such as effects and jobs).
- *
- * By adding `onCleanup()` callbacks to a flow, you can later call its
- * `cleanup()` method to run all of them in reverse order, thereby undoing
- * actions or releasing of used resources.
- *
- * You can obtain/create a flow using {@link makeFlow}().
- *
- * @category Types and Interfaces
- */
-export class Flow {
+class _Flow implements Flow {
     /** @internal */
     static create(parent?: Flow, stop?: CleanupFn) {
-        const flow = recycledFlows.shift() || new Flow;
+        const flow = new _Flow;
         if (parent || stop) flow.onCleanup(
             (parent || current.flow).linkedCleanup(stop || flow.cleanup)
         );
@@ -107,11 +97,6 @@ export class Flow {
     }
 
     protected constructor() {};
-
-    destroy() {
-        this.cleanup();
-        recycledFlows.push(this);
-    }
 
     readonly cleanup = () => {
         const old = swapCtx(makeCtx());
@@ -187,15 +172,17 @@ export function onCleanup(cleanup?: OptionalCleanup) {
 }
 
 /**
- * Create a temporary nested flow -- like an {@link effect}() without any
- * dependency tracking, except that the supplied action is run synchronously.
+ * Create a single-use nested flow. (Like an {@link effect}(), but without any
+ * dependency tracking, and the supplied function is run synchronously.)
  *
- * The action function is invoked with a callback that can be used to destroy
- * the flow and release any resources it used. (The same callback is also
- * returned from the `flow()` call)
+ * The action function is immediately invoked with a callback that can be used
+ * to end the flow and release any resources it used. (The same callback is
+ * also returned from the `flow()` call.)
  *
  * As with an effect, the action function can register cleanups with
  * {@link onCleanup} and/or by returning a cleanup callback.
+ *
+ * @returns a callback that will end the flow
  *
  * @category Flows
  */
@@ -207,24 +194,23 @@ export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
  * Create a temporary, standalone flow, running a function in it and returning a
  * callback that will safely dispose of the flow and its resources.  (The same
  * callback will be also be passed as the first argument to the function, so the
- * flow can be destroyed from either inside or outside the function.)
+ * flow can be ended from either inside or outside the function.)
  *
  * If the called function returns a function, it will be added to the new flow's
  * cleanup callbacks.  If the function throws an error, the flow will be cleaned
  * up, and the error re-thrown.
  *
- * @returns a callback that will destroy the temporary flow
+ * @returns a callback that will end the flow
  *
  * @category Flows
  */
-export function root(action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
+export function root(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
     return wrapAction(makeFlow(), action);
 }
 
 function wrapAction(flow: Flow, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    function destroy() { flow?.destroy(); flow = undefined; }
-    flow.onCleanup(flow.run(action, destroy));
-    return destroy;
+    flow.onCleanup(flow.run(action, flow.cleanup));
+    return flow.cleanup;
 }
 
 /**
@@ -248,8 +234,8 @@ export function linkedCleanup(cleanup: CleanupFn): DisposeFn {
 
 
 /**
- * Return a new or recycled Flow instance.  If *either* a parent parameter or
- * stop function are given, a nested flow is returned.
+ * Return a new Flow.  If *either* a parent parameter or stop function are
+ * given, a nested flow is returned.
  *
  * @param parent The parent flow to which the new flow should be attached.
  * Defaults to the currently-active flow if none given (assuming a stop
@@ -264,7 +250,7 @@ export function linkedCleanup(cleanup: CleanupFn): DisposeFn {
  *
  * @category Flows
  */
-export const makeFlow = Flow.create;
+export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
 
 
 /**

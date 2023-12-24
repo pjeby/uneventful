@@ -93,9 +93,13 @@ function is(flags: Is, mask: Is, eq = mask) {
  * @category Types and Interfaces
  */
 export class Conduit {
+    /** @internal */
     protected _flags = Is.Open | Is.Ready;
+    /** @internal */
     protected _flow: Flow;
+    /** @internal */
     protected _callbacks: Map<Producer, CleanupFn>;
+    /** @internal */
     protected _root: Conduit;
 
     /** The reason passed to throw(), if any */
@@ -219,7 +223,7 @@ export class Conduit {
     close = () => {
         if (this._flags & Is.Open) {
             this._flags &= ~(Is.Open|Is.Ready);
-            this._flow.destroy();
+            this._flow.cleanup();
             this._flow = undefined;
         }
         return this;
