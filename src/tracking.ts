@@ -75,7 +75,8 @@ export interface Flow {
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { Job, Nothing, PlainFunction } from "./types.ts";
+import { Nothing, PlainFunction } from "./types.ts";
+import type { Job } from "./jobs.ts";
 
 
 function getFlow() {
@@ -91,7 +92,7 @@ class _Flow implements Flow {
     static create(parent?: Flow, stop?: CleanupFn) {
         const flow = new _Flow;
         if (parent || stop) flow.onCleanup(
-            (parent || current.flow).linkedCleanup(stop || flow.cleanup)
+            (parent || getFlow()).linkedCleanup(stop || flow.cleanup)
         );
         return flow;
     }

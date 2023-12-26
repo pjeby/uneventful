@@ -1,7 +1,6 @@
 import { describe, it } from "mocha";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { Flow } from "../mod.ts";
-import { Job } from "../src/types.ts";
+import { Flow, Job } from "../mod.ts";
 import { expect } from "chai";
 
 it("swapCtx() swaps the context", () => {

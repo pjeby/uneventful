@@ -66,5 +66,10 @@ export let clock: sinon.SinonFakeTimers;
 export function useClock() {
     before(() => { clock = sinon.useFakeTimers(new Date); setDefer(f => setTimeout(f, 0)); });
     after(() => { clock.restore(); clock = undefined; setDefer(queueMicrotask); });
-    afterEach(() => clock.runAll());
+    afterEach(() => clock?.runAll());
+}
+
+export function noClock() {
+    after(() => { clock = sinon.useFakeTimers(new Date); setDefer(f => setTimeout(f, 0)); });
+    before(() => { clock.restore(); clock = undefined; setDefer(queueMicrotask); });
 }

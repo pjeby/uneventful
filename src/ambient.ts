@@ -7,7 +7,7 @@
 
 import type { Flow } from "./tracking.ts";
 import type { Cell } from "./cells.ts";
-import type { Job } from "./types.ts";
+import type { Job } from "./jobs.ts";
 
 type Opt<X> = X | undefined | null;
 
