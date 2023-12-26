@@ -46,7 +46,7 @@ around(DefaultTheme.prototype, {
                     // purposes, but is it right for monorepos?
                     .filter((x) : x is ANodeReflection => x instanceof ANodeReflection)
                     .flatMap(n => mapNode(n).children),
-                typedocNav
+                [{text: "API Reference", children: typedocNav }]
             );
         }
     },
