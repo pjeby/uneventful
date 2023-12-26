@@ -17,9 +17,9 @@
     "scripts": {
         "build": "pkgroll",
         "coverage": "c8 -r lcov mocha -n loader=ts-node/esm",
-        "docs": "typedoc",
+        "docs": "tsx typedoc/run.mts",
         "watch": "mocha -r tsx --watch",
-        "watch-docs": "typedoc --watch",
+        "watch-docs": "onchange -i --kill \"*.md\"  \"guides/**/*.md\" \"typedoc.config.*\" \"typedoc/*\" -- tsx typedoc/run.mts --watch",
         "test": "mocha -r tsx && pkgroll",
         "prepublishOnly": "mocha -r tsx && pkgroll"
     },
@@ -33,6 +33,8 @@
         ]
     },
     "devDependencies": {
+        "@knodes/typedoc-plugin-pages": "^0.23.4",
+        "@knodes/typedoc-pluginutils": "^0.23.4",
         "@types/chai": "^4.3.10",
         "@types/mocha": "^10.0.4",
         "@types/node": "^16",
@@ -41,6 +43,8 @@
         "c8": "^8.0.1",
         "chai": "^4.3.10",
         "mocha": "^10.2.0",
+        "monkey-around": "^2.3.0",
+        "onchange": "^7.1.0",
         "pkgroll": "^2.0.1",
         "sinon": "^17.0.1",
         "sinon-chai": "^3.7.0",
