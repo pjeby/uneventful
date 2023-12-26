@@ -1,7 +1,7 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
-import { type Source, type Conduit } from "./streams.ts";
-import { type DisposeFn } from "./tracking.ts";
+import { type Source, type Conduit, IsStream } from "./streams.ts";
+import { onCleanup, type DisposeFn } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -33,10 +33,11 @@ export interface Emitter<T> {
 export function emitter<T>(): Emitter<T> {
     let write: (val: T) => boolean, conduit: Conduit;
     function emit(val: T) { if (write) write(val); };
-    emit.source = share<T>((conn, sink) => {
+    emit.source = share<T>((sink, conn) => {
         write = conn.writer(sink);
         conduit = conn;
-        return conn.onCleanup(() => write = conduit = undefined);
+        onCleanup(() => write = conduit = undefined);
+        return IsStream;
     });
     emit.close = () => conduit?.close();
     emit.throw = (e: any) => conduit?.throw(e);
@@ -49,7 +50,7 @@ export function emitter<T>(): Emitter<T> {
  * @category Stream Producers
  */
 export function empty(): Source<never> {
-    return (conn) => conn.close();
+    return (_, conn) => (conn.close(), IsStream);
 }
 
 /**
@@ -64,10 +65,10 @@ export function empty(): Source<never> {
  * @category Stream Producers
  */
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
-        if (iter.return) conn.onCleanup(() => iter.return());
-        return conn.onReady(next);
+        if (iter.return) onCleanup(() => iter.return());
+        return conn.onReady(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
                 if (done) conn.close(); else conn.onReady(() => {
@@ -108,10 +109,11 @@ export function fromDomEvent<T extends Event>(
 export function fromDomEvent<T extends EventTarget, K extends string>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
 ): Source<Event> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         const push = conn.writer(sink);
         target.addEventListener(type, push, options);
-        return conn.onCleanup(() => target.removeEventListener(type, push, options));
+        onCleanup(() => target.removeEventListener(type, push, options));
+        return IsStream;
     }
 }
 
@@ -127,10 +129,10 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * @category Stream Producers
  */
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
-        if (iter.return) conn.onCleanup(() => iter.return());
-        return conn.onReady(loop);
+        if (iter.return) onCleanup(() => iter.return());
+        return conn.onReady(loop), IsStream;
         function loop() {
             try {
                 for(;;) {
@@ -157,12 +159,12 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  * @category Stream Producers
  */
 export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         Promise.resolve(promise).then(
             v => (conn.push(sink, v), conn.close()),
             e => conn.throw(e)
         )
-        return conn;
+        return IsStream;
     }
 }
 
@@ -177,11 +179,11 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
  */
 export function fromSignal<T>(s: () => T): Source<T> {
     s = cached(s);
-    return (conn, sink) => {
+    return (sink, conn) => {
         let val: T;
         function sendVal() { conn.push(sink, val); val = undefined; }
         effect(() => { val = s(); conn.onReady(sendVal); });
-        return conn;
+        return IsStream;
     }
 }
 
@@ -199,8 +201,8 @@ export function fromSignal<T>(s: () => T): Source<T> {
  * @category Stream Producers
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
-    return (conn, sink) => {
-        return conn.onReady(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); })));
+    return (sink, conn) => {
+        return conn.onReady(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); }))), IsStream;
     }
 }
 
@@ -210,8 +212,8 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  * @category Stream Producers
  */
 export function fromValue<T>(val: T): Source<T> {
-    return (conn, sink) => {
-        return conn.onReady(() => { conn.push(sink, val); conn.close(); });
+    return (sink, conn) => {
+        return conn.onReady(() => { conn.push(sink, val); conn.close(); }), IsStream;
     }
 }
 
@@ -222,10 +224,10 @@ export function fromValue<T>(val: T): Source<T> {
  * @category Stream Producers
  */
 export function interval(ms: number): Source<number> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         let idx = 0;
         const id = setInterval(() => conn.push(sink, idx++), ms);
-        return conn.onCleanup(() => clearInterval(id));
+        return onCleanup(() => clearInterval(id)), IsStream;
     }
 }
 
@@ -240,7 +242,7 @@ export function interval(ms: number): Source<number> {
  * @category Stream Producers
  */
 export function lazy<T>(factory: () => Source<T>): Source<T> {
-    return (conn, sink) => factory()(conn, sink)
+    return (sink, conn) => factory()(sink, conn)
 }
 
 /**
@@ -249,5 +251,5 @@ export function lazy<T>(factory: () => Source<T>): Source<T> {
  * @category Stream Producers
  */
 export function never(): Source<never> {
-    return (conn) => conn;
+    return () => IsStream;
 }

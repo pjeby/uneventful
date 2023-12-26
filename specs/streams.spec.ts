@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, connect, Sink, Source, compose, pipe, onCleanup, detached, makeFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, onCleanup, detached, makeFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
     if (!parent) return detached(() => new Conduit())();
@@ -18,7 +18,7 @@ describe("connect()", () => {
         // Then you should get a conduit
         expect(c).to.be.an.instanceOf(Conduit);
         // And the source should have been called with the conduit and the sink
-        expect(src).to.have.been.calledOnceWithExactly(c, sink);
+        expect(src).to.have.been.calledOnceWithExactly(sink, c);
     });
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
@@ -32,7 +32,7 @@ describe("connect()", () => {
     it("calls the source with the conduit's flow active", () => {
         // Given a source and a sink
         function sink() { return true; }
-        function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
+        function src(_sink: Sink<any>, conn: Conduit) { onCleanup(() => log("cleanup")); return IsStream; }
         // When connect() is called with them and closed
         connect(src, sink).close();
         // Then cleanups added by the source should be called
@@ -365,13 +365,13 @@ describe("Conduit", () => {
             // When the conduit is forked/linked
             const f = mkChild(c, src, sink);
             // Then the source should be called with the new conduit and the sink
-            expect(src).to.have.been.calledOnceWithExactly(f, sink);
+            expect(src).to.have.been.calledOnceWithExactly(sink, f);
         });
         it("runs with the new conduit's flow", () => {
             // Given a conduit, a source and a sink
             const c = mkConduit();
             function sink() { return true; }
-            function src(conn: Conduit) { onCleanup(() => log("cleanup")); return conn; }
+            function src(_sink, conn: Conduit) { onCleanup(() => log("cleanup")); return IsStream; }
             // When the conduit is forked/linked and closed
             mkChild(c, src, sink).close();
             // Then cleanups added by the source should be called

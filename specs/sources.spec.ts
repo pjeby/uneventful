@@ -429,7 +429,7 @@ describe("Sources", () => {
             // Then it should call the factory
             expect(factory).to.have.been.calledOnceWithExactly()
             // And pass the connection and sink to the result
-            expect(src).to.have.been.calledOnceWithExactly(c, log.emit);
+            expect(src).to.have.been.calledOnceWithExactly(log.emit, c);
         });
     });
     describe("never()", () => {

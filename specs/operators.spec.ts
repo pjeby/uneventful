@@ -217,10 +217,10 @@ describe("Operators", () => {
             const c3 = connect(s, log.emit);
             expect(src).to.have.been.calledOnce;
             // And its original connection should still be open
-            expect(src.args[0][0].isOpen()).to.be.true;
+            expect(src.args[0][1].isOpen()).to.be.true;
             // Unless all the subscribers close
             c2.close(); c3.close();
-            expect(src.args[0][0].isOpen()).to.be.false;
+            expect(src.args[0][1].isOpen()).to.be.false;
             // And a new connection is opened
             const c4 = connect(s, log.emit);
             // In which case it's called again

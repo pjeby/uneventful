@@ -1,5 +1,5 @@
 import { fromIterable } from "./sources.ts";
-import { Conduit, Sink, Source, Transformer, connect } from "./streams.ts";
+import { Conduit, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
 import { detached } from "./tracking.ts";
 
 /**
@@ -33,7 +33,7 @@ export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T>
  * @category Stream Operators
  */
 export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         let inner: Conduit;
         const inputs: Source<T>[] = [];
         const outer = conn.link(sources, s => {
@@ -47,7 +47,7 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
                 inputs.length ? startNext() : outer.resume();
             });
         }
-        return conn;
+        return IsStream;
     }
 }
 
@@ -83,8 +83,8 @@ export function concatMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transf
 export function filter<T,R extends T>(filter: (v: T, idx: number) => v is R): Transformer<T,R>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T> {
-    return src => (conn, sink) => {
-        let idx = 0; return src(conn, v => filter(v, idx++) ? sink(v, conn) : true);
+    return src => (sink, conn) => {
+        let idx = 0; return src(v => filter(v, idx++) ? sink(v, conn) : true, conn);
     }
 }
 
@@ -97,8 +97,8 @@ export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T
  * @category Stream Operators
  */
 export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
-    return src => (conn, sink) => {
-        let idx = 0; return src(conn, v => sink(mapper(v, idx++), conn));
+    return src => (sink, conn) => {
+        let idx = 0; return src(v => sink(mapper(v, idx++), conn), conn);
     }
 }
 
@@ -123,7 +123,7 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> 
  * @category Stream Operators
  */
 export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         const uplinks: Set<Conduit> = new Set;
         const outer = conn.link(sources, (s) => {
             const c = conn.link(s, sink, conn).onCleanup(() => {
@@ -135,7 +135,7 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
         }).onCleanup(() => {
             if (!uplinks.size) conn.close();
         });
-        return conn;
+        return IsStream;
     }
 }
 
@@ -175,7 +175,7 @@ export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transfo
 export function share<T>(source: Source<T>): Source<T> {
     let uplink: Conduit, resumed = false;
     let links = new Set<[sink: Sink<T>, link: Conduit]>;
-    return (conn, sink) => {
+    return (sink, conn) => {
         const self: [Sink<T>, Conduit] = [sink, conn];
         links.add(self);
         conn.onReady(resume).onCleanup(() => {
@@ -201,7 +201,7 @@ export function share<T>(source: Source<T>): Source<T> {
                 uplink?.resume();
             };
         }
-        return conn;
+        return IsStream;
     }
 }
 
@@ -225,10 +225,10 @@ export function skip<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (conn, sink) => {
+    return src => (sink, conn) => {
         let taking = false;
         conn.link(notifier, (_, c) => { taking = true; c.close(); return false; });
-        return src(conn, v => taking && sink(v, conn));
+        return src(v => taking && sink(v, conn), conn);
     }
 }
 
@@ -240,9 +240,9 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
  * @category Stream Operators
  */
 export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
-    return src => (conn, sink) => {
+    return src => (sink, conn) => {
         let idx = 0, met = false;
-        return src(conn, v => (met ||= !condition(v, idx++)) ? sink(v, conn) : true);
+        return src(v => (met ||= !condition(v, idx++)) ? sink(v, conn) : true, conn);
     };
 }
 
@@ -261,7 +261,7 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
  * @category Stream Operators
  */
 export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (conn, sink) => {
+    return (sink, conn) => {
         let inner: Conduit;
         const outer = conn.link(sources, s => {
             inner?.close();
@@ -273,7 +273,7 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
         }).onCleanup(() => {
             inner || conn.close();
         });
-        return conn;
+        return IsStream;
     }
 }
 
@@ -312,9 +312,9 @@ export function take<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (conn, sink) => {
+    return src => (sink, conn) => {
         conn.link(notifier, () => { conn.close(); return false; });
-        return src(conn, sink);
+        return src(sink, conn);
     }
 }
 
@@ -331,8 +331,8 @@ export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
 export function takeWhile<T,R extends T>(condition: (v: T, idx: number) => v is R): Transformer<T,R>;
 export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transformer<T>;
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
-    return src => (conn, sink) => {
+    return src => (sink, conn) => {
         let idx = 0;
-        return src(conn, v => condition(v, idx++) ? sink(v, conn) : (conn.close(), false));
+        return src(v => condition(v, idx++) ? sink(v, conn) : (conn.close(), false), conn);
     };
 }

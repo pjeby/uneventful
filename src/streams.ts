@@ -8,15 +8,25 @@ import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
  * associated {@link Conduit} is closed (either by the source or the sink, e.g.
  * if the sink doesn't want more data or the source has no more to send).
  *
- * The function must return the conduit. (Mostly so TypeScript can tell what
- * functions are actually sources, as otherwise any void function with no
- * arguments would appear to be usable as a source.)  The source function is
- * invoked with the conduit's flow active, so it can freely use flows or
- * resources that need {@link onCleanup} and the like.
+ * The source function is invoked with the conduit's flow active, so it can
+ * freely use flows or resources that need {@link onCleanup} and the like.
+ *
+ * The function must return the special {@link IsStream} value, so TypeScript
+ * can tell what functions are actually sources.  (As otherwise any void
+ * function with no arguments would appear to be usable as a source.)
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (conn: Conduit, sink: Sink<T>) => Conduit;
+export type Source<T> = (sink: Sink<T>, conn: Conduit) => typeof IsStream;
+
+/**
+ * A specially-typed string used to verify that a function supports uneventful's
+ * streaming protocol.  Return it from a function that implements the
+ * {@link Source} type.
+ *
+ * @category Types and Interfaces
+ */
+export const IsStream = "uneventful/is-stream" as const;
 
 /**
  * A `Sink` is a function that receives data from a {@link Source}. In addition
@@ -109,7 +119,7 @@ export class Conduit {
     constructor(parent?: Flow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
         this._root = root ?? this;
         this._flow = makeFlow(parent, this.close);
-        if (src && sink) this._flow.run(src, this, sink);
+        if (src && sink) this._flow.run(src, sink, this);
     }
 
     /** Is the conduit currently open? */
