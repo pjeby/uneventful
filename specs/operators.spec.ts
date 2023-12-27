@@ -55,7 +55,7 @@ describe("Operators", () => {
             e(fromIterable([5, 6]));
             see(); runPulls(); see("5", "6");
             // But close when the emitter does
-            e.close();
+            e.end();
             see("closed");
         });
         it("shouldn't end while a stream is still active", () => {
@@ -64,7 +64,7 @@ describe("Operators", () => {
             // When it's connected to a paused sink
             const c = connect(s, log.emit).pause().onCleanup(logClose);
             // And a source is pushed followed by a close and a resume of the sink
-            e(fromIterable([1, 2])); e.close(); c.resume();
+            e(fromIterable([1, 2])); e.end(); c.resume();
             // Then it should see all the output before closing
             see("1", "2", "closed");
         });
@@ -82,7 +82,7 @@ describe("Operators", () => {
             // And pick up again if more are pushed
             e(3); see(); runPulls(); see("3", "6");
             // But close when the emitter does
-            e.close();
+            e.end();
             see("closed");
         });
     });
@@ -181,7 +181,7 @@ describe("Operators", () => {
             e(fromIterable([5, 6]));
             see(); runPulls(); see("5", "6");
             // But close when the emitter does
-            e.close();
+            e.end();
             see("closed");
         });
     });
@@ -201,7 +201,7 @@ describe("Operators", () => {
             e(3);
             see(); runPulls(); see("3", "6");
             // But close when the emitter does
-            e.close();
+            e.end();
             see("closed");
         });
     });
@@ -288,7 +288,7 @@ describe("Operators", () => {
             input(41); see("41");
             input(44); see("44");
             // And the output should close with the input
-            input.close();
+            input.end();
             see("closed");
         });
     });
@@ -314,7 +314,7 @@ describe("Operators", () => {
             // But not the old one's
             sub(3); runPulls(); see();
             // And it should close when the input does
-            input.close();
+            input.end();
             see("closed");
         });
         it("ends after its last stream ends", () => {
@@ -322,9 +322,9 @@ describe("Operators", () => {
             const input = emitter<number>();
             const s = switchAll(fromIterable([input.source]));
             connect(s, log.emit).onCleanup(logClose); runPulls();
-            // When the last inner source closes
-            input(42); see("42"); input.close();
-            // Then the output should be closed
+            // When the last inner source ends
+            input(42); see("42"); input.end();
+            // Then the output should be ended as well
             see("closed");
         });
         it("resumes inner streams", () => {
@@ -352,8 +352,8 @@ describe("Operators", () => {
             input(17); runPulls();
             // Then it's mapped to a stream on the output
             see("17", "34");
-            // And closes when the input is closed
-            input.close();
+            // And ends when the input ends
+            input.end();
             see("closed");
         });
     });
@@ -399,7 +399,7 @@ describe("Operators", () => {
             // And then subsequent items are skipped even if they don't match
             input(41); see();
             input(44); see();
-            input.close();
+            input.end();
         });
     });
 });

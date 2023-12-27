@@ -2,6 +2,16 @@ import { defer } from "./defer.ts";
 import { pulls } from "./scheduling.ts";
 import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
 
+export interface Inlet {
+    isReady(): boolean
+    onReady(cb: Producer): void;
+    writer<T>(sink: Sink<T>): (val: T) => boolean
+    push<T>(sink: Sink<T>, val: T): boolean
+    end(): this;
+    throw(reason: any): this;
+    link<T>(src?: Source<T>, sink?: Sink<T>, root?: Inlet): Conduit;
+}
+
 /**
  * A `Source` is a function that can be called to arrange for data to be
  * produced and sent to a {@link Sink} function for consumption, until the
@@ -17,7 +27,7 @@ import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (sink: Sink<T>, conn: Conduit) => typeof IsStream;
+export type Source<T> = (sink: Sink<T>, conn: Inlet) => typeof IsStream;
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
@@ -100,7 +110,7 @@ function is(flags: Is, mask: Is, eq = mask) {
  *
  * @category Types and Interfaces
  */
-export class Conduit {
+export class Conduit implements Inlet {
     /** @internal */
     protected _flags = Is.Open | Is.Ready;
     /** @internal */
@@ -235,6 +245,8 @@ export class Conduit {
         }
         return this;
     }
+
+    end = this.close;
 
     /**
      * Close the conduit with an error, cleaning up resources and terminating

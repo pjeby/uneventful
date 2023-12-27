@@ -1,7 +1,7 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
-import { type Source, type Conduit, IsStream } from "./streams.ts";
-import { onCleanup, type DisposeFn } from "./tracking.ts";
+import { type Source, IsStream, Inlet } from "./streams.ts";
+import { onCleanup, type DisposeFn, makeFlow } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -14,7 +14,7 @@ export interface Emitter<T> {
     /** An event source that receives the events */
     source: Source<T>;
     /** Close all current subscribers' connections */
-    close: () => void;
+    end: () => void;
     /** Close all current subscribers' connections with an error */
     throw: (e: any) => void;
 };
@@ -31,16 +31,16 @@ export interface Emitter<T> {
  * @category Stream Producers
  */
 export function emitter<T>(): Emitter<T> {
-    let write: (val: T) => boolean, conduit: Conduit;
+    let write: (val: T) => boolean, inlet: Inlet;
     function emit(val: T) { if (write) write(val); };
     emit.source = share<T>((sink, conn) => {
         write = conn.writer(sink);
-        conduit = conn;
-        onCleanup(() => write = conduit = undefined);
+        inlet = conn;
+        onCleanup(() => write = inlet = undefined);
         return IsStream;
     });
-    emit.close = () => conduit?.close();
-    emit.throw = (e: any) => conduit?.throw(e);
+    emit.end = () => inlet?.end();
+    emit.throw = (e: any) => inlet?.throw(e);
     return emit;
 }
 
@@ -50,17 +50,15 @@ export function emitter<T>(): Emitter<T> {
  * @category Stream Producers
  */
 export function empty(): Source<never> {
-    return (_, conn) => (conn.close(), IsStream);
+    return (_, conn) => (conn.end(), IsStream);
 }
 
 /**
  * Convert an async iterable to an event source
  *
  * Each time the resulting source is subscribed to, it will emit an event for
- * each item output by the iterator, then close the conduit.  The subscriber
- * must return `true` after each value to continue iteration, or `false` to
- * pause it. (Once paused, it must then call the conduit's
- * {@link Conduit.resume .resume()} method to resume iteration.)
+ * each item output by the iterator, then end the stream.  Pause/resume is
+ * supported.
  *
  * @category Stream Producers
  */
@@ -71,7 +69,7 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
         return conn.onReady(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
-                if (done) conn.close(); else conn.onReady(() => {
+                if (done) conn.end(); else conn.onReady(() => {
                     if (send(value)) next(); else conn.onReady(next);
                 })
             }, e => conn.throw(e));
@@ -121,10 +119,8 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * Convert an iterable to a synchronous event source
  *
  * Each time the resulting source is subscribed to, it will emit an event for
- * each item in the iterator, then close the conduit.  The subscriber must
- * return `true` after each value to continue iteration, or `false` to pause it.
- * (Once paused, it must then call the conduit's {@link Conduit.resume .resume()}
- * method to resume iteration.)
+ * each item in the iterator, then close the conduit.  Pause/resume is
+ * supported.
  *
  * @category Stream Producers
  */
@@ -137,7 +133,7 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
             try {
                 for(;;) {
                     const {value, done} = iter.next();
-                    if (done) return conn.close();
+                    if (done) return conn.end();
                     if (!send(value)) return conn.onReady(loop);
                 }
             } catch (e) {
@@ -161,7 +157,7 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
 export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
     return (sink, conn) => {
         Promise.resolve(promise).then(
-            v => (conn.push(sink, v), conn.close()),
+            v => (conn.push(sink, v), conn.end()),
             e => conn.throw(e)
         )
         return IsStream;
@@ -202,7 +198,8 @@ export function fromSignal<T>(s: () => T): Source<T> {
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink, conn) => {
-        return conn.onReady(() => conn.onCleanup(subscribe(v => { conn.push(sink, v); }))), IsStream;
+        const flow = makeFlow(undefined, () => flow.cleanup());
+        return conn.onReady(() => flow.onCleanup(subscribe(v => { conn.push(sink, v); }))), IsStream;
     }
 }
 
@@ -213,7 +210,7 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  */
 export function fromValue<T>(val: T): Source<T> {
     return (sink, conn) => {
-        return conn.onReady(() => { conn.push(sink, val); conn.close(); }), IsStream;
+        return conn.onReady(() => { conn.push(sink, val); conn.end(); }), IsStream;
     }
 }
 

@@ -22,8 +22,8 @@ describe("Sources", () => {
             // Then calling the emitter should emit values
             e(42); see("42");
             e(43); see("43");
-            // And closing it should close the source
-            e.close();
+            // And ending it should end the source
+            e.end();
             see("closed");
             // But it should still be subscribable
             const c2 = connect(e.source, log.emit); runPulls();
@@ -69,9 +69,9 @@ describe("Sources", () => {
             const e = emitter<any>();
             // When its source is subscribed and pulled
             connect(e.source, log.emit).onCleanup(logClose); runPulls();
-            // And the emitter closes
-            e.close();
-            // Then the connection should be closed as well
+            // And the emitter is ended
+            e.end();
+            // Then the connection should be closed
             see("closed");
         });
     });

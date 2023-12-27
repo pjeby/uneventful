@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
-import { Conduit, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
-import { detached } from "./tracking.ts";
+import { Conduit, Inlet, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
+import { detached, onCleanup } from "./tracking.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -40,12 +40,12 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
             inputs.push(s); startNext(); outer.pause();
         }).onCleanup(() => {
             outer = undefined
-            inputs.length || inner || conn.close();
+            inputs.length || inner || conn.end();
         });
         function startNext() {
             inner ||= conn.link(inputs.shift(), sink, conn).onCleanup(() => {
                 inner = undefined;
-                inputs.length ? startNext() : (outer ? outer.resume() : conn.close());
+                inputs.length ? startNext() : (outer ? outer.resume() : conn.end());
             });
         }
         return IsStream;
@@ -129,12 +129,12 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
         let outer = conn.link(sources, (s) => {
             const c = conn.link(s, sink, conn).onCleanup(() => {
                 uplinks.delete(c);
-                uplinks.size || outer || conn.close();
+                uplinks.size || outer || conn.end();
             });
             uplinks.add(c);
         }).onCleanup(() => {
             outer = undefined;
-            uplinks.size || conn.close();
+            uplinks.size || conn.end();
         });
         return IsStream;
     }
@@ -175,11 +175,12 @@ export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transfo
  */
 export function share<T>(source: Source<T>): Source<T> {
     let uplink: Conduit, resumed = false;
-    let links = new Set<[sink: Sink<T>, link: Conduit]>;
+    let links = new Set<[sink: Sink<T>, link: Inlet]>;
     return (sink, conn) => {
-        const self: [Sink<T>, Conduit] = [sink, conn];
+        const self: [Sink<T>, Inlet] = [sink, conn];
         links.add(self);
-        conn.onReady(resume).onCleanup(() => {
+        conn.onReady(resume);
+        onCleanup(() => {
             links.delete(self);
             if (!links.size) uplink?.close();
         });
@@ -193,7 +194,7 @@ export function share<T>(source: Source<T>): Source<T> {
             }).onCleanup(() => {
                 const {reason} = uplink, err = uplink.hasError();
                 uplink = undefined;
-                links.forEach(([_,l]) => err ? l.throw(reason) : l.close());
+                links.forEach(([_,l]) => err ? l.throw(reason) : l.end());
             })
         }
         function resume() {
@@ -268,11 +269,11 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
             inner?.close();
             inner = conn.link(s, sink, conn).onCleanup(() => {
                 inner = undefined;
-                outer || conn.close();
+                outer || conn.end();
             });
         }).onCleanup(() => {
             outer = undefined;
-            inner || conn.close();
+            inner || conn.end();
         });
         return IsStream;
     }
@@ -314,7 +315,7 @@ export function take<T>(n: number): Transformer<T> {
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (sink, conn) => {
-        conn.link(notifier, () => conn.close());
+        conn.link(notifier, () => conn.end());
         return src(sink, conn);
     }
 }
@@ -334,6 +335,6 @@ export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transfo
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0;
-        return src(v => condition(v, idx++) ? sink(v) : conn.close(), conn);
+        return src(v => condition(v, idx++) ? sink(v) : conn.end(), conn);
     };
 }
