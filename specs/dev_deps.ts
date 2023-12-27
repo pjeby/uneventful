@@ -59,7 +59,7 @@ import { setDefer } from "../src/defer.ts";
 export function useRoot() {
     var b = makeFlow();
     beforeEach(() => { current.flow = b; log.clear(); });
-    afterEach(() => { b.cleanup(); current.flow = null; log.clear(); });
+    afterEach(() => { b.restart(); current.flow = null; log.clear(); });
 }
 
 export let clock: sinon.SinonFakeTimers;

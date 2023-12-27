@@ -2,7 +2,7 @@
 
 Reactive signals (like preact-signals or maverick) and streams (like rxjs or wonka) are both great ways of simplifying event-driven programming.  But each has different strengths, and making one do the work of the other is hard.  (And neither is that great at *sequential* asynchrony, like CSP or goroutines.)
 
-Enter `uneventful`: a seamless blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a job subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the job ends -- or it or any parent job is canceled.  Likewise, if an effect spawns a job based on the value of a signal, the job is automatically canceled when the effect is rerun (or canceled by the end of an enclosing job).
+Enter `uneventful`: a seamless, *declarative* blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a job subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the job ends -- or it or any parent job is canceled.  Likewise, if an effect spawns a job based on the value of a signal, the job is automatically canceled when the effect is rerun (or canceled by the end of an enclosing job).
 
 The approach lets you use only the very *best* parts of all three paradigms, without needing to force something signal-like to be more streamy or vice versa, or to make either do something that's better represented as sequential steps.  Consider this contrived and somewhat silly example:
 
@@ -46,32 +46,32 @@ Uneventful's API revolves around its three fundamental kinds of "flows":
 
 All three kinds of flows are **composable**: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.
 
-When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `onCleanup()` callbacks to release non-flow resources when the enclosing flow ends.)
+When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `onEnd()` callbacks to release non-flow resources when the enclosing flow ends.)
 
 Of course, all this flow composition has to start *somewhere*, and usually that will be one or more `job.root()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a call to`track()`, as we'll see in the next section.)
 
 ### Resource Tracking and Cleanup
 
-Under the hood, flows are linked by *resource trackers*: collections of callbacks that run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `onCleanup(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
+Under the hood, flows are linked by *resource trackers*: collections of callbacks that run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `onEnd(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
 
 For a `job()`, any added callbacks are run when the job as a whole is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
 
 ```typescript
-import { value, effect, onCleanup } from "uneventful";
+import { value, effect, onEnd } from "uneventful";
 this.selectedIndex = value(0);  // dynamic value
 
 effect(() => {
     const selectedNode = this.nodes[this.selectedIndex()];
     if (selectedNode) {
         selectedNode.classList.add("selected");
-        onCleanup(() => { selectedNode.classList.remove("selected"); });
+        onEnd(() => { selectedNode.classList.remove("selected"); });
     }
 });
 ```
 
 This code will add `.selected` to the class of the currently selected element (which can be changed with `this.selectedIndex.set(number)`).  But, it will also automatically *remove* the class from the *previously* selected item (if any), before applying it to the new one!  (The class will also be removed if the effect is canceled, e.g. by the termination of an enclosing flow.)
 
-As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with an `onCleanup()` call.
+As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with an `onEnd()` call.
 
 Resource tracking is normally managed for you automatically, but you can also manually manage them via the `tracker()` function and its methods.  You probably won't do that very often, though, unless you're creating a custom flow or stream operator, or integrating your root-level flows with another framework's explicit resource management.
 

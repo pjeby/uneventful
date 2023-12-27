@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, onCleanup, detached, makeFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, onEnd, detached, makeFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
     if (!parent) return detached(() => new Conduit())();
@@ -25,16 +25,16 @@ describe("connect()", () => {
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
         const f = makeFlow(), src = spy(), sink = spy();
-        f.run(connect, src, sink).onCleanup(logClose);
+        f.run(connect, src, sink).onEnd(logClose);
         // When the flow is cleaned up
-        see(); f.cleanup();
+        see(); f.end();
         // Then the conduit should be closed
         see("closed");
     });
     it("calls the source with the conduit's flow active", () => {
         // Given a source and a sink
         function sink() { return true; }
-        function src(_sink: Sink<any>) { onCleanup(() => log("cleanup")); return IsStream; }
+        function src(_sink: Sink<any>) { onEnd(() => log("cleanup")); return IsStream; }
         // When connect() is called with them and closed
         connect(src, sink).close();
         // Then cleanups added by the source should be called
@@ -64,7 +64,7 @@ describe("Conduit", () => {
     });
     it("is closed(+unready) with no error when .close()d", () => {
         // Given a conduit that's closed
-        const c = mkConduit().onCleanup(logClose).close();
+        const c = mkConduit().onEnd(logClose).close();
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
@@ -73,9 +73,9 @@ describe("Conduit", () => {
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a conduit it's attached to
-        const t = makeFlow(), c = mkConduit(t).onCleanup(logClose);
+        const t = makeFlow(), c = mkConduit(t).onEnd(logClose);
         // When the flow is cleaned up
-        t.cleanup();
+        t.end();
         // Then the conduit should be closed
         see("closed");
         expect(c.isReady()).to.be.false;
@@ -115,26 +115,26 @@ describe("Conduit", () => {
             expect(() => c.link()).to.throw("Can't fork or link a closed conduit");
         });
     });
-    describe("runs .onCleanup() callbacks synchronously in LIFO order", () => {
+    describe("runs .onEnd() callbacks synchronously in LIFO order", () => {
         it("when close()d", () => {
-            // Given a conduit with two onCleanup callbacks
-            const c = mkConduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
+            // Given a conduit with two onEnd callbacks
+            const c = mkConduit().onEnd(() => log("first")).onEnd(() => log("last"));
             // When the conduit is closed
             c.close();
             // Then the callbacks should be run in reverse order
             see("last", "first");
         });
         it("when thrown()", () => {
-            // Given a conduit with two onCleanup callbacks
-            const c = mkConduit().onCleanup(() => log("first")).onCleanup(() => log("last"));
+            // Given a conduit with two onEnd callbacks
+            const c = mkConduit().onEnd(() => log("first")).onEnd(() => log("last"));
             // When the conduit is thrown()
             c.throw(new Error);
             // Then the callbacks should be run in reverse order
             see("last", "first");
         });
         it("with the error state known", () => {
-            // Given a conduit with an onCleanup callback
-            const c = mkConduit().onCleanup(() => { log(c.hasError()); log(c.reason); });
+            // Given a conduit with an onEnd callback
+            const c = mkConduit().onEnd(() => { log(c.hasError()); log(c.reason); });
             // When the conduit is thrown()
             c.throw("this is the reason")
             // Then the callback should see the correct error state
@@ -143,21 +143,21 @@ describe("Conduit", () => {
         it("when the enclosing flow is cleaned up", () => {
             // Given a flow and a conduit it's attached to
             const f = makeFlow(), c = mkConduit(f);
-            // And two onCleanup callbacks
-            c.onCleanup(() => log("first")).onCleanup(() => log("last"));
+            // And two onEnd callbacks
+            c.onEnd(() => log("first")).onEnd(() => log("last"));
             // When the flow is cleaned up
-            f.cleanup();
+            f.end();
             // Then the callbacks should be run in reverse order
             see("last", "first");
         });
     });
-    describe("runs .onCleanup() callbacks asynchronously in FIFO order", () => {
+    describe("runs .onEnd() callbacks asynchronously in FIFO order", () => {
         useClock();
         it("when already close()d", () => {
             // Given a closed conduit
             const c = mkConduit().close();
-            // When onCleanup() is called with two new callbacks
-            c.onCleanup(() => log("first")).onCleanup(() => log("last"))
+            // When onEnd() is called with two new callbacks
+            c.onEnd(() => log("first")).onEnd(() => log("last"))
             // Then they should not be run
             see()
             // Until the next microtask
@@ -167,19 +167,19 @@ describe("Conduit", () => {
         it("when already throw()n", () => {
             // Given a thrown conduit
             const c = mkConduit().throw(new Error);
-            // When onCleanup() is called with two new callbacks
-            c.onCleanup(() => log("first")).onCleanup(() => log("last"))
+            // When onEnd() is called with two new callbacks
+            c.onEnd(() => log("first")).onEnd(() => log("last"))
             // Then they should not be run
             see()
             // Until the next microtask
             clock.tick(0);
             see("first", "last");
         });
-        it("while other .onCleanup callbacks are running", () => {
-            // Given a conduit with two onCleanup callbacks, one of which calls a third
+        it("while other .onEnd callbacks are running", () => {
+            // Given a conduit with two onEnd callbacks, one of which calls a third
             const c = mkConduit()
-                .onCleanup(() => log("first"))
-                .onCleanup(() => c.onCleanup(() => log("last")));
+                .onEnd(() => log("first"))
+                .onEnd(() => c.onEnd(() => log("last")));
             // When the conduit is closed
             c.close();
             // Then the initial callbacks should be run in reverse order,
@@ -336,14 +336,14 @@ describe("Conduit", () => {
     function testChildConduit(mkChild: <T>(c: Conduit, src?: Source<T>, sink?: Sink<T>) => Conduit) {
         it("is open", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
+            const c = mkConduit(), f = mkChild(c).onEnd(logClose);
             // Then the link should be open and not equal the conduit
             see();
             expect(f).to.not.equal(c);
         });
         it("closes when the parent closes", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
+            const c = mkConduit(), f = mkChild(c).onEnd(logClose);
             // When the conduit is closed
             c.close();
             // Then the link should also be closed
@@ -351,7 +351,7 @@ describe("Conduit", () => {
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
+            const c = mkConduit(), f = mkChild(c).onEnd(logClose);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error
@@ -370,7 +370,7 @@ describe("Conduit", () => {
             // Given a conduit, a source and a sink
             const c = mkConduit();
             function sink() { return true; }
-            function src(_sink, conn: Conduit) { onCleanup(() => log("cleanup")); return IsStream; }
+            function src() { onEnd(() => log("cleanup")); return IsStream; }
             // When the conduit is forked/linked and closed
             mkChild(c, src, sink).close();
             // Then cleanups added by the source should be called

@@ -15,8 +15,8 @@ import { CleanupFn, DisposeFn, makeFlow } from "./tracking.ts";
  * will run all its `finally` blocks (if the job's a generator).
  *
  * Last, but not least, you can register cleanup callbacks with a job using its
- * .{@link Job.onCleanup onCleanup}() and
- * .{@link Job.linkedCleanup linkedCleanup}() methods.
+ * .{@link Job.onEnd onEnd}() and
+ * .{@link Job.linkedEnd linkedEnd}() methods.
  *
  * @category Types and Interfaces
  */
@@ -28,10 +28,10 @@ export interface Job<T> extends Promise<T>, Yielding<T> {
     throw(error: any): void;
 
     /** Register a callback to run when the activity ends */
-    onCleanup(cb: () => void): void;
+    onEnd(cb: () => void): void;
 
-    /** Like onCleanup, but with the ability to remove the callback */
-    linkedCleanup(cleanup: CleanupFn): DisposeFn
+    /** Like onEnd, but with the ability to remove the callback */
+    linkedEnd(cleanup: CleanupFn): DisposeFn
 }
 
 /**
@@ -75,7 +75,7 @@ class _Job<T> implements Job<T> {
     declare [Symbol.toStringTag]: string;
 
     constructor(protected g: JobIterator<T>) {
-        this._flow.onCleanup(() => {
+        this._flow.onEnd(() => {
             // Check for untrapped error, promote to unhandled rejection
             if ((this._f & (Is.Error | Is.Promised)) === Is.Error) {
                 Promise.reject(this._res);
@@ -91,10 +91,10 @@ class _Job<T> implements Job<T> {
             done: false,
             value: (request: Request<T>) => {
                 this._f |= Is.Promised;
-                // XXX should this be a linkedCleanup so if the waiter dies we
+                // XXX should this be a linkedEnd so if the waiter dies we
                 // don't bother? The downside is that it'd have to be mutual and
                 // the resume is a no-op anyway in that case.
-                this.onCleanup(() => {
+                this.onEnd(() => {
                     request((this._f & Is.Error) === Is.Error ? "throw" : "next", this._res, this._res);
                 });
             }
@@ -112,14 +112,14 @@ class _Job<T> implements Job<T> {
         }
     }
 
-    onCleanup(cb: CleanupFn): void {
+    onEnd(cb: CleanupFn): void {
         const {_flow} = this;
-        return _flow ? _flow.onCleanup(cb) : defer(cb);
+        return _flow ? _flow.onEnd(cb) : defer(cb);
     }
 
-    linkedCleanup(cleanup: CleanupFn): DisposeFn {
+    linkedEnd(cleanup: CleanupFn): DisposeFn {
         const {_flow} = this;
-        if (_flow) return _flow.linkedCleanup(cleanup);
+        if (_flow) return _flow.linkedEnd(cleanup);
         defer(() => cleanup && cleanup());
         return () => cleanup = undefined;
     }
@@ -129,7 +129,7 @@ class _Job<T> implements Job<T> {
         onrejected?: (reason: any) => T2 | PromiseLike<T2>
     ): Promise<T1 | T2> {
         this._f |= Is.Promised;
-        return new Promise((res, rej) => this.onCleanup(() => {
+        return new Promise((res, rej) => this.onEnd(() => {
             if ((this._f & Is.Error) === Is.Error) rej(this._res); else res(this._res);
         })).then(onfulfilled, onrejected);
     }
@@ -192,7 +192,7 @@ class _Job<T> implements Job<T> {
             }
             // Generator returned or threw: ditch it and run cleanups
             this.g = undefined;
-            this._flow.cleanup();
+            this._flow.end();
             this._flow = this._ctx.flow = undefined;
         } finally {
             swapCtx(old);

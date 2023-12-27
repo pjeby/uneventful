@@ -1,7 +1,7 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
 import { type Source, IsStream, Inlet } from "./streams.ts";
-import { onCleanup, type DisposeFn, makeFlow } from "./tracking.ts";
+import { onEnd, type DisposeFn, makeFlow } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -36,7 +36,7 @@ export function emitter<T>(): Emitter<T> {
     emit.source = share<T>((sink, conn) => {
         write = conn.writer(sink);
         inlet = conn;
-        onCleanup(() => write = inlet = undefined);
+        onEnd(() => write = inlet = undefined);
         return IsStream;
     });
     emit.end = () => inlet?.end();
@@ -65,7 +65,7 @@ export function empty(): Source<never> {
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
-        if (iter.return) onCleanup(() => iter.return());
+        if (iter.return) onEnd(() => iter.return());
         return conn.onReady(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
@@ -110,7 +110,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
     return (sink, conn) => {
         const push = conn.writer(sink);
         target.addEventListener(type, push, options);
-        onCleanup(() => target.removeEventListener(type, push, options));
+        onEnd(() => target.removeEventListener(type, push, options));
         return IsStream;
     }
 }
@@ -127,7 +127,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
-        if (iter.return) onCleanup(() => iter.return());
+        if (iter.return) onEnd(() => iter.return());
         return conn.onReady(loop), IsStream;
         function loop() {
             try {
@@ -198,8 +198,8 @@ export function fromSignal<T>(s: () => T): Source<T> {
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink, conn) => {
-        const flow = makeFlow(undefined, () => flow.cleanup());
-        return conn.onReady(() => flow.onCleanup(subscribe(v => { conn.push(sink, v); }))), IsStream;
+        const flow = makeFlow(undefined, () => flow.end());
+        return conn.onReady(() => flow.onEnd(subscribe(v => { conn.push(sink, v); }))), IsStream;
     }
 }
 
@@ -224,7 +224,7 @@ export function interval(ms: number): Source<number> {
     return (sink, conn) => {
         let idx = 0;
         const id = setInterval(() => conn.push(sink, idx++), ms);
-        return onCleanup(() => clearInterval(id)), IsStream;
+        return onEnd(() => clearInterval(id)), IsStream;
     }
 }
 

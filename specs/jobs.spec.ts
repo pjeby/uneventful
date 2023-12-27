@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
-import { job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, onCleanup } from "../src/mod.ts";
+import { job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, onEnd } from "../src/mod.ts";
 
 describe("job()", () => {
     useRoot();
@@ -326,53 +326,53 @@ describe("Job instances", () => {
     describe("as flows", () => {
         it("runs its contents in a flow", () => {
             // Given a job with a cleanup function
-            job(function*() { onCleanup(() => log("clean")); });
+            job(function*() { onEnd(() => log("end")); });
             // When the job finishes
             see(); clock.tick(0);
             // Then the cleanup should run
-            see("clean");
+            see("end");
         });
-        describe(".onCleanup()", () => {
+        describe(".onEnd()", () => {
             it("runs when the job completes", () => {
-                // Given an empty job with an onCleanup
-                job([]).onCleanup(() => log("cleanup"));
+                // Given an empty job with an onEnd
+                job([]).onEnd(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
                 // Then the cleanup should run
-                see("cleanup");
+                see("end");
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
                 const j = job([]); clock.tick(0); see();
                 // When a cleanup is registered
-                j.onCleanup(() => log("cleanup")); see();
+                j.onEnd(() => log("end")); see();
                 // Then the cleanup should run async
-                clock.tick(0); see("cleanup");
+                clock.tick(0); see("end");
             });
         });
-        describe(".linkedCleanup()", () => {
+        describe(".linkedEnd()", () => {
             it("runs when the job completes", () => {
-                // Given an empty job with an onCleanup
-                job([]).linkedCleanup(() => log("cleanup"));
+                // Given an empty job with an onEnd
+                job([]).linkedEnd(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
                 // Then the cleanup should run
-                see("cleanup");
+                see("end");
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
                 const j = job([]); clock.tick(0); see();
-                // When a linkedCleanup is registered
-                j.linkedCleanup(() => log("cleanup")); see();
+                // When a linkedEnd is registered
+                j.linkedEnd(() => log("end")); see();
                 // Then the cleanup should run async
-                clock.tick(0); see("cleanup");
+                clock.tick(0); see("end");
             });
             describe("doesn't run if canceled", () => {
                 it("when registered before the job", () => {
-                    // Given an empty job with a canceled linkedCleanup
-                    job([]).linkedCleanup(() => log("cleanup"))(); see();
+                    // Given an empty job with a canceled linkedEnd
+                    job([]).linkedEnd(() => log("end"))(); see();
                     // When the job is started
                     clock.tick(0);
                     // Then the cleanup should not run
@@ -381,8 +381,8 @@ describe("Job instances", () => {
                 it("when registered after the job", () => {
                     // Given an empty completed job
                     const j = job([]); clock.tick(0); see();
-                    // When a linkedCleanup is registered and canceled
-                    j.linkedCleanup(() => log("cleanup"))();
+                    // When a linkedEnd is registered and canceled
+                    j.linkedEnd(() => log("end"))();
                     // Then the cleanup should not run async
                     clock.tick(0); see();
                 });
@@ -527,25 +527,25 @@ describe("Async Ops", () => {
         it("that ends when the job resumes", () => {
             // Given a job suspended on a wait() callback
             suspendOn(wait(r => {
-                onCleanup(() => log("clean"));
+                onEnd(() => log("end"));
                 setTimeout(() => resolve(r, 42), 5);
             }));
             // When the job resumes
             clock.runAll();
             // Then the cleanup callback should run first
-            see("clean", "42");
+            see("end", "42");
         });
         it("that ends if the job ends first", () => {
             // Given a job suspended on a wait() callback
             const j = suspendOn(wait(r => {
-                onCleanup(() => log("clean"));
+                onEnd(() => log("end"));
                 setTimeout(() => resolve(r, 42), 5);
             }));
             clock.tick(0); // let it suspend
             // When the job is aborted
             j.return(99);
             // Then the cleanup callback should be run
-            see("clean");
+            see("end");
         });
     });
 });
