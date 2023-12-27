@@ -36,15 +36,16 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
     return (sink, conn) => {
         let inner: Conduit;
         const inputs: Source<T>[] = [];
-        const outer = conn.link(sources, s => {
+        let outer = conn.link(sources, s => {
             inputs.push(s); startNext(); outer.pause();
         }).onCleanup(() => {
-            inputs.length || conn.close();
+            outer = undefined
+            inputs.length || inner || conn.close();
         });
         function startNext() {
             inner ||= conn.link(inputs.shift(), sink, conn).onCleanup(() => {
                 inner = undefined;
-                inputs.length ? startNext() : outer.resume();
+                inputs.length ? startNext() : (outer ? outer.resume() : conn.close());
             });
         }
         return IsStream;

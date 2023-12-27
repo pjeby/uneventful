@@ -58,6 +58,16 @@ describe("Operators", () => {
             e.close();
             see("closed");
         });
+        it("shouldn't end while a stream is still active", () => {
+            // Given a concatAll() of an emitter source
+            const e = emitter<Source<number>>(), s = concatAll(e.source);
+            // When it's connected to a paused sink
+            const c = connect(s, log.emit).pause().onCleanup(logClose);
+            // And a source is pushed followed by a close and a resume of the sink
+            e(fromIterable([1, 2])); e.close(); c.resume();
+            // Then it should see all the output before closing
+            see("1", "2", "closed");
+        });
     });
     describe("concatMap()", () => {
         it("should buffer newer streams while older ones are active", () => {
