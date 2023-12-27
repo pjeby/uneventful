@@ -1,7 +1,7 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, makeFlow, OptionalCleanup, linkedEnd } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, linkedEnd, Runner, runner } from "./tracking.ts";
 
 /**
  * Error indicating an effect has attempted to write a value it indirectly
@@ -164,6 +164,12 @@ export const runEffects = defaultQueue.flush
 
 const dirtyStack: Cell[] = [];
 
+// Effects stash some things in their .value
+type EffectState = {
+    q: RunQueue<Cell>;
+    r: Runner;
+}
+
 function markDependentsDirty(cell: Cell) {
     // We don't set validThrough here because that's how we tell the cell's been read/depended on
     const latestSource = cell.lastChanged = cell.latestSource = timestamp;
@@ -172,7 +178,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Effect) (tgt.value as RunQueue<Cell>).add(tgt);
+            if (tgt.flags & Is.Effect) (tgt.value as EffectState).q.add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -239,7 +245,7 @@ function delsub(sub: Subscription) {
 
 /** @internal */
 export class Cell {
-    value: any // the value, or, for an effect, the scheduler
+    value: any // the value, or, for an effect, the EffectState
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
@@ -345,13 +351,13 @@ export class Cell {
                     this.lastChanged = timestamp;
                 }
             } else {
-                const b = this.ctx.flow;
-                b.restart();
+                const {r} = this.value as EffectState
+                r.restart();
                 try {
-                    b.onEnd(this.compute());
+                    r.flow.onEnd(this.compute());
                     this.lastChanged = timestamp;
                 } catch (e) {
-                    b.end();
+                    r.end();
                     this.disposeEffect();
                     if (this.ctx.job) {
                         // tell the owning job about the error
@@ -380,14 +386,12 @@ export class Cell {
 
     disposeEffect() {
         this.flags |= Is.Dead;
-        (this.value as RunQueue<Cell>).delete(this);
+        const {q, r} = (this.value as EffectState);
+        q.delete(this);
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
-            if (this.ctx.flow) {
-                this.ctx.flow.end();
-                this.ctx.flow = null;
-            }
+            r.end();
         }
     }
 
@@ -429,17 +433,17 @@ export class Cell {
         return cell.getValue.bind(cell);
     }
 
-    static mkEffect(fn: (stop: () => void) => OptionalCleanup, scheduler: RunQueue<Cell>) {
+    static mkEffect(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
         var unlink = linkedEnd(stop);
-        var cell = new Cell;
-        cell.value = scheduler;
+        var cell = new Cell, r = runner();
+        cell.value = {q, r} as EffectState;
         cell.compute = fn.bind(null, stop);
-        cell.ctx = makeCtx(current.job, makeFlow(), cell);
+        cell.ctx = makeCtx(current.job, r.flow, cell);
         cell.flags = Is.Effect;
-        scheduler.add(cell);
+        q.add(cell);
         return stop;
         function stop() {
-            if (unlink) unlink();
+            unlink();
             if (cell) {
                 cell.disposeEffect();
                 cell = undefined;

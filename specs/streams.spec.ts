@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, onEnd, detached, makeFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, onEnd, detached, flow, root, getFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
     if (!parent) return detached(() => new Conduit())();
@@ -14,9 +14,9 @@ describe("connect()", () => {
     useRoot();
     it("calls source with sink and returns a Conduit", () => {
         // Given a source and a sink
-        const t = makeFlow(), src = spy(), sink = spy();
+        const src = spy(), sink = spy();
         // When connect() is called with them
-        const c = t.run(connect, src, sink);
+        const c = connect(src, sink);
         // Then you should get a conduit
         expect(c).to.be.an.instanceOf(Conduit);
         // And the source should have been called with the conduit and the sink
@@ -24,10 +24,12 @@ describe("connect()", () => {
     });
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
-        const f = makeFlow(), src = spy(), sink = spy();
-        f.run(connect, src, sink).onEnd(logClose);
-        // When the flow is cleaned up
-        see(); f.end();
+        const src = spy(), sink = spy();
+        const end = flow(() => {
+            connect(src, sink).onEnd(logClose);
+        });
+        // When the flow is ended
+        see(); end();
         // Then the conduit should be closed
         see("closed");
     });
@@ -73,12 +75,14 @@ describe("Conduit", () => {
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a conduit it's attached to
-        const t = makeFlow(), c = mkConduit(t).onEnd(logClose);
-        // When the flow is cleaned up
-        t.end();
-        // Then the conduit should be closed
-        see("closed");
-        expect(c.isReady()).to.be.false;
+        root(end => {
+            const c = mkConduit(getFlow()).onEnd(logClose);
+            // When the flow ends
+            end();
+            // Then the conduit should be closed
+            see("closed");
+            expect(c.isReady()).to.be.false;
+        });
     });
     describe("is inactive after closing:", () => {
         it("ignores close() if already thrown", () => {
@@ -142,13 +146,15 @@ describe("Conduit", () => {
         });
         it("when the enclosing flow is cleaned up", () => {
             // Given a flow and a conduit it's attached to
-            const f = makeFlow(), c = mkConduit(f);
-            // And two onEnd callbacks
-            c.onEnd(() => log("first")).onEnd(() => log("last"));
-            // When the flow is cleaned up
-            f.end();
-            // Then the callbacks should be run in reverse order
-            see("last", "first");
+            root(end => {
+                const c = mkConduit(getFlow());
+                // And two onEnd callbacks
+                c.onEnd(() => log("first")).onEnd(() => log("last"));
+                // When the flow is cleaned up
+                end();
+                // Then the callbacks should be run in reverse order
+                see("last", "first");
+            });
         });
     });
     describe("runs .onEnd() callbacks asynchronously in FIFO order", () => {

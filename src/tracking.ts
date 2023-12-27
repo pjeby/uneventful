@@ -27,26 +27,49 @@ export type OptionalCleanup = CleanupFn | Nothing;
  *
  * By adding {@link onEnd}() callbacks to a flow, you can later call its
  * {@link Flow.end end}() method to run all of them in reverse order, thereby
- * cleaning up after the action -- a bit like a delayed and distributed `finally`
- * block.
+ * cleaning up after the action -- a bit like a delayed and distributed
+ * `finally` block.
  *
- * You can create a Flow using {@link makeFlow}().
+ * Flows are created using {@link runner}(), which returns a flow plus functions
+ * for ending or restarting the flow.
  *
  * @category Types and Interfaces
  */
 export interface Flow {
     /**
      * Add a cleanup callback to be run when the flow is ended or restarted.
-     * (Non-function values are ignored.)
+     * (Non-function values are ignored.)  If the flow has already ended,
+     * the callback will be invoked asynchronously in the next microtask.
      */
     onEnd(cleanup?: OptionalCleanup): void;
 
     /**
-     * Like {@link Flow.onEnd}, except a function is
-     * returned that will *remove* the cleanup function from the flow, if it's
-     * still present. (Also, the cleanup function isn't optional.)
+     * Like {@link Flow.onEnd}, except a function is returned that will *remove*
+     * the cleanup function from the flow, if it's still present. (Also, the
+     * cleanup function isn't optional.)
      */
     linkedEnd(cleanup: CleanupFn): () => void;
+
+    /**
+     * Invoke a function with this flow as the active one, so that calling the
+     * global {@link onEnd} function will add cleanup callbacks to it,
+     * {@link getFlow} will return it, etc.
+     *
+     * @param fn The function to call
+     * @param args The arguments to call it with, if any
+     * @returns The result of calling fn(...args)
+     */
+    run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
+}
+
+/**
+ * A Flow's runtime controller - used to end or restart a flow
+ *
+ * @category Types and Interfaces
+ */
+export interface Runner {
+    /** The flow this runner controls **/
+    flow: Flow
 
     /**
      * Release all resources held by the flow.
@@ -63,26 +86,30 @@ export interface Flow {
      */
     readonly end: () => void;
 
+    /**
+     * Restart a flow - works just like {@link Runner.end}, except that the flow
+     * isn't ended, so cleanup callbacks can be added again and won't be invoked
+     * until the next restart or the flow is ended.
+     *
+     * Note: this method is a bound function, so you can pass it as a callback
+     * to another flow, event handler, etc.
+     */
     readonly restart: () => void;
 
-    /**
-     * Invoke a function with this flow as the active one, so that calling the
-     * global {@link onEnd} function will add cleanup callbacks to it,
-     * {@link getFlow} will return it, etc.
-     *
-     * @param fn The function to call
-     * @param args The arguments to call it with, if any
-     * @returns The result of calling fn(...args)
-     */
-    run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
 import type { Job } from "./jobs.ts";
 
-
-function getFlow() {
+/**
+ * Return the currently-active Flow, or throw an error if none is active.
+ *
+ * (You can check if a flow is active first using {@link isFlowActive}().)
+ *
+ * @category Flows
+ */
+export function getFlow() {
     const {flow} = current;
     if (flow) return flow;
     throw new Error("No flow is currently active");
@@ -92,12 +119,12 @@ var freelist: CleanupNode;
 
 class _Flow implements Flow {
     /** @internal */
-    static create(parent?: Flow, stop?: CleanupFn) {
+    static runner(parent?: Flow, stop?: CleanupFn) {
         const flow = new _Flow;
         if (parent || stop) flow.onEnd(
             (parent || getFlow()).linkedEnd(stop || flow.end)
         );
-        return flow;
+        return {flow, end: flow.end, restart: flow.restart};
     }
 
     protected constructor() {};
@@ -193,7 +220,7 @@ export function onEnd(cleanup?: OptionalCleanup) {
  * @category Flows
  */
 export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-    return wrapAction(makeFlow(getFlow()), action);
+    return wrapAction(runner(getFlow()), action);
 }
 
 /**
@@ -211,12 +238,12 @@ export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
  * @category Flows
  */
 export function root(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
-    return wrapAction(makeFlow(), action);
+    return wrapAction(runner(), action);
 }
 
-function wrapAction(flow: Flow, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    flow.onEnd(flow.run(action, flow.end));
-    return flow.end;
+function wrapAction(runner: Runner, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
+    runner.flow.onEnd(runner.flow.run(action, runner.end));
+    return runner.end;
 }
 
 /**
@@ -240,23 +267,23 @@ export function linkedEnd(cleanup: CleanupFn): DisposeFn {
 
 
 /**
- * Return a new Flow.  If *either* a parent parameter or stop function are
- * given, a nested flow is returned.
+ * Return a new {@link Runner}.  If *either* a parent parameter or stop function
+ * are given, the new runner's flow is linked to the parent.
  *
  * @param parent The parent flow to which the new flow should be attached.
  * Defaults to the currently-active flow if none given (assuming a stop
  * parameter is provided).
  *
  * @param stop The function to call to destroy the nested flow.  Defaults to the
- * {@link Flow.end} method of the new flow if none is given (assuming a
+ * {@link Runner.end} method of the new runner if none is given (assuming a
  * parent parameter is provided).
  *
- * @returns A nested Flow instance is returned if any arguments are given, or a
- * root/standalone Flow otherwise.
+ * @returns A runner for a new flow.  The flow is linked/nested if any arguments
+ * are given, or a root/standalone flow otherwise.
  *
  * @category Flows
  */
-export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
+export const runner: (parent?: Flow, stop?: CleanupFn) => Runner = _Flow.runner;
 
 
 /**

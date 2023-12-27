@@ -1,7 +1,7 @@
 import { current, makeCtx, swapCtx } from "./ambient.ts";
 import { JobIterator, Request, Suspend, Yielding } from "./async.ts";
 import { defer } from "./defer.ts";
-import { CleanupFn, DisposeFn, makeFlow } from "./tracking.ts";
+import { CleanupFn, DisposeFn, runner } from "./tracking.ts";
 
 /**
  * A cancellable asynchronous task.  (Created using {@link job}().)
@@ -75,7 +75,7 @@ class _Job<T> implements Job<T> {
     declare [Symbol.toStringTag]: string;
 
     constructor(protected g: JobIterator<T>) {
-        this._flow.onEnd(() => {
+        this._r.flow.onEnd(() => {
             // Check for untrapped error, promote to unhandled rejection
             if ((this._f & (Is.Error | Is.Promised)) === Is.Error) {
                 Promise.reject(this._res);
@@ -113,13 +113,13 @@ class _Job<T> implements Job<T> {
     }
 
     onEnd(cb: CleanupFn): void {
-        const {_flow} = this;
-        return _flow ? _flow.onEnd(cb) : defer(cb);
+        const {flow} = this._ctx;
+        return flow ? flow.onEnd(cb) : defer(cb);
     }
 
     linkedEnd(cleanup: CleanupFn): DisposeFn {
-        const {_flow} = this;
-        if (_flow) return _flow.linkedEnd(cleanup);
+        const {flow} = this._ctx;
+        if (flow) return flow.linkedEnd(cleanup);
         defer(() => cleanup && cleanup());
         return () => cleanup = undefined;
     }
@@ -146,8 +146,8 @@ class _Job<T> implements Job<T> {
     throw(e: any)   { this._step("throw",  e); }
 
     // === Internals === //
-    protected _flow = makeFlow(null, this.return.bind(this, undefined));
-    protected readonly _ctx = makeCtx(this, this._flow);
+    protected _r = runner(null, this.return.bind(this, undefined));
+    protected readonly _ctx = makeCtx(this, this._r.flow);
     protected _f = Is.Running;
     protected _res: any
     protected _iter: JobIterator<T>;
@@ -192,8 +192,8 @@ class _Job<T> implements Job<T> {
             }
             // Generator returned or threw: ditch it and run cleanups
             this.g = undefined;
-            this._flow.end();
-            this._flow = this._ctx.flow = undefined;
+            this._r.end();
+            this._ctx.flow = undefined;  // XXX fix when flows can be ended
         } finally {
             swapCtx(old);
             this._f &= ~Is.Running;
