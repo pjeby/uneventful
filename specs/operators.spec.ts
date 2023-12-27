@@ -1,6 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
-import { Conduit, connect, IsStream, onCleanup, pipe, Sink, Source } from "../src/mod.ts";
-import { emitter, fromIterable, fromValue } from "../src/sources.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -33,7 +32,7 @@ describe("Operators", () => {
             // Given a concat of multiple streams
             const s = concat([fromIterable([1, 2, 3]), fromIterable([5, 6, 7])])
             // When it's connected with a sink that pauses, and pulls run
-            const c = connect(s, v => { log(v); return !!(v%3) }).onCleanup(logClose); runPulls()
+            const c = connect(s, v => { log(v); !!(v%3) || c.pause() }).onCleanup(logClose); runPulls()
             // Then it should emit the values up to the first pause
             see("1", "2", "3");
             // Then continue when resumed
@@ -150,7 +149,7 @@ describe("Operators", () => {
             // Given a merge of multiple streams
             const s = merge([fromIterable([2, 3, 4]), fromIterable([6, 7, 8])])
             // When it's connected with a sink that pauses
-            const c = connect(s, v => { log(v); return !!(v%3) }).onCleanup(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || c.pause(); }).onCleanup(logClose);
             // Then it should emit values and pause accordingly, resuming on request
             runPulls(); see("2", "3");
             c.resume(); see("6");
@@ -224,7 +223,7 @@ describe("Operators", () => {
             // Given a shared synchronous source
             const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
             // When it's connected and pulled with a sink that pauses
-            connect(s, v => { log(v); return !!(v%3) }).onCleanup(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || c.pause() }).onCleanup(logClose);
             see(); runPulls();
             // Then it should emit values until the pause
             see("1", "2", "3");
@@ -324,7 +323,7 @@ describe("Operators", () => {
                 fromIterable([1,2,3,4,5,6,7])
             ]));
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => { log(v); return !!(v%3) }).onCleanup(logClose);
+            const c = connect(s, v => { log(v); !!(v%3)|| c.pause(); }).onCleanup(logClose);
             // Then output should pause
             runPulls(); see("1", "2", "3");
             // And resume on demand

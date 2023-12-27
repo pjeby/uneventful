@@ -37,7 +37,7 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
         let inner: Conduit;
         const inputs: Source<T>[] = [];
         const outer = conn.link(sources, s => {
-            inputs.push(s); startNext(); return false;
+            inputs.push(s); startNext(); outer.pause();
         }).onCleanup(() => {
             inputs.length || conn.close();
         });
@@ -84,7 +84,7 @@ export function filter<T,R extends T>(filter: (v: T, idx: number) => v is R): Tr
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T> {
     return src => (sink, conn) => {
-        let idx = 0; return src(v => filter(v, idx++) ? sink(v) : true, conn);
+        let idx = 0; return src(v => filter(v, idx++) && sink(v), conn);
     }
 }
 
@@ -131,7 +131,6 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
                 uplinks.size || outer || conn.close();
             });
             uplinks.add(c);
-            return true;
         }).onCleanup(() => {
             outer = undefined;
             uplinks.size || conn.close();
@@ -189,7 +188,7 @@ export function share<T>(source: Source<T>): Source<T> {
                 for(const [s,l] of links) {
                     if (l.push(s,v)) resumed = true; else l.onReady(resume);
                 }
-                return resumed;
+                resumed || uplink.pause();
             }).onCleanup(() => {
                 const {reason} = uplink, err = uplink.hasError();
                 uplink = undefined;
@@ -228,7 +227,7 @@ export function skip<T>(n: number): Transformer<T> {
 export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (sink, conn) => {
         let taking = false;
-        const c = conn.link(notifier, () => { taking = true; c.close(); return false; });
+        const c = conn.link(notifier, () => { taking = true; c.close(); });
         return src(v => taking && sink(v), conn);
     }
 }
@@ -243,7 +242,7 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
 export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0, met = false;
-        return src(v => (met ||= !condition(v, idx++)) ? sink(v) : true, conn);
+        return src(v => (met ||= !condition(v, idx++)) && sink(v), conn);
     };
 }
 
@@ -270,7 +269,6 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
                 inner = undefined;
                 outer || conn.close();
             });
-            return true;
         }).onCleanup(() => {
             outer = undefined;
             inner || conn.close();
@@ -315,7 +313,7 @@ export function take<T>(n: number): Transformer<T> {
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (sink, conn) => {
-        conn.link(notifier, () => { conn.close(); return false; });
+        conn.link(notifier, () => conn.close());
         return src(sink, conn);
     }
 }
@@ -335,6 +333,6 @@ export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transfo
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0;
-        return src(v => condition(v, idx++) ? sink(v) : (conn.close(), false), conn);
+        return src(v => condition(v, idx++) ? sink(v) : conn.close(), conn);
     };
 }

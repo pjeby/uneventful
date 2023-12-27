@@ -42,7 +42,7 @@ export const IsStream = "uneventful/is-stream" as const;
  *
  * @category Types and Interfaces
  */
-export type Sink<T> = (val: T) => boolean;
+export type Sink<T> = (val: T) => void;
 
 /**
  * A `Transformer` is a function that takes one source and returns another,
@@ -181,14 +181,13 @@ export class Conduit {
     }
 
     /**
-     * Send data to a sink, returning the result.  (Or false if the conduit is closed.)
+     * Send data to a sink, returning the conduit's ready state.
      *
      * If the sink throws an error, the conduit closes with that error, and push() returns false.
-     * If the sink returns false, the conduit's root is marked paused.
      */
     push<T>(sink: Sink<T>, val: T): boolean {
         try {
-            return this.isOpen() && (sink(val) || (this._root.pause(), false));
+            return this.isOpen() && (sink(val), this._root.isReady());
         } catch(e) {
             this.throw(e);
             return false;

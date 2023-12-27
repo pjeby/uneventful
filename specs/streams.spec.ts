@@ -247,15 +247,15 @@ describe("Conduit", () => {
             // And the sink is not invoked
             see();
         });
-        it("calls the sink and returns its return value", () => {
+        it("calls the sink and returns the ready state", () => {
             // Given a conduit and its writer()
             let ret = true;
             const c = mkConduit(), cb = spy(() => ret);
             const w = makeWriter(c, cb);
             // When the writer is called
-            // Then it returns the sink's return value
+            // Then it returns the conduit's ready state
             expect(w(42)).to.be.true;
-            ret = false;
+            c.pause();
             expect(w(43)).to.be.false;
             // And the sink is invoked with the value
             expect(cb).to.have.been.calledTwice;
