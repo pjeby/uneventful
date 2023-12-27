@@ -84,7 +84,7 @@ export function filter<T,R extends T>(filter: (v: T, idx: number) => v is R): Tr
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T> {
     return src => (sink, conn) => {
-        let idx = 0; return src(v => filter(v, idx++) ? sink(v, conn) : true, conn);
+        let idx = 0; return src(v => filter(v, idx++) ? sink(v) : true, conn);
     }
 }
 
@@ -98,7 +98,7 @@ export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T
  */
 export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
     return src => (sink, conn) => {
-        let idx = 0; return src(v => sink(mapper(v, idx++), conn), conn);
+        let idx = 0; return src(v => sink(mapper(v, idx++)), conn);
     }
 }
 
@@ -227,8 +227,8 @@ export function skip<T>(n: number): Transformer<T> {
 export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
     return src => (sink, conn) => {
         let taking = false;
-        conn.link(notifier, (_, c) => { taking = true; c.close(); return false; });
-        return src(v => taking && sink(v, conn), conn);
+        const c = conn.link(notifier, () => { taking = true; c.close(); return false; });
+        return src(v => taking && sink(v), conn);
     }
 }
 
@@ -242,7 +242,7 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
 export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0, met = false;
-        return src(v => (met ||= !condition(v, idx++)) ? sink(v, conn) : true, conn);
+        return src(v => (met ||= !condition(v, idx++)) ? sink(v) : true, conn);
     };
 }
 
@@ -333,6 +333,6 @@ export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transfo
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0;
-        return src(v => condition(v, idx++) ? sink(v, conn) : (conn.close(), false), conn);
+        return src(v => condition(v, idx++) ? sink(v) : (conn.close(), false), conn);
     };
 }

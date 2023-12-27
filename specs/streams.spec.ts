@@ -258,10 +258,10 @@ describe("Conduit", () => {
             expect(w(42)).to.be.true;
             ret = false;
             expect(w(43)).to.be.false;
-            // And the sink is invoked with the value and conduit
+            // And the sink is invoked with the value
             expect(cb).to.have.been.calledTwice;
-            expect(cb).to.have.been.calledWithExactly(42, c);
-            expect(cb).to.have.been.calledWithExactly(43, c);
+            expect(cb).to.have.been.calledWithExactly(42);
+            expect(cb).to.have.been.calledWithExactly(43);
         });
         it("traps errors and throws them", () => {
             // Given a conduit and a writer that throws

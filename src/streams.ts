@@ -29,9 +29,7 @@ export type Source<T> = (sink: Sink<T>, conn: Conduit) => typeof IsStream;
 export const IsStream = "uneventful/is-stream" as const;
 
 /**
- * A `Sink` is a function that receives data from a {@link Source}. In addition
- * to the data, the {@link Conduit} that controls the sending is passed, so the
- * consumer can close it.
+ * A `Sink` is a function that receives data from a {@link Source}.
  *
  * A sink must return `true` if it can immediately (i.e. synchronously) be
  * called with the next value.  It should return `false` instead if a
@@ -44,7 +42,7 @@ export const IsStream = "uneventful/is-stream" as const;
  *
  * @category Types and Interfaces
  */
-export type Sink<T> = (val: T, conn: Conduit) => boolean;
+export type Sink<T> = (val: T) => boolean;
 
 /**
  * A `Transformer` is a function that takes one source and returns another,
@@ -190,7 +188,7 @@ export class Conduit {
      */
     push<T>(sink: Sink<T>, val: T): boolean {
         try {
-            return this.isOpen() && (sink(val, this) || (this._root.pause(), false));
+            return this.isOpen() && (sink(val) || (this._root.pause(), false));
         } catch(e) {
             this.throw(e);
             return false;
