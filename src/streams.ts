@@ -120,8 +120,8 @@ export class Conduit {
         if (src && sink) this._flow.run(src, sink, this);
     }
 
-    /** Is the conduit currently open? */
-    isOpen(): boolean { return is(this._flags, Is.Open); }
+    /** @internal */
+    protected isOpen(): boolean { return is(this._flags, Is.Open); }
 
     /** Is the conduit currently ready to receive data? */
     isReady(): boolean { return is(this._root._flags, Is.Ready); }

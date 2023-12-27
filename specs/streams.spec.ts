@@ -8,6 +8,8 @@ function mkConduit(parent: Flow = null) {
     return new Conduit(parent);
 }
 
+function logClose() { log("closed"); }
+
 describe("connect()", () => {
     useRoot();
     it("calls source with sink and returns a Conduit", () => {
@@ -23,16 +25,16 @@ describe("connect()", () => {
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
         const f = makeFlow(), src = spy(), sink = spy();
-        const c = f.run(connect, src, sink);
+        f.run(connect, src, sink).onCleanup(logClose);
         // When the flow is cleaned up
-        f.cleanup();
+        see(); f.cleanup();
         // Then the conduit should be closed
-        expect(c.isOpen()).to.be.false;
+        see("closed");
     });
     it("calls the source with the conduit's flow active", () => {
         // Given a source and a sink
         function sink() { return true; }
-        function src(_sink: Sink<any>, conn: Conduit) { onCleanup(() => log("cleanup")); return IsStream; }
+        function src(_sink: Sink<any>) { onCleanup(() => log("cleanup")); return IsStream; }
         // When connect() is called with them and closed
         connect(src, sink).close();
         // Then cleanups added by the source should be called
@@ -41,12 +43,11 @@ describe("connect()", () => {
 });
 
 describe("Conduit", () => {
-    it("initially isOpen(), isReady(), and not hasError()", () => {
+    it("initially isReady(), and not hasError()", () => {
         // Given a Conduit
         const c = mkConduit();
         // When its status is checked
         // Then it should be open and not have an error
-        expect(c.isOpen()).to.be.true;
         expect(c.isReady()).to.be.true;
         expect(c.hasError()).to.be.false;
         expect(c.hasUncaught()).to.be.false;
@@ -56,7 +57,6 @@ describe("Conduit", () => {
         const e = new Error, c = mkConduit().throw(e);
         // When its status is checked
         // Then it should be closed and have an error
-        expect(c.isOpen()).to.be.false;
         expect(c.hasError()).to.be.true;
         expect(c.hasUncaught()).to.be.true;
         // And the reason should be the thrown error
@@ -64,21 +64,20 @@ describe("Conduit", () => {
     });
     it("is closed(+unready) with no error when .close()d", () => {
         // Given a conduit that's closed
-        const c = mkConduit().close();
+        const c = mkConduit().onCleanup(logClose).close();
         // When its status is checked
         // Then it should be closed and not have an error
-        expect(c.isOpen()).to.be.false;
+        see("closed");
         expect(c.isReady()).to.be.false;
         expect(c.hasError()).to.be.false;
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a conduit it's attached to
-        const t = makeFlow(), c = mkConduit(t);
-        expect(c.isOpen()).to.be.true;
+        const t = makeFlow(), c = mkConduit(t).onCleanup(logClose);
         // When the flow is cleaned up
         t.cleanup();
         // Then the conduit should be closed
-        expect(c.isOpen()).to.be.false;
+        see("closed");
         expect(c.isReady()).to.be.false;
     });
     describe("is inactive after closing:", () => {
@@ -337,26 +336,26 @@ describe("Conduit", () => {
     function testChildConduit(mkChild: <T>(c: Conduit, src?: Source<T>, sink?: Sink<T>) => Conduit) {
         it("is open", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c);
-            // Then the link should be open and not the conduit
+            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
+            // Then the link should be open and not equal the conduit
+            see();
             expect(f).to.not.equal(c);
-            expect(f.isOpen()).to.be.true;
         });
         it("closes when the parent closes", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c);
+            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
             // When the conduit is closed
             c.close();
             // Then the link should also be closed
-            expect(f.isOpen()).to.be.false;
+            see("closed");
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c);
+            const c = mkConduit(), f = mkChild(c).onCleanup(logClose);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error
-            expect(f.isOpen()).to.be.false;
+            see("closed");
             expect(f.hasError()).to.be.false;
         });
         it("subscribes a source if given one", () => {

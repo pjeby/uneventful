@@ -125,15 +125,16 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> 
 export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
     return (sink, conn) => {
         const uplinks: Set<Conduit> = new Set;
-        const outer = conn.link(sources, (s) => {
+        let outer = conn.link(sources, (s) => {
             const c = conn.link(s, sink, conn).onCleanup(() => {
                 uplinks.delete(c);
-                if (!uplinks.size && !outer.isOpen()) conn.close();
+                uplinks.size || outer || conn.close();
             });
             uplinks.add(c);
             return true;
         }).onCleanup(() => {
-            if (!uplinks.size) conn.close();
+            outer = undefined;
+            uplinks.size || conn.close();
         });
         return IsStream;
     }
@@ -263,14 +264,15 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
 export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
     return (sink, conn) => {
         let inner: Conduit;
-        const outer = conn.link(sources, s => {
+        let outer = conn.link(sources, s => {
             inner?.close();
             inner = conn.link(s, sink, conn).onCleanup(() => {
                 inner = undefined;
-                outer.isOpen() || conn.close();
+                outer || conn.close();
             });
             return true;
         }).onCleanup(() => {
+            outer = undefined;
             inner || conn.close();
         });
         return IsStream;
