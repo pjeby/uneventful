@@ -113,15 +113,11 @@ class _Job<T> implements Job<T> {
     }
 
     onEnd(cb: CleanupFn): void {
-        const {flow} = this._ctx;
-        return flow ? flow.onEnd(cb) : defer(cb);
+        return this._ctx.flow.onEnd(cb);
     }
 
     linkedEnd(cleanup: CleanupFn): DisposeFn {
-        const {flow} = this._ctx;
-        if (flow) return flow.linkedEnd(cleanup);
-        defer(() => cleanup && cleanup());
-        return () => cleanup = undefined;
+        return this._ctx.flow.linkedEnd(cleanup);
     }
 
     then<T1=T, T2=never>(
@@ -193,7 +189,6 @@ class _Job<T> implements Job<T> {
             // Generator returned or threw: ditch it and run cleanups
             this.g = undefined;
             this._r.end();
-            this._ctx.flow = undefined;  // XXX fix when flows can be ended
         } finally {
             swapCtx(old);
             this._f &= ~Is.Running;

@@ -101,6 +101,7 @@ export interface Runner {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
 import type { Job } from "./jobs.ts";
+import { defer } from "./defer.ts";
 
 /**
  * Return the currently-active Flow, or throw an error if none is active.
@@ -117,35 +118,36 @@ export function getFlow() {
 
 var freelist: CleanupNode;
 
+function endFlow(this: _Flow) {
+    this._done = true;
+    const old = swapCtx(makeCtx());
+    for (var rb = this._next; rb; ) {
+        try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
+        if (this._next === rb) this._next = rb._next;
+        freeCN(rb);
+        rb = this._next;
+    }
+    freeCtx(swapCtx(old));
+}
+
 class _Flow implements Flow {
     /** @internal */
     static runner(parent?: Flow, stop?: CleanupFn) {
-        const flow = new _Flow;
+        const flow = new _Flow, end = endFlow.bind(flow);
         if (parent || stop) flow.onEnd(
-            (parent || getFlow()).linkedEnd(stop || flow.end)
+            (parent || getFlow()).linkedEnd(stop || end)
         );
-        return {flow, end: flow.end, restart: flow.restart};
+        return {flow, end, restart() {
+             if (flow._done) throw new Error("Can't restart ended flow");
+             end(); flow._done = false;
+        }};
     }
 
     protected constructor() {};
 
-    readonly end = () => {
-        const old = swapCtx(makeCtx());
-        for (var rb = this._next; rb; freeCN(rb), rb = this._next) {
-            try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
-        }
-        freeCtx(swapCtx(old));
-    }
-
-    readonly restart = this.end;
-
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F> {
         const old = swapCtx(makeCtx(current.job, this));
-        try {
-            return fn.apply(null, args);
-        } catch(e) {
-            this.end(); throw e;
-        } finally { freeCtx(swapCtx(old)); }
+        try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
     }
 
     onEnd(cleanup?: OptionalCleanup) {
@@ -154,12 +156,14 @@ class _Flow implements Flow {
 
     linkedEnd(cleanup: CleanupFn): () => void {
         var rb = this._push(() => { rb = null; cleanup(); });
-        return () => { freeCN(rb); rb = null; };
+        return () => { if (rb && this._next === rb) this._next = rb._next; freeCN(rb); rb = null; };
     }
 
+    protected _done = false;
     protected _next: CleanupNode = undefined;
     protected _push(cb: CleanupFn) {
-        let rb = makeCN(cb, current.job, this._next, this as unknown as CleanupNode);
+        if (this._done) defer(endFlow.bind(this));
+        let rb = makeCN(cb, current.job, this._next);
         if (this._next) this._next._prev = rb;
         return this._next = rb;
     }
@@ -172,17 +176,16 @@ type CleanupNode = {
     _job: Job<any>
 }
 
-function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode, prev: CleanupNode): CleanupNode {
+function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode): CleanupNode {
     if (freelist) {
         let node = freelist;
         freelist = node._next;
         node._next = next;
-        node._prev = prev;
         node._cb = cb;
         node._job = job;
         return node;
     }
-    return {_next: next, _prev: prev, _cb: cb, _job: job}
+    return {_next: next, _prev: undefined, _cb: cb, _job: job}
 }
 
 function freeCN(rb: CleanupNode) {
@@ -242,7 +245,7 @@ export function root(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
 }
 
 function wrapAction(runner: Runner, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    runner.flow.onEnd(runner.flow.run(action, runner.end));
+    try { runner.flow.onEnd(runner.flow.run(action, runner.end)); } catch(e) { runner.end(); throw e; }
     return runner.end;
 }
 
@@ -311,16 +314,14 @@ export const runner: (parent?: Flow, stop?: CleanupFn) => Runner = _Flow.runner;
 export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
     return <T> function (...args) {
         const old = current.flow;
-        current.flow = detachedFlow as Flow;
+        current.flow = detachedFlow;
         try { return flowFn.apply(this, args); } finally { current.flow = old; }
     };
 }
 
 function noop() {}
 
-const detachedFlow: Pick<Flow, "onEnd" | "linkedEnd"> = {
-    onEnd(_cleanup?: OptionalCleanup) {
-        throw new Error("Can't add cleanups in a detached flow");
-    },
-    linkedEnd(_cleanup: CleanupFn): () => void { return noop; },
-};
+// Hacked flow to indicate the detached state
+const detachedFlow = runner().flow;
+detachedFlow.onEnd = () => { throw new Error("Can't add cleanups in a detached flow"); }
+detachedFlow.linkedEnd = () => { return noop; }

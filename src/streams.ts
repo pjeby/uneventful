@@ -1,4 +1,3 @@
-import { defer } from "./defer.ts";
 import { pulls } from "./scheduling.ts";
 import { CleanupFn, OptionalCleanup, type Flow, Runner, runner } from "./tracking.ts";
 
@@ -160,7 +159,7 @@ export class Conduit implements Inlet {
      * any other flow.
      */
     onEnd(fn?: OptionalCleanup) {
-        this.isOpen() ? this._flow.onEnd(fn) : fn && defer(fn);
+        this._flow.onEnd(fn);
         return this;
     }
 
@@ -243,7 +242,7 @@ export class Conduit implements Inlet {
         if (this._flags & Is.Open) {
             this._flags &= ~(Is.Open|Is.Ready);
             this._run.end();
-            this._flow = this._run = undefined;
+            this._run = undefined;
         }
         return this;
     }

@@ -157,7 +157,7 @@ describe("Conduit", () => {
             });
         });
     });
-    describe("runs .onEnd() callbacks asynchronously in FIFO order", () => {
+    describe("runs .onEnd() callbacks asynchronously in LIFO order", () => {
         useClock();
         it("when already close()d", () => {
             // Given a closed conduit
@@ -168,7 +168,7 @@ describe("Conduit", () => {
             see()
             // Until the next microtask
             clock.tick(0);
-            see("first", "last");
+            see("last", "first");
         });
         it("when already throw()n", () => {
             // Given a thrown conduit
@@ -179,7 +179,7 @@ describe("Conduit", () => {
             see()
             // Until the next microtask
             clock.tick(0);
-            see("first", "last");
+            see("last", "first");
         });
         it("while other .onEnd callbacks are running", () => {
             // Given a conduit with two onEnd callbacks, one of which calls a third
@@ -188,11 +188,8 @@ describe("Conduit", () => {
                 .onEnd(() => c.onEnd(() => log("last")));
             // When the conduit is closed
             c.close();
-            // Then the initial callbacks should be run in reverse order,
-            see("first");
-            // but the newly-pushed callback should run asynchronously
-            clock.tick(0);
-            see("last");
+            // Then the newly-added callback should run immediately
+            see("last", "first");
         });
     });
     describe(".isReady()", () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, log, see, spy, useRoot } from "./dev_deps.ts";
+import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
 import { CleanupFn, Flow, flow, isFlowActive, onEnd, root, linkedEnd, detached, runner, Runner } from "../mod.ts";
 
@@ -8,6 +8,49 @@ describe("runner()", () => {
         expect(flow1.end).to.be.a("function");
         expect(flow2.end).to.be.a("function");
         expect(flow1).to.not.equal(flow2);
+    });
+    describe(".restart() ", () => {
+        useClock();
+        it("doesn't permanently terminate the flow", () => {
+            // Given a restarted flow
+            const r = runner(), f = r.flow; r.restart();
+            // When new cleanups are added to the flow
+            f.onEnd(() => log("onEnd"));
+            f.linkedEnd(() => log("linkedEnd"));
+            // Then they don't run until the next restart
+            clock.runAll(); see();
+            r.restart(); see("linkedEnd", "onEnd");
+            // Or next end
+            f.linkedEnd(() => log("linkedEnd2"));
+            f.onEnd(() => log("onEnd2"));
+            clock.runAll(); see();
+            r.end(); see("onEnd2", "linkedEnd2");
+        });
+        it("won't revive an ended flow", () => {
+            // Given an ended flow
+        })
+    });
+    describe(".end() makes future cleanups run async+asap", () => {
+        useClock();
+        it("makes future onEnd + un-canceled linkedEnd run async+asap", () => {
+            // Given an ended flow with some cleanups
+            const r = runner(), f = r.flow; r.end();
+            // When new cleanups are added to the flow
+            f.onEnd(() => log("onEnd"));
+            f.linkedEnd(() => log("linkedEnd"));
+            // Then they run asynchronously
+            clock.tick(0); see("linkedEnd", "onEnd");
+        });
+        it("doesn't run canceled linkedEnd", () => {
+            // Given an ended flow with a cleanup
+            const r = runner(), f = r.flow; r.end();
+            f.onEnd(() => log("this should still run"));
+            // When a linkedEnd is added and canceled
+            f.linkedEnd(() => log("this won't"))();
+            // Then it should not be called, even though the
+            // first cleanup is
+            clock.tick(0); see("this should still run");
+        });
     });
     describe("creates nested flows,", () => {
         var r: Runner, f: Flow, cb = spy();
@@ -65,12 +108,14 @@ describe("flow(action)", () => {
             dispose();
             expect(cb).to.have.been.calledOnce;
         });
-        it("doesn't destroy recycled flows", () => {
-            const d1 = flow(() => { onEnd(() => log("destroy")) });
-            d1(); see("destroy");
-            const d2 = flow(() => { onEnd(() => log("destroy")) });
-            d1(); see();
-            d2(); see("destroy");
+        it("cleans up on throw", () => {
+            var cb = spy();
+            expect(() => flow(() => {
+                onEnd(cb);
+                expect(cb).to.not.have.been.called;
+                throw new Error("dang");
+            })).to.throw("dang");
+            expect(cb).to.have.been.calledOnce;
         });
     });
 });
@@ -89,12 +134,14 @@ describe("root(action)", () => {
         dispose();
         expect(cb).to.have.been.calledOnce;
     });
-    it("doesn't destroy recycled flows", () => {
-        const d1 = root(() => { onEnd(() => log("destroy")) });
-        d1(); see("destroy");
-        const d2 = root(() => { onEnd(() => log("destroy")) });
-        d1(); see();
-        d2(); see("destroy");
+    it("cleans up on throw", () => {
+        var cb = spy();
+        expect(() => root(() => {
+            onEnd(cb);
+            expect(cb).to.not.have.been.called;
+            throw new Error("dang");
+        })).to.throw("dang");
+        expect(cb).to.have.been.calledOnce;
     });
 });
 
@@ -242,15 +289,6 @@ describe("Flow instances", () => {
                 }
             });
             expect(current.flow).to.be.undefined;
-        });
-        it("cleans up on throw", () => {
-            var cb = spy();
-            f.onEnd(cb);
-            expect(() => f.run(() => {
-                expect(cb).to.not.have.been.called;
-                throw new Error("dang");
-            })).to.throw("dang");
-            expect(cb).to.have.been.calledOnce;
         });
     });
 });
