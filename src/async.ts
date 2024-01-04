@@ -1,3 +1,4 @@
+import { Source, connect } from "./streams.ts";
 import { OptionalCleanup, flow } from "./tracking.ts";
 
 /**
@@ -193,3 +194,56 @@ export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yiel
 }
 
 const noop = () => {};
+
+/**
+ * An object that can be waited on with `yield *until()`.
+ *
+ * @category Types and Interfaces
+ */
+export type Waitable<T> = UntilMethod<T> | Source<T> | Promise<T> | PromiseLike<T>;
+
+/**
+ * An object that can be waited on with `yield *until()`, by calling its
+ * "uneventful.until" method.
+ *
+ * @category Types and Interfaces
+ */
+export interface UntilMethod<T> {
+    "uneventful.until"(): Yielding<T>
+}
+
+/**
+ * Wait for and return next value (or error) from a data source when processed
+ * with `yield *` within a {@link Job}.
+ *
+ * @param source A {@link Waitable} data source, which can be any of:
+ * - A {@link Signal} (in which case the job will resume when the value is
+ *   truthy - perhaps immediately!)
+ * - A {@link Source}
+ * - A promise, or promise-like object with a `.then()` method
+ * - An object with an `"uneventful.until"` method returning a {@link Yielding}
+ *   (in which case the result will be the the result of that method)
+ *
+ * @returns a Yieldable that when processed with `yield *` in a job, will return
+ * the triggered event, promise resolution, or signal value.  An error is thrown
+ * if the promise rejects or the event stream throws or closes early, or the
+ * signal throws.
+ *
+ * @category Jobs and Scheduling
+ */
+export function until<T>(source: Waitable<T>): Yielding<T> {
+    if (typeof (source as UntilMethod<T>)["uneventful.until"] === "function") {
+        return (source as UntilMethod<T>)["uneventful.until"]();
+    }
+    if (typeof source["then"] === "function") {
+        return to(source as PromiseLike<T>);
+    }
+    if (typeof source === "function") {
+        return wait(r => {
+            const conn = connect(source, resolver(r)).onEnd(() => {
+                reject(r, conn.hasError() ? conn.reason : new Error("Stream ended"));
+            });
+        })
+    }
+    throw new TypeError("until(): must be signal, source, or then-able");
+}

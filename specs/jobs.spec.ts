@@ -1,5 +1,9 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
-import { job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, onEnd } from "../src/mod.ts";
+import {
+    job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, onEnd, until, fromIterable,
+    IsStream, value, cached, runEffects
+} from "../src/mod.ts";
+import { runPulls } from "../src/scheduling.ts";
 
 describe("job()", () => {
     useRoot();
@@ -497,7 +501,8 @@ describe("Async Ops", () => {
             });
         });
     });
-    describe("to() resumes with the result of", () => {
+
+    function checkAsyncResume(to: <T>(p: Promise<T>|PromiseLike<T>) => Yielding<T>) {
         it("resolved promises", async () => {
             // Given a job suspended on to() a resolved promise
             suspendOn(to(Promise.resolve(42)));
@@ -514,6 +519,9 @@ describe("Async Ops", () => {
             // Then the job should see the result
             see("err: boom");
         });
+    }
+    describe("to() resumes with the result of", () => {
+        checkAsyncResume(to);
         it("plain values", async () => {
             // Given a job suspended on to() a plain value
             suspendOn(to("wut"));
@@ -559,6 +567,78 @@ describe("Async Ops", () => {
             // Then the cleanup callback should run first, but the wait
             // should resolve and not reject
             see("cleanup", "42");
+        });
+    });
+    describe("until()", () => {
+        it("calls `uneventful.until` methods and returns their value", () => {
+            // Given an object with an uneventful.until method
+            const o = {"uneventful.until"() { log("called"); return 42; }}
+            // When until() is called on it
+            log(until(o as any))
+            // Then it should call the method and return the result
+            see("called", "42");
+        });
+        describe("handles thenables like to()", () => {
+            checkAsyncResume(until);
+        });
+        describe("handles streams", () => {
+            it("returning the first value", () => {
+                // When a suspended until() on a stream is run
+                suspendOn(until(fromIterable([22,23,24]))); clock.runAll();
+                // Then it should resume with the first value from the stream
+                runPulls(); see("22");
+            });
+            it("throwing on throw", () => {
+                // When a suspended until() on a throwing stream is run
+                suspendOn(until((_,c) => { c.onReady(() => c.throw("boom")); return IsStream; }));
+                clock.runAll();
+                // Then the job should throw once pulls run
+                runPulls(); see("err: boom");
+            });
+            it("throwing on early end", () => {
+                // When a suspended until() on an empty stream is run
+                suspendOn(until(fromIterable([]))); clock.runAll();
+                // Then it should throw a stream-ended error
+                runPulls(); see("err: Error: Stream ended");
+            });
+        });
+        describe("handles signals", () => {
+            it("immediately resuming for a truthy value", () => {
+                // When a suspended until() is run on a truthy signal
+                suspendOn(until(value(42))); clock.runAll();
+                // Then it should immediately resume with the value
+                see("42");
+            });
+            it("asynchronously resuming when signal becomes truthy", () => {
+                // Given a falsy value and an until() suspended on it
+                const v = value(0);
+                suspendOn(until(v)); clock.runAll(); see();
+                // When the value becomes true and effects run
+                v.set(55); see(); runEffects();
+                // Then the until should resume with the new value
+                see("55");
+            });
+            it("throwing when a signal throws synchronously", () => {
+                // When a suspended until() is run on an immediately throwing signal
+                suspendOn(until(cached(() => {throw "boom"}))); clock.runAll();
+                // Then it should immediately throw
+                see("err: boom");
+            });
+            it("asynchronously throwing when a signal throws later", () => {
+                // Given a falsy, async-throwing signal and an until() suspended on it
+                const v = value(0), c = cached(() => { if (v()) throw "boom!";});
+                suspendOn(until(c)); clock.runAll(); see();
+                // When the signal recomputes as an error
+                v.set(55); see(); runEffects();
+                // Then the until should reject with the error
+                see("err: boom!");
+            });
+        });
+        it("throws on non-Waitables", () => {
+            // When until() is called on an invalid value
+            // Then it throws
+            expect(() => until(42 as any)).to.throw(/must be/);
+            expect(() => until("42" as any)).to.throw(/must be/);
         });
     });
 });

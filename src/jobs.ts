@@ -1,5 +1,5 @@
 import { current, makeCtx, swapCtx } from "./ambient.ts";
-import { JobIterator, Request, Suspend, Yielding } from "./async.ts";
+import { JobIterator, Request, Suspend, UntilMethod, Yielding } from "./async.ts";
 import { defer } from "./defer.ts";
 import { CleanupFn, DisposeFn, runner } from "./tracking.ts";
 
@@ -20,7 +20,7 @@ import { CleanupFn, DisposeFn, runner } from "./tracking.ts";
  *
  * @category Types and Interfaces
  */
-export interface Job<T> extends Promise<T>, Yielding<T> {
+export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
     /** Terminate the activity with a given result */
     return(val?: T): void;
 
@@ -84,6 +84,8 @@ class _Job<T> implements Job<T> {
         // Start asynchronously
         defer(() => { this._f &= ~Is.Running; this._step("next", undefined); });
     }
+
+    "uneventful.until"(): Yielding<T> { return this; }
 
     [Symbol.iterator]() {
         if (this._iter) return this._iter;

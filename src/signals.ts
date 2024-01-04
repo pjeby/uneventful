@@ -1,6 +1,7 @@
 import { current } from "./ambient.ts";
 import { PlainFunction } from "./types.ts";
-import { Cell } from "./cells.ts";
+import { Cell, effect } from "./cells.ts";
+import { UntilMethod, Yielding, reject, resolve } from "./async.ts";
 export { EffectScheduler, effect } from "./cells.ts";
 
 export interface Signal<T> {
@@ -16,7 +17,7 @@ export interface Signal<T> {
  *
  * @category Types and Interfaces
  */
-export class Signal<T> extends Function {
+export class Signal<T> extends Function implements UntilMethod<T> {
     /** The current value */
     get value() { return this(); }
     /** The current value */
@@ -33,6 +34,19 @@ export class Signal<T> extends Function {
 
     /** New writable signal with a custom setter */
     withSet(set: (v: T) => unknown) { return mkSignal(() => this(), set); }
+
+    *"uneventful.until"(): Yielding<T> {
+        return yield (r => {
+            try {
+                let res: T = this.peek();
+                if (res) resolve(r, res); else effect(() => {
+                    try { (res = this()) && resolve(r, res); } catch(e) { reject(r,e); }
+                })
+            } catch(e) {
+                reject(r, e);
+            }
+        });
+    }
 
     protected constructor() { super(); }
 }
