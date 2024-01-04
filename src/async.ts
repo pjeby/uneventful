@@ -161,7 +161,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
  * {@link resolve} or {@link reject} the request.  It can optionally return a
  * cleanup function.
  *
- * The function is executed in a nested flow that will be cleaned up when the
+ * The function is executed in a nested flow that will be cleaned up before the
  * Request is settled, thereby releasing any resources used by the function
  * or its callees.
  *
@@ -186,7 +186,10 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
  * @category Jobs and Scheduling
  */
 export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yielding<T> {
-    return yield outer => flow(stop => action((o, v, e) => { stop(); outer(o, v, e); }));
+    return yield outer => {
+        let called = false;
+        flow(stop => action((o, v, e) => called || (called=true, stop(), outer(o, v, e))));
+    }
 }
 
 const noop = () => {};

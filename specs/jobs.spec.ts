@@ -524,7 +524,7 @@ describe("Async Ops", () => {
         });
     });
     describe("wait() runs its action in a flow", () => {
-        it("that ends when the job resumes", () => {
+        it("that ends before the job resumes", () => {
             // Given a job suspended on a wait() callback
             suspendOn(wait(r => {
                 onEnd(() => log("end"));
@@ -546,6 +546,19 @@ describe("Async Ops", () => {
             j.return(99);
             // Then the cleanup callback should be run
             see("end");
+        });
+        it("with re-entrance prevention if cleanups settle", () => {
+            // Given a job suspended on a wait() callback, with a cleanup that
+            // rejects it and a main that resolves it
+            suspendOn(wait(r => {
+                onEnd(() => { log("cleanup"); reject(r, "end"); } );
+                setTimeout(() => resolve(r, 42), 5);
+            }));
+            // When the job resumes
+            clock.runAll();
+            // Then the cleanup callback should run first, but the wait
+            // should resolve and not reject
+            see("cleanup", "42");
         });
     });
 });
