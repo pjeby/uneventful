@@ -1,6 +1,6 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
-    job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, onEnd, until, fromIterable,
+    job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
     IsStream, value, cached, runEffects
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
@@ -330,16 +330,16 @@ describe("Job instances", () => {
     describe("as flows", () => {
         it("runs its contents in a flow", () => {
             // Given a job with a cleanup function
-            job(function*() { onEnd(() => log("end")); });
+            job(function*() { must(() => log("end")); });
             // When the job finishes
             see(); clock.tick(0);
             // Then the cleanup should run
             see("end");
         });
-        describe(".onEnd()", () => {
+        describe(".must()", () => {
             it("runs when the job completes", () => {
-                // Given an empty job with an onEnd
-                job([]).onEnd(() => log("end"));
+                // Given an empty job with an must()
+                job([]).must(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -350,15 +350,15 @@ describe("Job instances", () => {
                 // Given an empty completed job
                 const j = job([]); clock.tick(0); see();
                 // When a cleanup is registered
-                j.onEnd(() => log("end")); see();
+                j.must(() => log("end")); see();
                 // Then the cleanup should run async
                 clock.tick(0); see("end");
             });
         });
-        describe(".linkedEnd()", () => {
+        describe(".release()", () => {
             it("runs when the job completes", () => {
-                // Given an empty job with an onEnd
-                job([]).linkedEnd(() => log("end"));
+                // Given an empty job with an must()
+                job([]).release(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -368,15 +368,15 @@ describe("Job instances", () => {
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
                 const j = job([]); clock.tick(0); see();
-                // When a linkedEnd is registered
-                j.linkedEnd(() => log("end")); see();
+                // When a release() is registered
+                j.release(() => log("end")); see();
                 // Then the cleanup should run async
                 clock.tick(0); see("end");
             });
             describe("doesn't run if canceled", () => {
                 it("when registered before the job", () => {
-                    // Given an empty job with a canceled linkedEnd
-                    job([]).linkedEnd(() => log("end"))(); see();
+                    // Given an empty job with a canceled release()
+                    job([]).release(() => log("end"))(); see();
                     // When the job is started
                     clock.tick(0);
                     // Then the cleanup should not run
@@ -385,8 +385,8 @@ describe("Job instances", () => {
                 it("when registered after the job", () => {
                     // Given an empty completed job
                     const j = job([]); clock.tick(0); see();
-                    // When a linkedEnd is registered and canceled
-                    j.linkedEnd(() => log("end"))();
+                    // When a release() is registered and canceled
+                    j.release(() => log("end"))();
                     // Then the cleanup should not run async
                     clock.tick(0); see();
                 });
@@ -535,7 +535,7 @@ describe("Async Ops", () => {
         it("that ends before the job resumes", () => {
             // Given a job suspended on a wait() callback
             suspendOn(wait(r => {
-                onEnd(() => log("end"));
+                must(() => log("end"));
                 setTimeout(() => resolve(r, 42), 5);
             }));
             // When the job resumes
@@ -546,7 +546,7 @@ describe("Async Ops", () => {
         it("that ends if the job ends first", () => {
             // Given a job suspended on a wait() callback
             const j = suspendOn(wait(r => {
-                onEnd(() => log("end"));
+                must(() => log("end"));
                 setTimeout(() => resolve(r, 42), 5);
             }));
             clock.tick(0); // let it suspend
@@ -559,7 +559,7 @@ describe("Async Ops", () => {
             // Given a job suspended on a wait() callback, with a cleanup that
             // rejects it and a main that resolves it
             suspendOn(wait(r => {
-                onEnd(() => { log("cleanup"); reject(r, "end"); } );
+                must(() => { log("cleanup"); reject(r, "end"); } );
                 setTimeout(() => resolve(r, 42), 5);
             }));
             // When the job resumes

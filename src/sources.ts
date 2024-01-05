@@ -1,7 +1,7 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
 import { type Source, IsStream, Inlet } from "./streams.ts";
-import { onEnd, type DisposeFn, runner } from "./tracking.ts";
+import { must, type DisposeFn, runner } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -36,7 +36,7 @@ export function emitter<T>(): Emitter<T> {
     emit.source = share<T>((sink, conn) => {
         write = conn.writer(sink);
         inlet = conn;
-        onEnd(() => write = inlet = undefined);
+        must(() => write = inlet = undefined);
         return IsStream;
     });
     emit.end = () => inlet?.end();
@@ -65,7 +65,7 @@ export function empty(): Source<never> {
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
-        if (iter.return) onEnd(() => iter.return());
+        if (iter.return) must(() => iter.return());
         return conn.onReady(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
@@ -110,7 +110,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
     return (sink, conn) => {
         const push = conn.writer(sink);
         target.addEventListener(type, push, options);
-        onEnd(() => target.removeEventListener(type, push, options));
+        must(() => target.removeEventListener(type, push, options));
         return IsStream;
     }
 }
@@ -127,7 +127,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (sink, conn) => {
         const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
-        if (iter.return) onEnd(() => iter.return());
+        if (iter.return) must(() => iter.return());
         return conn.onReady(loop), IsStream;
         function loop() {
             try {
@@ -199,7 +199,7 @@ export function fromSignal<T>(s: () => T): Source<T> {
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink, conn) => {
         const r = runner(undefined, () => r.end());
-        return conn.onReady(() => r.flow.onEnd(subscribe(v => { conn.push(sink, v); }))), IsStream;
+        return conn.onReady(() => r.flow.must(subscribe(v => { conn.push(sink, v); }))), IsStream;
     }
 }
 
@@ -224,7 +224,7 @@ export function interval(ms: number): Source<number> {
     return (sink, conn) => {
         let idx = 0;
         const id = setInterval(() => conn.push(sink, idx++), ms);
-        return onEnd(() => clearInterval(id)), IsStream;
+        return must(() => clearInterval(id)), IsStream;
     }
 }
 

@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
 import { Conduit, Inlet, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
-import { detached, onEnd } from "./tracking.ts";
+import { detached, must } from "./tracking.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -38,12 +38,12 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
         const inputs: Source<T>[] = [];
         let outer = conn.link(sources, s => {
             inputs.push(s); startNext(); outer.pause();
-        }).onEnd(() => {
+        }).must(() => {
             outer = undefined
             inputs.length || inner || conn.end();
         });
         function startNext() {
-            inner ||= conn.link(inputs.shift(), sink, conn).onEnd(() => {
+            inner ||= conn.link(inputs.shift(), sink, conn).must(() => {
                 inner = undefined;
                 inputs.length ? startNext() : (outer ? outer.resume() : conn.end());
             });
@@ -127,12 +127,12 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
     return (sink, conn) => {
         const uplinks: Set<Conduit> = new Set;
         let outer = conn.link(sources, (s) => {
-            const c = conn.link(s, sink, conn).onEnd(() => {
+            const c = conn.link(s, sink, conn).must(() => {
                 uplinks.delete(c);
                 uplinks.size || outer || conn.end();
             });
             uplinks.add(c);
-        }).onEnd(() => {
+        }).must(() => {
             outer = undefined;
             uplinks.size || conn.end();
         });
@@ -180,7 +180,7 @@ export function share<T>(source: Source<T>): Source<T> {
         const self: [Sink<T>, Inlet] = [sink, conn];
         links.add(self);
         conn.onReady(resume);
-        onEnd(() => {
+        must(() => {
             links.delete(self);
             if (!links.size) uplink?.close();
         });
@@ -191,7 +191,7 @@ export function share<T>(source: Source<T>): Source<T> {
                     if (l.push(s,v)) resumed = true; else l.onReady(resume);
                 }
                 resumed || uplink.pause();
-            }).onEnd(() => {
+            }).must(() => {
                 const {reason} = uplink, err = uplink.hasError();
                 uplink = undefined;
                 links.forEach(([_,l]) => err ? l.throw(reason) : l.end());
@@ -267,11 +267,11 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
         let inner: Conduit;
         let outer = conn.link(sources, s => {
             inner?.close();
-            inner = conn.link(s, sink, conn).onEnd(() => {
+            inner = conn.link(s, sink, conn).must(() => {
                 inner = undefined;
                 outer || conn.end();
             });
-        }).onEnd(() => {
+        }).must(() => {
             outer = undefined;
             inner || conn.end();
         });

@@ -240,7 +240,7 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     }
     if (typeof source === "function") {
         return wait(r => {
-            const conn = connect(source, resolver(r)).onEnd(() => {
+            const conn = connect(source, resolver(r)).must(() => {
                 reject(r, conn.hasError() ? conn.reason : new Error("Stream ended"));
             });
         })

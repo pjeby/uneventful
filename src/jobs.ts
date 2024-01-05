@@ -15,8 +15,8 @@ import { CleanupFn, DisposeFn, runner } from "./tracking.ts";
  * will run all its `finally` blocks (if the job's a generator).
  *
  * Last, but not least, you can register cleanup callbacks with a job using its
- * .{@link Job.onEnd onEnd}() and
- * .{@link Job.linkedEnd linkedEnd}() methods.
+ * .{@link Job.must must}() and
+ * .{@link Job.release release}() methods.
  *
  * @category Types and Interfaces
  */
@@ -28,10 +28,10 @@ export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
     throw(error: any): void;
 
     /** Register a callback to run when the activity ends */
-    onEnd(cb: () => void): void;
+    must(cb: () => void): void;
 
-    /** Like onEnd, but with the ability to remove the callback */
-    linkedEnd(cleanup: CleanupFn): DisposeFn
+    /** Like must(), but with the ability to remove the callback */
+    release(cleanup: CleanupFn): DisposeFn
 }
 
 /**
@@ -75,7 +75,7 @@ class _Job<T> implements Job<T> {
     declare [Symbol.toStringTag]: string;
 
     constructor(protected g: JobIterator<T>) {
-        this._r.flow.onEnd(() => {
+        this._r.flow.must(() => {
             // Check for untrapped error, promote to unhandled rejection
             if ((this._f & (Is.Error | Is.Promised)) === Is.Error) {
                 Promise.reject(this._res);
@@ -93,10 +93,10 @@ class _Job<T> implements Job<T> {
             done: false,
             value: (request: Request<T>) => {
                 this._f |= Is.Promised;
-                // XXX should this be a linkedEnd so if the waiter dies we
+                // XXX should this be a release(), so if the waiter dies we
                 // don't bother? The downside is that it'd have to be mutual and
                 // the resume is a no-op anyway in that case.
-                this.onEnd(() => {
+                this.must(() => {
                     request((this._f & Is.Error) === Is.Error ? "throw" : "next", this._res, this._res);
                 });
             }
@@ -114,12 +114,12 @@ class _Job<T> implements Job<T> {
         }
     }
 
-    onEnd(cb: CleanupFn): void {
-        return this._ctx.flow.onEnd(cb);
+    must(cb: CleanupFn): void {
+        return this._ctx.flow.must(cb);
     }
 
-    linkedEnd(cleanup: CleanupFn): DisposeFn {
-        return this._ctx.flow.linkedEnd(cleanup);
+    release(cleanup: CleanupFn): DisposeFn {
+        return this._ctx.flow.release(cleanup);
     }
 
     then<T1=T, T2=never>(
@@ -127,7 +127,7 @@ class _Job<T> implements Job<T> {
         onrejected?: (reason: any) => T2 | PromiseLike<T2>
     ): Promise<T1 | T2> {
         this._f |= Is.Promised;
-        return new Promise((res, rej) => this.onEnd(() => {
+        return new Promise((res, rej) => this.must(() => {
             if ((this._f & Is.Error) === Is.Error) rej(this._res); else res(this._res);
         })).then(onfulfilled, onrejected);
     }

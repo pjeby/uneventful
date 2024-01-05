@@ -25,7 +25,7 @@ export type OptionalCleanup = CleanupFn | Nothing;
  * A Flow object tracks and releases resources (or runs undo actions) that are
  * used within an operation or task.
  *
- * By adding {@link onEnd}() callbacks to a flow, you can later call its
+ * By adding {@link must}() callbacks to a flow, you can later call its
  * {@link Flow.end end}() method to run all of them in reverse order, thereby
  * cleaning up after the action -- a bit like a delayed and distributed
  * `finally` block.
@@ -41,19 +41,20 @@ export interface Flow {
      * (Non-function values are ignored.)  If the flow has already ended,
      * the callback will be invoked asynchronously in the next microtask.
      */
-    onEnd(cleanup?: OptionalCleanup): void;
+    must(cleanup?: OptionalCleanup): void;
 
     /**
-     * Like {@link Flow.onEnd}, except a function is returned that will *remove*
+     * Like {@link Flow.must}, except a function is returned that will *remove*
      * the cleanup function from the flow, if it's still present. (Also, the
      * cleanup function isn't optional.)
      */
-    linkedEnd(cleanup: CleanupFn): () => void;
+    release(cleanup: CleanupFn): () => void;
 
     /**
      * Invoke a function with this flow as the active one, so that calling the
-     * global {@link onEnd} function will add cleanup callbacks to it,
-     * {@link getFlow} will return it, etc.
+     * global {@link must} function will add cleanup callbacks to it,
+     * {@link getFlow} will return it, etc.  (Note: signal dependency tracking
+     * is disabled for the duration of the call.)
      *
      * @param fn The function to call
      * @param args The arguments to call it with, if any
@@ -134,8 +135,8 @@ class _Flow implements Flow {
     /** @internal */
     static runner(parent?: Flow, stop?: CleanupFn) {
         const flow = new _Flow, end = endFlow.bind(flow);
-        if (parent || stop) flow.onEnd(
-            (parent || getFlow()).linkedEnd(stop || end)
+        if (parent || stop) flow.must(
+            (parent || getFlow()).release(stop || end)
         );
         return {flow, end, restart() {
              if (flow._done) throw new Error("Can't restart ended flow");
@@ -150,11 +151,11 @@ class _Flow implements Flow {
         try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
     }
 
-    onEnd(cleanup?: OptionalCleanup) {
+    must(cleanup?: OptionalCleanup) {
         if (typeof cleanup === "function") this._push(cleanup);
     }
 
-    linkedEnd(cleanup: CleanupFn): () => void {
+    release(cleanup: CleanupFn): () => void {
         var rb = this._push(() => { rb = null; cleanup(); });
         return () => { if (rb && this._next === rb) this._next = rb._next; freeCN(rb); rb = null; };
     }
@@ -203,8 +204,8 @@ function freeCN(rb: CleanupNode) {
  *
  * @category Resource Management
  */
-export function onEnd(cleanup?: OptionalCleanup) {
-    return getFlow().onEnd(cleanup);
+export function must(cleanup?: OptionalCleanup) {
+    return getFlow().must(cleanup);
 }
 
 /**
@@ -216,7 +217,7 @@ export function onEnd(cleanup?: OptionalCleanup) {
  * also returned from the `flow()` call.)
  *
  * As with an effect, the action function can register cleanups with
- * {@link onEnd} and/or by returning a cleanup callback.
+ * {@link must} and/or by returning a cleanup callback.
  *
  * @returns a callback that will end the flow
  *
@@ -245,27 +246,27 @@ export function root(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
 }
 
 function wrapAction(runner: Runner, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    try { runner.flow.onEnd(runner.flow.run(action, runner.end)); } catch(e) { runner.end(); throw e; }
+    try { runner.flow.must(runner.flow.run(action, runner.end)); } catch(e) { runner.end(); throw e; }
     return runner.end;
 }
 
 /**
  * Is there a currently active flow? (i.e., can you safely use
- * {@link onEnd}() and {@link linkedEnd}() right now?)
+ * {@link must}() and {@link release}() right now?)
  *
  * @category Flows
  */
 export function isFlowActive() { return !!current.flow; }
 
 /**
- * Like {@link onEnd}(), except a function is returned that will *remove*
+ * Like {@link must}(), except a function is returned that will *remove*
  * the cleanup function from the flow, if it's still present. (Also, the cleanup
  * function isn't optional.)
  *
  * @category Resource Management
  */
-export function linkedEnd(cleanup: CleanupFn): DisposeFn {
-    return getFlow().linkedEnd(cleanup);
+export function release(cleanup: CleanupFn): DisposeFn {
+    return getFlow().release(cleanup);
 }
 
 
@@ -303,7 +304,7 @@ export const runner: (parent?: Flow, stop?: CleanupFn) => Runner = _Flow.runner;
  * error if there isn't an enclosing flow.
  *
  * @param flowFn Any function that creates a nested flow, but does not register
- * {@link onEnd} functions.
+ * {@link must} functions.
  *
  * @returns A function with the same signature as the input.  Instead of nesting
  * within the current resource tracking context (if any), it will create a
@@ -323,5 +324,5 @@ function noop() {}
 
 // Hacked flow to indicate the detached state
 const detachedFlow = runner().flow;
-detachedFlow.onEnd = () => { throw new Error("Can't add cleanups in a detached flow"); }
-detachedFlow.linkedEnd = () => { return noop; }
+detachedFlow.must = () => { throw new Error("Can't add cleanups in a detached flow"); }
+detachedFlow.release = () => { return noop; }

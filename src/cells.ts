@@ -1,7 +1,7 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup, linkedEnd, Runner, runner } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, release, Runner, runner } from "./tracking.ts";
 
 /**
  * Error indicating an effect has attempted to write a value it indirectly
@@ -354,7 +354,7 @@ export class Cell {
                 const {r} = this.value as EffectState
                 r.restart();
                 try {
-                    r.flow.onEnd(this.compute());
+                    r.flow.must(this.compute());
                     this.lastChanged = timestamp;
                 } catch (e) {
                     r.end();
@@ -434,7 +434,7 @@ export class Cell {
     }
 
     static mkEffect(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
-        var unlink = linkedEnd(stop);
+        var unlink = release(stop);
         var cell = new Cell, r = runner();
         cell.value = {q, r} as EffectState;
         cell.compute = fn.bind(null, stop);

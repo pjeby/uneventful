@@ -18,7 +18,7 @@ export interface Inlet {
  * if the sink doesn't want more data or the source has no more to send).
  *
  * The source function is invoked with the conduit's flow active, so it can
- * freely use flows or resources that need {@link onEnd} and the like.
+ * freely use flows or resources that need {@link must} and the like.
  *
  * The function must return the special {@link IsStream} value, so TypeScript
  * can tell what functions are actually sources.  (As otherwise any void
@@ -96,7 +96,7 @@ function is(flags: Is, mask: Is, eq = mask) {
  * (subscriber).
  *
  * Conduits simplify coding of stream transformers and event sources by managing
- * resource cleanup (via {@link onEnd}() callbacks) and connection state.
+ * resource cleanup (via {@link must}() callbacks) and connection state.
  * Sources can {@link push}() data to a sink as long as the conduit is open, and
  * sinks can {@link resume}() to say, "I'm ready for more data".  (Which sources
  * can subscribe to via {@link onReady}().)
@@ -158,8 +158,8 @@ export class Conduit implements Inlet {
      * microtask.  Otherwise, cleanup callbacks run in reverse order as with
      * any other flow.
      */
-    onEnd(fn?: OptionalCleanup) {
-        this._flow.onEnd(fn);
+    must(fn?: OptionalCleanup): this {
+        this._flow.must(fn);
         return this;
     }
 
@@ -172,7 +172,7 @@ export class Conduit implements Inlet {
     onReady(cb: Producer) {
         if (!this.isOpen()) return this;
         const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
-        const unlink = this._flow.linkedEnd(() => _callbacks.delete(cb));
+        const unlink = this._flow.release(() => _callbacks.delete(cb));
         if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
             pulls.add(_root);
         }
@@ -275,7 +275,7 @@ export class Conduit implements Inlet {
      */
     catch(handler?: (reason: any, conn: this) => unknown): this {
         this._flags |= Is.Caught;
-        if (handler) return this.onEnd(() => { if (this.hasError()) handler(this.reason, this); });
+        if (handler) return this.must(() => { if (this.hasError()) handler(this.reason, this); });
         return this;
     }
 
@@ -308,7 +308,7 @@ export class Conduit implements Inlet {
      * it will also throw if the child does.
      */
     link<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
-        const f = this.fork(src, sink, root).onEnd(() => {
+        const f = this.fork(src, sink, root).must(() => {
             if (f.hasError()) this.throw(f.reason);
         });
         return f;

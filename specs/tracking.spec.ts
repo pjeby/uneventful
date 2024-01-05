@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, flow, isFlowActive, onEnd, root, linkedEnd, detached, runner, Runner } from "../mod.ts";
+import { CleanupFn, Flow, flow, isFlowActive, must, root, release, detached, runner, Runner } from "../mod.ts";
 
 describe("runner()", () => {
     it("returns new standalone runners", () => {
@@ -15,16 +15,16 @@ describe("runner()", () => {
             // Given a restarted flow
             const r = runner(), f = r.flow; r.restart();
             // When new cleanups are added to the flow
-            f.onEnd(() => log("onEnd"));
-            f.linkedEnd(() => log("linkedEnd"));
+            f.must(() => log("must()"));
+            f.release(() => log("release()"));
             // Then they don't run until the next restart
             clock.runAll(); see();
-            r.restart(); see("linkedEnd", "onEnd");
+            r.restart(); see("release()", "must()");
             // Or next end
-            f.linkedEnd(() => log("linkedEnd2"));
-            f.onEnd(() => log("onEnd2"));
+            f.release(() => log("release()2"));
+            f.must(() => log("must()2"));
             clock.runAll(); see();
-            r.end(); see("onEnd2", "linkedEnd2");
+            r.end(); see("must()2", "release()2");
         });
         it("won't revive an ended flow", () => {
             // Given an ended flow
@@ -32,21 +32,21 @@ describe("runner()", () => {
     });
     describe(".end() makes future cleanups run async+asap", () => {
         useClock();
-        it("makes future onEnd + un-canceled linkedEnd run async+asap", () => {
+        it("makes future must() + un-canceled release() run async+asap", () => {
             // Given an ended flow with some cleanups
             const r = runner(), f = r.flow; r.end();
             // When new cleanups are added to the flow
-            f.onEnd(() => log("onEnd"));
-            f.linkedEnd(() => log("linkedEnd"));
+            f.must(() => log("must()"));
+            f.release(() => log("release()"));
             // Then they run asynchronously
-            clock.tick(0); see("linkedEnd", "onEnd");
+            clock.tick(0); see("release()", "must()");
         });
-        it("doesn't run canceled linkedEnd", () => {
+        it("doesn't run canceled release()", () => {
             // Given an ended flow with a cleanup
             const r = runner(), f = r.flow; r.end();
-            f.onEnd(() => log("this should still run"));
-            // When a linkedEnd is added and canceled
-            f.linkedEnd(() => log("this won't"))();
+            f.must(() => log("this should still run"));
+            // When a release() is added and canceled
+            f.release(() => log("this won't"))();
             // Then it should not be called, even though the
             // first cleanup is
             clock.tick(0); see("this should still run");
@@ -70,7 +70,7 @@ describe("runner()", () => {
         });
         it("cleaning up the inner as the default stop action", () => {
             const inner = runner(f);
-            inner.flow.onEnd(cb);
+            inner.flow.must(cb);
             expect(cb).to.not.have.been.called;
             r.end();
             expect(cb).to.have.been.calledOnce;
@@ -97,7 +97,7 @@ describe("flow(action)", () => {
         useRoot();
         it("runs with a new flow active, passing in a destroy", () => {
             var d: () => void;
-            const dispose = flow((destroy) => { d = destroy; onEnd(() => log("destroy")) });
+            const dispose = flow((destroy) => { d = destroy; must(() => log("destroy")) });
             expect(d).to.equal(dispose);
             see(); dispose(); see("destroy");
         });
@@ -111,7 +111,7 @@ describe("flow(action)", () => {
         it("cleans up on throw", () => {
             var cb = spy();
             expect(() => flow(() => {
-                onEnd(cb);
+                must(cb);
                 expect(cb).to.not.have.been.called;
                 throw new Error("dang");
             })).to.throw("dang");
@@ -123,7 +123,7 @@ describe("flow(action)", () => {
 describe("root(action)", () => {
     it("runs with a new flow active, passing in a destroy", () => {
         var d: () => void;
-        const dispose = root((destroy) => { d = destroy; onEnd(() => log("destroy")) });
+        const dispose = root((destroy) => { d = destroy; must(() => log("destroy")) });
         expect(d).to.equal(dispose);
         see(); dispose(); see("destroy");
     });
@@ -137,7 +137,7 @@ describe("root(action)", () => {
     it("cleans up on throw", () => {
         var cb = spy();
         expect(() => root(() => {
-            onEnd(cb);
+            must(cb);
             expect(cb).to.not.have.been.called;
             throw new Error("dang");
         })).to.throw("dang");
@@ -146,10 +146,10 @@ describe("root(action)", () => {
 });
 
 describe("detached(factory)", () => {
-    it("throws in response to onEnd()", () => {
-        // Given a detached flow factory that uses onEnd
+    it("throws in response to must()", () => {
+        // Given a detached flow factory that uses must()
         const d = detached(() => {
-            onEnd(() => log("cleanup"));
+            must(() => log("cleanup"));
         })
         // When it's invoked Then it should throw an error
         expect(d).to.throw("Can't add cleanups in a detached flow");
@@ -157,7 +157,7 @@ describe("detached(factory)", () => {
     it("allows creating 'nested' flows", () => {
         // Given a detached flow factory that creates a flow
         const cleanup = detached(() => flow(() => {
-            onEnd(() => log("cleanup"));
+            must(() => log("cleanup"));
         }))();
         see();
         // When the flow's cleanup is called
@@ -182,35 +182,35 @@ describe("Flow API", () => {
         var t1: Flow, cb = spy();
         beforeEach(() => { t1 = runner().flow; cb = spy(); current.flow = t1; });
         afterEach(() => { current.flow = undefined; });
-        it("onEnd", () => {
-            const m = spy(t1, "onEnd");
-            expect(onEnd(cb)).to.be.undefined;
+        it("must()", () => {
+            const m = spy(t1, "must");
+            expect(must(cb)).to.be.undefined;
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
         })
-        it("linkedEnd()", () => {
-            const m = spy(t1, "linkedEnd");
-            const unlink = linkedEnd(cb);
+        it("release()", () => {
+            const m = spy(t1, "release");
+            const unlink = release(cb);
             expect(unlink).to.be.a("function");
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(unlink);
         });
     });
     describe("throws when there's no active flow", () => {
         const msg = "No flow is currently active";
-        it("onEnd()", () => { expect(() => onEnd(() => {})).to.throw(msg); });
-        it("linkedEnd()", () => { expect(() => linkedEnd(() => {})).to.throw(msg); });
+        it("must()", () => { expect(() => must(() => {})).to.throw(msg); });
+        it("release()", () => { expect(() => release(() => {})).to.throw(msg); });
     });
 });
 
 describe("Flow instances", () => {
     var r: Runner, f: Flow;
     beforeEach(() => { r = runner(); f = r.flow; });
-    describe(".onEnd()", () => {
+    describe(".must()", () => {
         it("can be called without a callback", () => {
-            f.onEnd(); r.end();
+            f.must(); r.end();
         });
         it("calls the callback if given one", () => {
             const cb = spy();
-            f.onEnd(cb);
+            f.must(cb);
             expect(cb).to.not.have.been.called;
             r.end();
             expect(cb).to.have.been.calledOnce;
@@ -219,7 +219,7 @@ describe("Flow instances", () => {
     describe(".cleanup()", () => {
         it("runs callbacks in reverse order", () => {
             const c1 = spy(), c2 = spy(), c3 = spy();
-            f.onEnd(c1); f.onEnd(c2); f.onEnd(c3);
+            f.must(c1); f.must(c2); f.must(c3);
             r.end();
             expect(c3).to.have.been.calledImmediatelyBefore(c2);
             expect(c2).to.have.been.calledImmediatelyBefore(c1);
@@ -228,8 +228,8 @@ describe("Flow instances", () => {
         it("runs callbacks under the job they were added with", () => {
             const job1: any = {}, job2: any = {}, job3: any = {}, old = swapCtx(makeCtx());
             try {
-                current.job = job1; f.onEnd(() => expect(current.job).to.equal(job1));
-                current.job = job2; f.onEnd(() => expect(current.job).to.equal(job2));
+                current.job = job1; f.must(() => expect(current.job).to.equal(job1));
+                current.job = job2; f.must(() => expect(current.job).to.equal(job2));
                 current.job = job3;
                 r.end();
                 expect(current.job).to.equal(job3);
@@ -237,9 +237,9 @@ describe("Flow instances", () => {
         });
         it("converts errors to unhandled rejections", async () => {
             const cb1 = spy(), cb2 = spy();
-            f.onEnd(cb1);
-            f.onEnd(() => { throw new Error("caught me!"); })
-            f.onEnd(cb2);
+            f.must(cb1);
+            f.must(() => { throw new Error("caught me!"); })
+            f.must(cb2);
             r.end();
             const reason = await new Promise<Error>(res => {
                 process.on("unhandledRejection", handler);
@@ -251,17 +251,17 @@ describe("Flow instances", () => {
             expect(reason.message).to.equal("caught me!");
         })
     })
-    describe(".linkedEnd()", () => {
+    describe(".release()", () => {
         it("calls the callback on cleanup", () => {
             const cb = spy();
-            f.linkedEnd(cb);
+            f.release(cb);
             expect(cb).to.not.have.been.called;
             r.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("can be cancelled", () => {
             const cb = spy();
-            const cancel = f.linkedEnd(cb);
+            const cancel = f.release(cb);
             expect(cb).to.not.have.been.called;
             cancel();
             r.end();
