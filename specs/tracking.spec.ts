@@ -112,11 +112,13 @@ describe("flow(action)", () => {
     });
     describe("with an enclosing flow", () => {
         useRoot();
-        it("runs with a new flow active, passing in a destroy", () => {
+        it("runs with a new flow active, passing in a destroy and the flow", () => {
             var d: () => void;
-            const dispose = flow((destroy) => { d = destroy; must(() => log("destroy")) });
+            const dispose = flow((destroy, flow) => {
+                log(flow === current.flow); d = destroy; must(() => log("destroy"))
+            });
             expect(d).to.equal(dispose);
-            see(); dispose(); see("destroy");
+            see("true"); dispose(); see("destroy");
         });
         it("adds the return value if it's a function", () => {
             const cb = spy();
@@ -138,11 +140,13 @@ describe("flow(action)", () => {
 });
 
 describe("root(action)", () => {
-    it("runs with a new flow active, passing in a destroy", () => {
+    it("runs with a new flow active, passing in a destroy and the flow", () => {
         var d: () => void;
-        const dispose = root((destroy) => { d = destroy; must(() => log("destroy")) });
+        const dispose = root((destroy, flow) => {
+            log(flow === current.flow); d = destroy; must(() => log("destroy"))
+        });
         expect(d).to.equal(dispose);
-        see(); dispose(); see("destroy");
+        see("true"); dispose(); see("destroy");
     });
     it("adds the return value if it's a function", () => {
         const cb = spy();

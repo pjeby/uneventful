@@ -213,17 +213,19 @@ export function must(cleanup?: OptionalCleanup) {
  * dependency tracking, and the supplied function is run synchronously.)
  *
  * The action function is immediately invoked with a callback that can be used
- * to end the flow and release any resources it used. (The same callback is
- * also returned from the `flow()` call.)
+ * to end the flow and release any resources it used. (The same callback is also
+ * returned from the `flow()` call.)  The flow itself is passed as a second
+ * argument.
  *
  * As with an effect, the action function can register cleanups with
- * {@link must} and/or by returning a cleanup callback.
+ * {@link must} and/or by returning a cleanup callback.  If the action function
+ * throws an error, the flow will be ended, and the error re-thrown.
  *
  * @returns a callback that will end the flow
  *
  * @category Flows
  */
-export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
+export function flow(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
     return wrapAction(runner(getFlow()), action);
 }
 
@@ -231,22 +233,23 @@ export function flow(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
  * Create a temporary, standalone flow, running a function in it and returning a
  * callback that will safely dispose of the flow and its resources.  (The same
  * callback will be also be passed as the first argument to the function, so the
- * flow can be ended from either inside or outside the function.)
+ * flow can be ended from either inside or outside the function.  The flow
+ * itself is passed as a second argument.)
  *
  * If the called function returns a function, it will be added to the new flow's
- * cleanup callbacks.  If the function throws an error, the flow will be cleaned
- * up, and the error re-thrown.
+ * cleanup callbacks.  If the function throws an error, the flow will be ended,
+ * and the error re-thrown.
  *
  * @returns a callback that will end the flow
  *
  * @category Flows
  */
-export function root(action: (stop: DisposeFn) => OptionalCleanup): DisposeFn {
+export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
     return wrapAction(runner(), action);
 }
 
-function wrapAction(runner: Runner, action: (destroy: DisposeFn) => OptionalCleanup): DisposeFn {
-    try { runner.flow.must(runner.flow.run(action, runner.end)); } catch(e) { runner.end(); throw e; }
+function wrapAction(runner: Runner, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
+    try { runner.flow.must(runner.flow.run(action, runner.end, runner.flow)); } catch(e) { runner.end(); throw e; }
     return runner.end;
 }
 
