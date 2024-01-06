@@ -26,9 +26,26 @@ describe("runner()", () => {
             clock.runAll(); see();
             r.end(); see("must()2", "release()2");
         });
-        it("won't revive an ended flow", () => {
-            // Given an ended flow
-        })
+        describe("won't revive an ended flow", () => {
+            it("after the end()", () => {
+                // Given an ended flow
+                const r = runner(); r.end();
+                // When restart is called
+                // Then it should throw
+                expect(() => r.restart()).to.throw("Can't restart ended flow")
+            });
+            it("during the end()", () => {
+                // Given a flow with a callback that runs restart
+                const r = runner();
+                r.flow.must(() => {
+                    try { r.restart(); } catch(e) { log(e); }
+                })
+                // When the flow is ended
+                r.end();
+                // Then the restart attempt should throw
+                see("Error: Can't restart ended flow");
+            });
+        });
     });
     describe(".end() makes future cleanups run async+asap", () => {
         useClock();
