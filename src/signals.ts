@@ -1,4 +1,4 @@
-import { current } from "./ambient.ts";
+import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, effect } from "./cells.ts";
 import { UntilMethod, Yielding, reject, resolve } from "./async.ts";
@@ -105,9 +105,9 @@ export function cached<T>(compute: () => T): Signal<T> {
  * @category Signals
  */
 export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
-    const old = current.cell;
-    if (!old) return fn(...args);
-    try { current.cell = null; return fn(...args); } finally { current.cell = old; }
+    if (!current.cell) return fn(...args);
+    const old = swapCtx(makeCtx(current.job, current.flow));
+    try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
 }
 
 

@@ -313,10 +313,8 @@ export const runner: (parent?: Flow, stop?: CleanupFn) => Runner = _Flow.runner;
  * @category Flows
  */
 export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
-    return <T> function (...args) {
-        const old = current.flow;
-        current.flow = detachedFlow;
-        try { return flowFn.apply(this, args); } finally { current.flow = old; }
+    return <T> function (...args: Parameters<T>) {
+        return detachedFlow.run(flowFn, ...args);
     };
 }
 
