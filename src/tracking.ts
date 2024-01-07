@@ -30,8 +30,8 @@ export type OptionalCleanup = CleanupFn | Nothing;
  * cleaning up after the action -- a bit like a delayed and distributed
  * `finally` block.
  *
- * Flows are created using {@link runner}(), which returns a flow plus functions
- * for ending or restarting the flow.
+ * Flows can be created using {@link flow}(), {@link root}(), or
+ * {@link makeFlow}().
  *
  * @category Types and Interfaces
  */
@@ -61,16 +61,6 @@ export interface Flow {
      * @returns The result of calling fn(...args)
      */
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
-}
-
-/**
- * A Flow's runtime controller - used to end or restart a flow
- *
- * @category Types and Interfaces
- */
-export interface Runner {
-    /** The flow this runner controls **/
-    flow: Flow
 
     /**
      * Release all resources held by the flow.
@@ -88,7 +78,7 @@ export interface Runner {
     readonly end: () => void;
 
     /**
-     * Restart a flow - works just like {@link Runner.end}, except that the flow
+     * Restart a flow - works just like {@link Flow.end}, except that the flow
      * isn't ended, so cleanup callbacks can be added again and won't be invoked
      * until the next restart or the flow is ended.
      *
@@ -119,29 +109,31 @@ export function getFlow() {
 
 var freelist: CleanupNode;
 
-function endFlow(this: _Flow) {
-    this._done = true;
-    const old = swapCtx(makeCtx());
-    for (var rb = this._next; rb; ) {
-        try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
-        if (this._next === rb) this._next = rb._next;
-        freeCN(rb);
-        rb = this._next;
-    }
-    freeCtx(swapCtx(old));
-}
-
 class _Flow implements Flow {
     /** @internal */
-    static runner(parent?: Flow, stop?: CleanupFn) {
-        const flow = new _Flow, end = endFlow.bind(flow);
+    static create(parent?: Flow, stop?: CleanupFn) {
+        const flow = new _Flow;
         if (parent || stop) flow.must(
-            (parent || getFlow()).release(stop || end)
+            (parent || getFlow()).release(stop || flow.end)
         );
-        return {flow, end, restart() {
-             if (flow._done) throw new Error("Can't restart ended flow");
-             end(); flow._done = false;
-        }};
+        return flow;
+    }
+
+    end = () => {
+        this._done = true;
+        const old = swapCtx(makeCtx());
+        for (var rb = this._next; rb; ) {
+            try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
+            if (this._next === rb) this._next = rb._next;
+            freeCN(rb);
+            rb = this._next;
+        }
+        freeCtx(swapCtx(old));
+    }
+
+    restart() {
+        if (this._done) throw new Error("Can't restart ended flow");
+        this.end(); this._done = false;
     }
 
     protected constructor() {};
@@ -163,7 +155,7 @@ class _Flow implements Flow {
     protected _done = false;
     protected _next: CleanupNode = undefined;
     protected _push(cb: CleanupFn) {
-        if (this._done) defer(endFlow.bind(this));
+        if (this._done) defer(this.end);
         let rb = makeCN(cb, current.job, this._next);
         if (this._next) this._next._prev = rb;
         return this._next = rb;
@@ -226,7 +218,7 @@ export function must(cleanup?: OptionalCleanup) {
  * @category Flows
  */
 export function flow(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
-    return wrapAction(runner(getFlow()), action);
+    return wrapAction(makeFlow(getFlow()), action);
 }
 
 /**
@@ -245,12 +237,12 @@ export function flow(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): 
  * @category Flows
  */
 export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
-    return wrapAction(runner(), action);
+    return wrapAction(makeFlow(), action);
 }
 
-function wrapAction(runner: Runner, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
-    try { runner.flow.must(runner.flow.run(action, runner.end, runner.flow)); } catch(e) { runner.end(); throw e; }
-    return runner.end;
+function wrapAction(flow: Flow, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
+    try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
+    return flow.end;
 }
 
 /**
@@ -274,23 +266,23 @@ export function release(cleanup: CleanupFn): DisposeFn {
 
 
 /**
- * Return a new {@link Runner}.  If *either* a parent parameter or stop function
- * are given, the new runner's flow is linked to the parent.
+ * Return a new {@link Flow}.  If *either* a parent parameter or stop function
+ * are given, the new flow is linked to the parent.
  *
  * @param parent The parent flow to which the new flow should be attached.
  * Defaults to the currently-active flow if none given (assuming a stop
  * parameter is provided).
  *
  * @param stop The function to call to destroy the nested flow.  Defaults to the
- * {@link Runner.end} method of the new runner if none is given (assuming a
- * parent parameter is provided).
+ * {@link Flow.end} method of the new flow if none is given (assuming a parent
+ * parameter is provided).
  *
- * @returns A runner for a new flow.  The flow is linked/nested if any arguments
- * are given, or a root/standalone flow otherwise.
+ * @returns A new flow.  The flow is linked/nested if any arguments are given,
+ * or a root/standalone flow otherwise.
  *
  * @category Flows
  */
-export const runner: (parent?: Flow, stop?: CleanupFn) => Runner = _Flow.runner;
+export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
 
 
 /**
@@ -324,6 +316,6 @@ export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
 function noop() {}
 
 // Hacked flow to indicate the detached state
-const detachedFlow = runner().flow;
+const detachedFlow = makeFlow();
 detachedFlow.must = () => { throw new Error("Can't add cleanups in a detached flow"); }
 detachedFlow.release = () => { return noop; }

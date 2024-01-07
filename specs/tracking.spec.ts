@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, flow, isFlowActive, must, root, release, detached, runner, Runner } from "../mod.ts";
+import { CleanupFn, Flow, flow, isFlowActive, must, root, release, detached, makeFlow } from "../mod.ts";
 
-describe("runner()", () => {
-    it("returns new standalone runners", () => {
-        const flow1 = runner(), flow2 = runner();
+describe("makeFlow()", () => {
+    it("returns new standalone flows", () => {
+        const flow1 = makeFlow(), flow2 = makeFlow();
         expect(flow1.end).to.be.a("function");
         expect(flow2.end).to.be.a("function");
         expect(flow1).to.not.equal(flow2);
@@ -13,35 +13,35 @@ describe("runner()", () => {
         useClock();
         it("doesn't permanently terminate the flow", () => {
             // Given a restarted flow
-            const r = runner(), f = r.flow; r.restart();
+            const f = makeFlow(); f.restart();
             // When new cleanups are added to the flow
             f.must(() => log("must()"));
             f.release(() => log("release()"));
             // Then they don't run until the next restart
             clock.runAll(); see();
-            r.restart(); see("release()", "must()");
+            f.restart(); see("release()", "must()");
             // Or next end
             f.release(() => log("release()2"));
             f.must(() => log("must()2"));
             clock.runAll(); see();
-            r.end(); see("must()2", "release()2");
+            f.end(); see("must()2", "release()2");
         });
         describe("won't revive an ended flow", () => {
             it("after the end()", () => {
                 // Given an ended flow
-                const r = runner(); r.end();
+                const r = makeFlow(); r.end();
                 // When restart is called
                 // Then it should throw
                 expect(() => r.restart()).to.throw("Can't restart ended flow")
             });
             it("during the end()", () => {
                 // Given a flow with a callback that runs restart
-                const r = runner();
-                r.flow.must(() => {
-                    try { r.restart(); } catch(e) { log(e); }
+                const f = makeFlow();
+                f.must(() => {
+                    try { f.restart(); } catch(e) { log(e); }
                 })
                 // When the flow is ended
-                r.end();
+                f.end();
                 // Then the restart attempt should throw
                 see("Error: Can't restart ended flow");
             });
@@ -51,7 +51,7 @@ describe("runner()", () => {
         useClock();
         it("makes future must() + un-canceled release() run async+asap", () => {
             // Given an ended flow with some cleanups
-            const r = runner(), f = r.flow; r.end();
+            const f = makeFlow(); f.end();
             // When new cleanups are added to the flow
             f.must(() => log("must()"));
             f.release(() => log("release()"));
@@ -60,7 +60,7 @@ describe("runner()", () => {
         });
         it("doesn't run canceled release()", () => {
             // Given an ended flow with a cleanup
-            const r = runner(), f = r.flow; r.end();
+            const f = makeFlow(); f.end();
             f.must(() => log("this should still run"));
             // When a release() is added and canceled
             f.release(() => log("this won't"))();
@@ -70,26 +70,26 @@ describe("runner()", () => {
         });
     });
     describe("creates nested flows,", () => {
-        var r: Runner, f: Flow, cb = spy();
-        beforeEach(() => { cb = spy(); r = runner(); f = r.flow; });
+        var f: Flow, cb = spy();
+        beforeEach(() => { cb = spy(); f = makeFlow(); });
         it("calling the stop function if outer is cleaned up", () => {
-            runner(f, cb);
+            makeFlow(f, cb);
             expect(cb).to.not.have.been.called;
-            r.end();
+            f.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("not calling the stop function if inner is cleaned up", () => {
-            const inner = runner(f, cb);
+            const inner = makeFlow(f, cb);
             expect(cb).to.not.have.been.called;
             inner.end();
-            r.end();
+            f.end();
             expect(cb).to.not.have.been.called;
         });
         it("cleaning up the inner as the default stop action", () => {
-            const inner = runner(f);
-            inner.flow.must(cb);
+            const inner = makeFlow(f);
+            inner.must(cb);
             expect(cb).to.not.have.been.called;
-            r.end();
+            f.end();
             expect(cb).to.have.been.calledOnce;
         });
     });
@@ -192,7 +192,7 @@ describe("Flow API", () => {
     it("isFlowActive() is true during run()", () => {
         var tested: boolean;
         expect(isFlowActive(), "Shouldn't be active before run()").to.be.false;
-        runner().flow.run(()=> {
+        makeFlow().run(()=> {
             expect(isFlowActive(), "Should be active during run()").to.be.true;
             tested = true;
         })
@@ -201,7 +201,7 @@ describe("Flow API", () => {
     });
     describe("calls methods on the active flow", () => {
         var t1: Flow, cb = spy();
-        beforeEach(() => { t1 = runner().flow; cb = spy(); current.flow = t1; });
+        beforeEach(() => { t1 = makeFlow(); cb = spy(); current.flow = t1; });
         afterEach(() => { current.flow = undefined; });
         it("must()", () => {
             const m = spy(t1, "must");
@@ -223,17 +223,17 @@ describe("Flow API", () => {
 });
 
 describe("Flow instances", () => {
-    var r: Runner, f: Flow;
-    beforeEach(() => { r = runner(); f = r.flow; });
+    var f: Flow;
+    beforeEach(() => { f = makeFlow(); });
     describe(".must()", () => {
         it("can be called without a callback", () => {
-            f.must(); r.end();
+            f.must(); f.end();
         });
         it("calls the callback if given one", () => {
             const cb = spy();
             f.must(cb);
             expect(cb).to.not.have.been.called;
-            r.end();
+            f.end();
             expect(cb).to.have.been.calledOnce;
         });
     });
@@ -241,7 +241,7 @@ describe("Flow instances", () => {
         it("runs callbacks in reverse order", () => {
             const c1 = spy(), c2 = spy(), c3 = spy();
             f.must(c1); f.must(c2); f.must(c3);
-            r.end();
+            f.end();
             expect(c3).to.have.been.calledImmediatelyBefore(c2);
             expect(c2).to.have.been.calledImmediatelyBefore(c1);
             expect(c1).to.have.been.calledOnce
@@ -252,7 +252,7 @@ describe("Flow instances", () => {
                 current.job = job1; f.must(() => expect(current.job).to.equal(job1));
                 current.job = job2; f.must(() => expect(current.job).to.equal(job2));
                 current.job = job3;
-                r.end();
+                f.end();
                 expect(current.job).to.equal(job3);
             } finally { swapCtx(old); }
         });
@@ -261,7 +261,7 @@ describe("Flow instances", () => {
             f.must(cb1);
             f.must(() => { throw new Error("caught me!"); })
             f.must(cb2);
-            r.end();
+            f.end();
             const reason = await new Promise<Error>(res => {
                 process.on("unhandledRejection", handler);
                 function handler(e: any) {
@@ -277,7 +277,7 @@ describe("Flow instances", () => {
             const cb = spy();
             f.release(cb);
             expect(cb).to.not.have.been.called;
-            r.end();
+            f.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("can be cancelled", () => {
@@ -285,7 +285,7 @@ describe("Flow instances", () => {
             const cancel = f.release(cb);
             expect(cb).to.not.have.been.called;
             cancel();
-            r.end();
+            f.end();
             expect(cb).to.not.have.been.called;
         });
     });
@@ -298,7 +298,7 @@ describe("Flow instances", () => {
             expect(current.flow).to.be.undefined;
         });
         it("restores the context, even on error", () => {
-            const f1 = runner().flow;
+            const f1 = makeFlow();
             expect(current.flow).to.be.undefined;
             f.run(() => {
                 expect(current.flow).to.equal(f);

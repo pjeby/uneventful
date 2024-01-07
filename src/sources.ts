@@ -1,7 +1,7 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
 import { type Source, IsStream, Inlet } from "./streams.ts";
-import { must, type DisposeFn, runner } from "./tracking.ts";
+import { must, type DisposeFn, getFlow } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -198,8 +198,8 @@ export function fromSignal<T>(s: () => T): Source<T> {
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink, conn) => {
-        const r = runner(undefined, () => r.end());
-        return conn.onReady(() => r.flow.must(subscribe(v => { conn.push(sink, v); }))), IsStream;
+        const f = getFlow();
+        return conn.onReady(() => f.must(subscribe(v => { conn.push(sink, v); }))), IsStream;
     }
 }
 

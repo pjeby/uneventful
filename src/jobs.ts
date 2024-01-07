@@ -1,7 +1,7 @@
 import { current, makeCtx, swapCtx } from "./ambient.ts";
 import { JobIterator, Request, Suspend, UntilMethod, Yielding } from "./async.ts";
 import { defer } from "./defer.ts";
-import { CleanupFn, DisposeFn, runner } from "./tracking.ts";
+import { CleanupFn, DisposeFn, makeFlow } from "./tracking.ts";
 
 /**
  * A cancellable asynchronous task.  (Created using {@link job}().)
@@ -75,7 +75,7 @@ class _Job<T> implements Job<T> {
     declare [Symbol.toStringTag]: string;
 
     constructor(protected g: JobIterator<T>) {
-        this._r.flow.must(() => {
+        this._ctx.flow.must(() => {
             // Check for untrapped error, promote to unhandled rejection
             if ((this._f & (Is.Error | Is.Promised)) === Is.Error) {
                 Promise.reject(this._res);
@@ -144,8 +144,7 @@ class _Job<T> implements Job<T> {
     throw(e: any)   { this._step("throw",  e); }
 
     // === Internals === //
-    protected _r = runner(null, this.return.bind(this, undefined));
-    protected readonly _ctx = makeCtx(this, this._r.flow);
+    protected readonly _ctx = makeCtx(this, makeFlow(null, this.return.bind(this, undefined)));
     protected _f = Is.Running;
     protected _res: any
     protected _iter: JobIterator<T>;
@@ -190,7 +189,7 @@ class _Job<T> implements Job<T> {
             }
             // Generator returned or threw: ditch it and run cleanups
             this.g = undefined;
-            this._r.end();
+            this._ctx.flow.end();
         } finally {
             swapCtx(old);
             this._f &= ~Is.Running;

@@ -50,16 +50,16 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { runner } from "../src/mod.ts";
+import { makeFlow } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
 
 /** Arrange for each test in the current suite to be wrapped in a root flow */
 export function useRoot() {
-    var r = runner();
-    beforeEach(() => { current.flow = r.flow; log.clear(); });
-    afterEach(() => { r.restart(); current.flow = null; log.clear(); });
+    var f = makeFlow();
+    beforeEach(() => { current.flow = f; log.clear(); });
+    afterEach(() => { f.restart(); current.flow = null; log.clear(); });
 }
 
 export let clock: sinon.SinonFakeTimers;

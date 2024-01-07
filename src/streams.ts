@@ -1,5 +1,5 @@
 import { pulls } from "./scheduling.ts";
-import { CleanupFn, OptionalCleanup, type Flow, Runner, runner } from "./tracking.ts";
+import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
 
 export interface Inlet {
     isReady(): boolean
@@ -115,8 +115,6 @@ export class Conduit implements Inlet {
     /** @internal */
     protected _flow: Flow;
     /** @internal */
-    protected _run: Runner;
-    /** @internal */
     protected _callbacks: Map<Producer, CleanupFn>;
     /** @internal */
     protected _root: Conduit;
@@ -127,7 +125,7 @@ export class Conduit implements Inlet {
     /** @internal */
     constructor(parent?: Flow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
         this._root = root ?? this;
-        this._flow = (this._run = runner(parent, this.close)).flow;
+        this._flow = makeFlow(parent, this.close);
         if (src && sink) this._flow.run(src, sink, this);
     }
 
@@ -241,8 +239,7 @@ export class Conduit implements Inlet {
     close = () => {
         if (this._flags & Is.Open) {
             this._flags &= ~(Is.Open|Is.Ready);
-            this._run.end();
-            this._run = undefined;
+            this._flow.end();
         }
         return this;
     }
