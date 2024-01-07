@@ -30,8 +30,8 @@ export type OptionalCleanup = CleanupFn | Nothing;
  * cleaning up after the action -- a bit like a delayed and distributed
  * `finally` block.
  *
- * Flows can be created using {@link flow}(), {@link root}(), or
- * {@link makeFlow}().
+ * Flows can be created and accessed using {@link start}(), {@link root}(),
+ * {@link makeFlow}(), and {@link getFlow}().
  *
  * @category Types and Interfaces
  */
@@ -201,48 +201,49 @@ export function must(cleanup?: OptionalCleanup) {
 }
 
 /**
- * Create a single-use nested flow. (Like an {@link effect}(), but without any
+ * Start an interaction flow. (Like an {@link effect}(), but without any
  * dependency tracking, and the supplied function is run synchronously.)
  *
  * The action function is immediately invoked with a callback that can be used
- * to end the flow and release any resources it used. (The same callback is also
- * returned from the `flow()` call.)  The flow itself is passed as a second
- * argument.
+ * to end the flow and release any resources it used. The flow itself is passed
+ * as a second argument, and also returned.
  *
  * As with an effect, the action function can register cleanups with
  * {@link must} and/or by returning a cleanup callback.  If the action function
  * throws an error, the flow will be ended, and the error re-thrown.
  *
- * @returns a callback that will end the flow
+ * @returns the created {@link Flow}
  *
  * @category Flows
  */
-export function flow(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
+export function start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
     return wrapAction(makeFlow(getFlow()), action);
 }
 
 /**
- * Create a temporary, standalone flow, running a function in it and returning a
- * callback that will safely dispose of the flow and its resources.  (The same
- * callback will be also be passed as the first argument to the function, so the
- * flow can be ended from either inside or outside the function.  The flow
- * itself is passed as a second argument.)
+ * Start a root (i.e. standalone) interaction flow.  (Like {@link start}(), but
+ * the new flow isn't linked to the current flow, meaning this function can be
+ * called without a current flow.)
  *
- * If the called function returns a function, it will be added to the new flow's
- * cleanup callbacks.  If the function throws an error, the flow will be ended,
- * and the error re-thrown.
+ * The action function is immediately invoked with a callback that can be used
+ * to end the flow and release any resources it used. The flow itself is passed
+ * as a second argument, and also returned.
  *
- * @returns a callback that will end the flow
+ * As with an effect, the action function can register cleanups with
+ * {@link must} and/or by returning a cleanup callback.  If the action function
+ * throws an error, the flow will be ended, and the error re-thrown.
+ *
+ * @returns the created {@link Flow}
  *
  * @category Flows
  */
-export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
+export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
     return wrapAction(makeFlow(), action);
 }
 
-function wrapAction(flow: Flow, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): DisposeFn {
+function wrapAction(flow: Flow, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
     try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
-    return flow.end;
+    return flow;
 }
 
 /**

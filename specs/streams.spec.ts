@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, flow, root, getFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, root, getFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
     if (!parent) return detached(() => new Conduit())();
@@ -25,11 +25,11 @@ describe("connect()", () => {
     it("is linked to the running flow", () => {
         // Given a conduit opened by connect in the context of a flow
         const src = spy(), sink = spy();
-        const end = flow(() => {
+        const flow = start(() => {
             connect(src, sink).must(logClose);
         });
         // When the flow is ended
-        see(); end();
+        see(); flow.end();
         // Then the conduit should be closed
         see("closed");
     });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, flow, isFlowActive, must, root, release, detached, makeFlow } from "../mod.ts";
+import { CleanupFn, Flow, start, isFlowActive, must, root, release, detached, makeFlow } from "../mod.ts";
 
 describe("makeFlow()", () => {
     it("returns new standalone flows", () => {
@@ -95,18 +95,18 @@ describe("makeFlow()", () => {
     });
 });
 
-describe("flow(action)", () => {
+describe("start(action)", () => {
     it("doesn't run without an enclosing flow", () => {
-        expect(() => flow(()=>{})).to.throw("No flow is currently active");
+        expect(() => start(()=>{})).to.throw("No flow is currently active");
     });
     it("links to the enclosing flow", () => {
         // Given a flow created within a standalone flow
-        const dispose = root(() => {
-            flow(() => () => log("cleanup"))
+        const flow = root(() => {
+            start(() => () => log("cleanup"))
         });
         see();
         // When the outer flow is disposed
-        dispose();
+        flow.end();
         // Then the inner flow should be cleaned up
         see("cleanup");
     });
@@ -114,22 +114,22 @@ describe("flow(action)", () => {
         useRoot();
         it("runs with a new flow active, passing in a destroy and the flow", () => {
             var d: () => void;
-            const dispose = flow((destroy, flow) => {
+            const flow = start((destroy, flow) => {
                 log(flow === current.flow); d = destroy; must(() => log("destroy"))
             });
-            expect(d).to.equal(dispose);
-            see("true"); dispose(); see("destroy");
+            expect(d).to.equal(flow.end);
+            see("true"); flow.end(); see("destroy");
         });
         it("adds the return value if it's a function", () => {
             const cb = spy();
-            const dispose = flow(() => cb as CleanupFn);
+            const flow = start(() => cb as CleanupFn);
             expect(cb).to.not.have.been.called;
-            dispose();
+            flow.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("cleans up on throw", () => {
             var cb = spy();
-            expect(() => flow(() => {
+            expect(() => start(() => {
                 must(cb);
                 expect(cb).to.not.have.been.called;
                 throw new Error("dang");
@@ -142,17 +142,17 @@ describe("flow(action)", () => {
 describe("root(action)", () => {
     it("runs with a new flow active, passing in a destroy and the flow", () => {
         var d: () => void;
-        const dispose = root((destroy, flow) => {
+        const flow = root((destroy, flow) => {
             log(flow === current.flow); d = destroy; must(() => log("destroy"))
         });
-        expect(d).to.equal(dispose);
-        see("true"); dispose(); see("destroy");
+        expect(d).to.equal(flow.end);
+        see("true"); flow.end(); see("destroy");
     });
     it("adds the return value if it's a function", () => {
         const cb = spy();
-        const dispose = root(() => cb as CleanupFn);
+        const flow = root(() => cb as CleanupFn);
         expect(cb).to.not.have.been.called;
-        dispose();
+        flow.end();
         expect(cb).to.have.been.calledOnce;
     });
     it("cleans up on throw", () => {
@@ -177,12 +177,12 @@ describe("detached(factory)", () => {
     });
     it("allows creating 'nested' flows", () => {
         // Given a detached flow factory that creates a flow
-        const cleanup = detached(() => flow(() => {
+        const flow = detached(() => start(() => {
             must(() => log("cleanup"));
         }))();
         see();
         // When the flow's cleanup is called
-        cleanup();
+        flow.end();
         // Then cleanups registered in the flow should run
         see("cleanup");
     });
@@ -237,7 +237,7 @@ describe("Flow instances", () => {
             expect(cb).to.have.been.calledOnce;
         });
     });
-    describe(".cleanup()", () => {
+    describe(".end()", () => {
         it("runs callbacks in reverse order", () => {
             const c1 = spy(), c2 = spy(), c3 = spy();
             f.must(c1); f.must(c2); f.must(c3);

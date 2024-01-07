@@ -34,59 +34,63 @@ In contrast, uneventful's seamless blending of different kinds of reactivity (wi
 
 ## Features and Differences
 
-### Flows
+### Flows and Resources
 
-Uneventful's API revolves around its three fundamental kinds of "flows":
+The magic sauce that makes uneventful work is its concept of **flows**.  In the simplest terms, a flow is an activity that releases resources upon termination -- where "releasing resources" also means "terminating any nested flows".
+
+When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `must()` callbacks to release non-flow resources when the enclosing flow ends.)
+
+This means that flows are *composable*: you can wrap different kinds of them inside each other without limit, without restriction as to the kind of flow -- event streams, effects, jobs, or even custom flows you create!  (Since uneventful tracks the "current" flow for you, you can write functions that create flows and call them from inside any other flow, without needing to create an explicit way to release resources or "unsubscribe".)
+
+Our example above used three **flow factories**: a `job()` inside a `when()` inside an`effect()`.  The `effect` factory restarts its flow each time the values it depends on change, thus terminating any nested flows that were created in the previous run.  The `when` factory creates a flow to manage the event subscription, and also a nested flow that restarts whenever a new value/event arrives.
+
+These three factories also happen to be Uneventful's main ways of doing asynchronous work:
 
 - `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with automatic resource cleanup before each update and when the effect itself is canceled.
-- `when(`*source*`, `*listener*`)` consumes streams, promises, or "truthy" signal values, running a listener once for each received value (with automatic cleanup of any resources the listener used when the flow is canceled, the stream closes or the next value/event arrives).
-- `job(`*generator-or-genfunc*`)` creates an asynchronous job - one that will be automatically canceled if the calling job, effect, or event listener is canceled.  (Jobs are also promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions.)
+- `when(`*source*`, `*listener*`)` consumes rxjs-like [streams](#streams), running a listener once for each received value.  Each invocation of the listener is in a fresh or restarted flow, so whenever a new value/event arrives, the stream closes, or the `when`'s outer flow is terminated,  any resources used (or flows created) by the previous invocation of the listener are automatically released.
+- `job(`*generator-or-genfunc*`)` creates an asynchronous [job](#jobs) - a single continuous flow that will be automatically canceled if the enclosing flow is canceled or restarted.  The returned job object is promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions. (For interop with APIs that need promises or async functions.)
 
-   Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (And if the job is canceled, it automatically stops waiting and releases any listeners it set up.)
-
-All three kinds of flows are **composable**: you can wrap a `when()` in an `effect()` in a `job()` and so on, in any order.
-
-When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `onEnd()` callbacks to release non-flow resources when the enclosing flow ends.)
+   Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (Also, within a job function you can use try-finally or `using` as a way to manage cleanup, in addition to the standard flow factories and `must()`.)
 
 Of course, all this flow composition has to start *somewhere*, and usually that will be one or more `job.root()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a call to`track()`, as we'll see in the next section.)
 
 ### Resource Tracking and Cleanup
 
-Under the hood, flows are linked by *resource trackers*: collections of callbacks that run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `onEnd(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends, these callbacks are invoked in last-in-first-out order.
+Under the hood, a flow keeps a collections of callbacks to run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `must(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends or restarts, these callbacks are invoked in last-in-first-out order.
 
 For a `job()`, any added callbacks are run when the job as a whole is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
 
 ```typescript
-import { value, effect, onEnd } from "uneventful";
+import { value, effect, must } from "uneventful";
 this.selectedIndex = value(0);  // dynamic value
 
 effect(() => {
     const selectedNode = this.nodes[this.selectedIndex()];
     if (selectedNode) {
         selectedNode.classList.add("selected");
-        onEnd(() => { selectedNode.classList.remove("selected"); });
+        must(() => { selectedNode.classList.remove("selected"); });
     }
 });
 ```
 
 This code will add `.selected` to the class of the currently selected element (which can be changed with `this.selectedIndex.set(number)`).  But, it will also automatically *remove* the class from the *previously* selected item (if any), before applying it to the new one!  (The class will also be removed if the effect is canceled, e.g. by the termination of an enclosing flow.)
 
-As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with an `onEnd()` call.
+As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with a `must()` call.
 
 Resource tracking is normally managed for you automatically, but you can also manually manage them via the `tracker()` function and its methods.  You probably won't do that very often, though, unless you're creating a custom flow or stream operator, or integrating your root-level flows with another framework's explicit resource management.
 
 For example, [Obsidian.md](https://obsidian.md/) plugins and components will usually want to `.register()` their flows in an explicit `track()` call, to ensure they're all stopped (and the resources released, events unhooked, etc.) when the plugin or component is unloaded:
 
 ```typescript
-import { track } from "uneventful";
+import { root } from "uneventful";
 
 class SomeComponentOrPlugin extends obsidian.Component {
     onload() {
-        this.register(track(() => {
+        this.register(root(() => {
             // create effect(), job() or when() flows here
             // (They will all be stopped and resources cleaned
             // up when the component or plugin is unloaded.)
-        }));
+        }).end);
     }
 }
 ```
@@ -176,7 +180,7 @@ WIP
 
 ## Current Status
 
-This library is currently under development, but the ideas and most of the implementation are already working well as a draft version inside [@ophidian/core](https://github.com/ophidian-lib/core), for creating complex interactive Obsidian plugins.  The draft version is based on preact-signals for its signals implementation and wonka for its streams, but both will be replaced with uneventful-native implementations in this library, to drop the extra wrapping code, streamline some features, and add others.  (For example, preact-signals doesn't support nested effects and wonka doesn't support stream errors; uneventful will support both.)
+This library is still under development, but the ideas and most of the implementation are already working well as a draft version inside [@ophidian/core](https://github.com/ophidian-lib/core), for creating complex interactive Obsidian plugins.  The draft version is based on preact-signals for its signals implementation and wonka for its streams, but both will be replaced with uneventful-native implementations in this library, to drop the extra wrapping code, streamline some features, and add others.  (For example, preact-signals doesn't support nested effects and wonka doesn't support stream errors; uneventful will support both.)
 
 As of this writing, uneventful's signals framework is fully functional; work on the stream and job frameworks is still ongoing.
 

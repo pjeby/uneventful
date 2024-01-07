@@ -1,5 +1,5 @@
 import { Source, connect } from "./streams.ts";
-import { OptionalCleanup, flow } from "./tracking.ts";
+import { OptionalCleanup, start } from "./tracking.ts";
 
 /**
  * A request for a value (or error) to be returned asynchronously.
@@ -189,7 +189,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
 export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yielding<T> {
     return yield outer => {
         let called = false;
-        flow(stop => action((o, v, e) => called || (called=true, stop(), outer(o, v, e))));
+        start(stop => action((o, v, e) => called || (called=true, stop(), outer(o, v, e))));
     }
 }
 
