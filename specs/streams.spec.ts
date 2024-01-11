@@ -1,10 +1,10 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, root, getFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
-    if (!parent) return detached(() => new Conduit())();
+    if (!parent) return detached.run(() => new Conduit());
     return new Conduit(parent);
 }
 
@@ -75,7 +75,7 @@ describe("Conduit", () => {
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a conduit it's attached to
-        root(end => {
+        detached.start(end => {
             const c = mkConduit(getFlow()).must(logClose);
             // When the flow ends
             end();
@@ -146,7 +146,7 @@ describe("Conduit", () => {
         });
         it("when the enclosing flow is cleaned up", () => {
             // Given a flow and a conduit it's attached to
-            root(end => {
+            detached.start(end => {
                 const c = mkConduit(getFlow());
                 // And two must callbacks
                 c.must(() => log("first")).must(() => log("last"));

@@ -30,8 +30,8 @@ export type OptionalCleanup = CleanupFn | Nothing;
  * cleaning up after the action -- a bit like a delayed and distributed
  * `finally` block.
  *
- * Flows can be created and accessed using {@link start}(), {@link root}(),
- * {@link makeFlow}(), and {@link getFlow}().
+ * Flows can be created and accessed using {@link start}(),
+ * {@link detached}.start(), {@link makeFlow}(), and {@link getFlow}().
  *
  * @category Types and Interfaces
  */
@@ -260,20 +260,6 @@ export function start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup):
 }
 
 /**
- * Start a root (i.e. standalone) interaction flow.  (Shorthand for
- * {@link detachedFlow}.{@link Flow.start start}() -- i.e., the new flow isn't
- * linked to the current flow, meaning this function can be called without a
- * current flow.)
- *
- * @returns the created standalone {@link Flow}
- *
- * @category Flows
- */
-export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
-    return detachedFlow.start(action);
-}
-
-/**
  * Is there a currently active flow? (i.e., can you safely use {@link must}(),
  * {@link release}() or {@link getFlow}() right now?)
  *
@@ -306,53 +292,29 @@ export function release(cleanup: CleanupFn): DisposeFn {
  * parameter is provided).
  *
  * @returns A new flow.  The flow is linked/nested if any arguments are given,
- * or a root/standalone flow otherwise.
+ * or a detached (parentless) flow otherwise.
  *
  * @category Flows
  */
 export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
 
-
-/**
- * Wrap a flow function to create a "detached" (standalone, unnested) version.
- * (Shorthand for calling {@link detachedFlow}.{@link Flow.bind bind}(flowFn).)
- *
- * Wrapping a flow factory (like {@link connect}, {@link effect}, {@link job},
- * etc.) with `detached()` creates a standalone version that:
- *
- * 1. doesn't need to run inside another flow, and
- * 2. isn't linked to the active flow even if there is one.
- *
- * So for example `detached(effect)(() => {})` creates a standalone effect that
- * won't be disposed of when the enclosing flow does, and it won't throw an
- * error if there isn't an enclosing flow.
- *
- * @param flowFn Any function that creates a nested flow, but does not register
- * {@link must} functions.
- *
- * @returns A function with the same signature as the input.  Instead of nesting
- * within the current resource tracking context (if any), it will create a
- * standalone (i.e. root) flow.
- *
- * @category Flows
- */
-export function detached<T extends PlainFunction>(flowFn: T): T {
-    return detachedFlow.bind(flowFn);
-}
-
 function noop() {}
 
 /**
- * A special {@link Flow} that allows child flows but isn't directly usable.
+ * A special {@link Flow} with no parents, that can be used to create standalone
+ * flows.  detached.start() returns a new detached flow, detached.run() can be used
+ * to run code that expects to create a child flow, and detached.bind() can wrap
+ * a function to work without a parent flow.
  *
- * You can use it to create a root flow via detatchedFlow.{@link Flow.start start}().
+ * (Note that in all cases, a child flow of `detached` must be stopped explicitly, or
+ * it may "run" forever, never running its cleanup callbacks.)
  *
  * @category Flows
  */
-export const detachedFlow = (() => {
-    const detachedFlow = makeFlow();
-    detachedFlow.end();
-    detachedFlow.must = () => { throw new Error("Can't add cleanups to the detached flow"); }
-    detachedFlow.release = () => noop;
-    return detachedFlow;
+export const detached = (() => {
+    const detached = makeFlow();
+    detached.end();
+    detached.must = () => { throw new Error("Can't add cleanups to the detached flow"); }
+    detached.release = () => noop;
+    return detached;
 })();

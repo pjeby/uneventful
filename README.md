@@ -52,7 +52,7 @@ These three factories also happen to be Uneventful's main ways of doing asynchro
 
    Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (Also, within a job function you can use try-finally or `using` as a way to manage cleanup, in addition to the standard flow factories and `must()`.)
 
-Of course, all this flow composition has to start *somewhere*, and usually that will be one or more `job.root()` calls.  (You can also start root-level flows with `effect.root()` or `when.root()`, or by wrapping them in a call to`track()`, as we'll see in the next section.)
+Of course, all this flow composition has to start *somewhere*, and usually that will be via one or more `detached.start()` calls.
 
 ### Resource Tracking and Cleanup
 
@@ -82,11 +82,11 @@ Resource tracking is normally managed for you automatically, but you can also ma
 For example, [Obsidian.md](https://obsidian.md/) plugins and components will usually want to `.register()` their flows in an explicit `track()` call, to ensure they're all stopped (and the resources released, events unhooked, etc.) when the plugin or component is unloaded:
 
 ```typescript
-import { root } from "uneventful";
+import { detached } from "uneventful";
 
 class SomeComponentOrPlugin extends obsidian.Component {
     onload() {
-        this.register(root(() => {
+        this.register(detached.start(() => {
             // create effect(), job() or when() flows here
             // (They will all be stopped and resources cleaned
             // up when the component or plugin is unloaded.)

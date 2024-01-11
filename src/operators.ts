@@ -185,7 +185,7 @@ export function share<T>(source: Source<T>): Source<T> {
             if (!links.size) uplink?.close();
         });
         if (links.size === 1) {
-            uplink = detached(connect)(source, v => {
+            uplink = detached.run(connect, source, v => {
                 resumed = false;
                 for(const [s,l] of links) {
                     if (l.push(s,v)) resumed = true; else l.onReady(resume);

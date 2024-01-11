@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, start, isFlowActive, must, root, release, detached, makeFlow } from "../mod.ts";
+import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow } from "../mod.ts";
 
 describe("makeFlow()", () => {
     it("returns new standalone flows", () => {
@@ -101,7 +101,7 @@ describe("start(action)", () => {
     });
     it("links to the enclosing flow", () => {
         // Given a flow created within a standalone flow
-        const flow = root(() => {
+        const flow = detached.start(() => {
             start(() => () => log("cleanup"))
         });
         see();
@@ -115,7 +115,7 @@ describe("start(action)", () => {
         it("runs with a new flow active, passing in a destroy and the flow", () => {
             var d: () => void;
             const flow = start((destroy, flow) => {
-                log(flow === current.flow); d = destroy; must(() => log("destroy"))
+                log(flow === getFlow()); d = destroy; must(() => log("destroy"))
             });
             expect(d).to.equal(flow.end);
             see("true"); flow.end(); see("destroy");
@@ -139,25 +139,25 @@ describe("start(action)", () => {
     });
 });
 
-describe("root(action)", () => {
+describe("detached.start(action)", () => {
     it("runs with a new flow active, passing in a destroy and the flow", () => {
         var d: () => void;
-        const flow = root((destroy, flow) => {
-            log(flow === current.flow); d = destroy; must(() => log("destroy"))
+        const flow = detached.start((destroy, flow) => {
+            log(flow === getFlow()); d = destroy; must(() => log("destroy"))
         });
         expect(d).to.equal(flow.end);
         see("true"); flow.end(); see("destroy");
     });
     it("adds the return value if it's a function", () => {
         const cb = spy();
-        const flow = root(() => cb as CleanupFn);
+        const flow = detached.start(() => cb as CleanupFn);
         expect(cb).to.not.have.been.called;
         flow.end();
         expect(cb).to.have.been.calledOnce;
     });
     it("cleans up on throw", () => {
         var cb = spy();
-        expect(() => root(() => {
+        expect(() => detached.start(() => {
             must(cb);
             expect(cb).to.not.have.been.called;
             throw new Error("dang");
@@ -166,10 +166,10 @@ describe("root(action)", () => {
     });
 });
 
-describe("detached(factory)", () => {
+describe("detached.bind(factory)", () => {
     it("throws in response to must()", () => {
         // Given a detached flow factory that uses must()
-        const d = detached(() => {
+        const d = detached.bind(() => {
             must(() => log("cleanup"));
         })
         // When it's invoked Then it should throw an error
@@ -177,7 +177,7 @@ describe("detached(factory)", () => {
     });
     it("allows creating 'nested' flows", () => {
         // Given a detached flow factory that creates a flow
-        const flow = detached(() => start(() => {
+        const flow = detached.bind(() => start(() => {
             must(() => log("cleanup"));
         }))();
         see();
@@ -217,6 +217,7 @@ describe("Flow API", () => {
     });
     describe("throws when there's no active flow", () => {
         const msg = "No flow is currently active";
+        it("getFlow()", () => { expect(getFlow).to.throw(msg); });
         it("must()", () => { expect(() => must(() => {})).to.throw(msg); });
         it("release()", () => { expect(() => release(() => {})).to.throw(msg); });
     });
@@ -293,24 +294,24 @@ describe("Flow instances", () => {
     describe(".run()", () => {
         it("makes the flow active", () => {
             var active: Flow;
-            expect(current.flow).to.be.undefined;
-            f.run(() => { active = current.flow; });
+            expect(isFlowActive()).to.be.false;
+            f.run(() => { active = getFlow(); });
             expect(active).to.equal(f);
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
             const f1 = makeFlow();
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
             f.run(() => {
-                expect(current.flow).to.equal(f);
-                f1.run(() => expect(current.flow).to.equal(f1));
+                expect(getFlow()).to.equal(f);
+                f1.run(() => expect(getFlow()).to.equal(f1));
                 try {
                     f1.run(() => { throw new Error; });
                 } catch (e) {
-                    expect(current.flow).to.equal(f);
+                    expect(getFlow()).to.equal(f);
                 }
             });
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
         });
         it("passes through arguments and returns the result", () => {
             // When run is called with a function and arguments
@@ -324,24 +325,24 @@ describe("Flow instances", () => {
     describe(".bind() returns a function that", () => {
         it("makes the flow active", () => {
             var active: Flow;
-            expect(current.flow).to.be.undefined;
-            f.bind(() => { active = current.flow; })();
+            expect(isFlowActive()).to.be.false;
+            f.bind(() => { active = getFlow(); })();
             expect(active).to.equal(f);
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
             const f1 = makeFlow();
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
             f.bind(() => {
-                expect(current.flow).to.equal(f);
-                f1.bind(() => expect(current.flow).to.equal(f1))();
+                expect(getFlow()).to.equal(f);
+                f1.bind(() => expect(getFlow()).to.equal(f1))();
                 try {
                     f1.bind(() => { throw new Error; })();
                 } catch (e) {
-                    expect(current.flow).to.equal(f);
+                    expect(getFlow()).to.equal(f);
                 }
             })();
-            expect(current.flow).to.be.undefined;
+            expect(isFlowActive()).to.be.false;
         });
         it("passes through arguments and `this`", () => {
             // Given an object to use as `this`
