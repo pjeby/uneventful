@@ -51,6 +51,21 @@ export interface Flow {
     release(cleanup: CleanupFn): () => void;
 
     /**
+     * Start a nested interaction flow using the given function
+     *
+     * The function is immediately invoked with a callback that can be used
+     * to end the flow and release any resources it used. The flow itself is passed
+     * as a second argument, and also returned by this method.
+     *
+     * As with an effect, the action function can register cleanups with
+     * {@link must} and/or by returning a cleanup callback.  If the action function
+     * throws an error, the flow will be ended, and the error re-thrown.
+     *
+     * @returns the created {@link Flow}
+     */
+    start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow;
+
+    /**
      * Invoke a function with this flow as the active one, so that calling the
      * global {@link must} function will add cleanup callbacks to it,
      * {@link getFlow} will return it, etc.  (Note: signal dependency tracking
@@ -61,6 +76,24 @@ export interface Flow {
      * @returns The result of calling fn(...args)
      */
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
+
+    /**
+     * Wrap a function so this flow will be active when it's called.
+     *
+     * @param fn The function to wrap
+     *
+     * @returns A function with the same signature(s), but will have this flow
+     * active when called.
+     *
+     * @remarks Note that if the supplied function has any custom properties,
+     * they will *not* be available on the returned function at runtime, even
+     * though TypeScript will act as if they are present at compile time.  This
+     * is because the only way to copy all overloads of a function signature is
+     * to copy the exact type (as TypeScript has no way to generically say,
+     * "this a function with all the same overloads, but none of the
+     * properties").
+     */
+    bind<F extends (...args: any[]) => any>(fn: F): F
 
     /**
      * Release all resources held by the flow.
@@ -78,7 +111,7 @@ export interface Flow {
     readonly end: () => void;
 
     /**
-     * Restart a flow - works just like {@link Flow.end}, except that the flow
+     * Restart this flow - works just like {@link Flow.end}, except that the flow
      * isn't ended, so cleanup callbacks can be added again and won't be invoked
      * until the next restart or the flow is ended.
      *
@@ -136,11 +169,25 @@ class _Flow implements Flow {
         this.end(); this._done = false;
     }
 
+    start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
+        const flow = makeFlow(this);
+        try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
+        return flow;
+    }
+
     protected constructor() {};
 
-    run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F> {
+    run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
         const old = swapCtx(makeCtx(current.job, this));
         try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
+    }
+
+    bind<F extends (...args: any[]) => any>(fn: F): F {
+        const flow = this;
+        return <F> function () {
+            const old = swapCtx(makeCtx(current.job, flow));
+            try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
+        }
     }
 
     must(cleanup?: OptionalCleanup) {
@@ -194,61 +241,41 @@ function freeCN(rb: CleanupNode) {
 /**
  * Add a cleanup function to the active flow. Non-function values are ignored.
  *
- * @category Resource Management
+ * @category Flows
  */
 export function must(cleanup?: OptionalCleanup) {
     return getFlow().must(cleanup);
 }
 
 /**
- * Start an interaction flow. (Like an {@link effect}(), but without any
- * dependency tracking, and the supplied function is run synchronously.)
- *
- * The action function is immediately invoked with a callback that can be used
- * to end the flow and release any resources it used. The flow itself is passed
- * as a second argument, and also returned.
- *
- * As with an effect, the action function can register cleanups with
- * {@link must} and/or by returning a cleanup callback.  If the action function
- * throws an error, the flow will be ended, and the error re-thrown.
+ * Start a nested interaction flow within the currently-active flow.  (Shorthand
+ * for {@link getFlow}().{@link Flow.start start}(action).)
  *
  * @returns the created {@link Flow}
  *
  * @category Flows
  */
 export function start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
-    return wrapAction(makeFlow(getFlow()), action);
+    return getFlow().start(action);
 }
 
 /**
- * Start a root (i.e. standalone) interaction flow.  (Like {@link start}(), but
- * the new flow isn't linked to the current flow, meaning this function can be
- * called without a current flow.)
+ * Start a root (i.e. standalone) interaction flow.  (Shorthand for
+ * {@link detachedFlow}.{@link Flow.start start}() -- i.e., the new flow isn't
+ * linked to the current flow, meaning this function can be called without a
+ * current flow.)
  *
- * The action function is immediately invoked with a callback that can be used
- * to end the flow and release any resources it used. The flow itself is passed
- * as a second argument, and also returned.
- *
- * As with an effect, the action function can register cleanups with
- * {@link must} and/or by returning a cleanup callback.  If the action function
- * throws an error, the flow will be ended, and the error re-thrown.
- *
- * @returns the created {@link Flow}
+ * @returns the created standalone {@link Flow}
  *
  * @category Flows
  */
 export function root(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
-    return wrapAction(makeFlow(), action);
-}
-
-function wrapAction(flow: Flow, action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
-    try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
-    return flow;
+    return detachedFlow.start(action);
 }
 
 /**
- * Is there a currently active flow? (i.e., can you safely use
- * {@link must}() and {@link release}() right now?)
+ * Is there a currently active flow? (i.e., can you safely use {@link must}(),
+ * {@link release}() or {@link getFlow}() right now?)
  *
  * @category Flows
  */
@@ -259,7 +286,7 @@ export function isFlowActive() { return !!current.flow; }
  * the cleanup function from the flow, if it's still present. (Also, the cleanup
  * function isn't optional.)
  *
- * @category Resource Management
+ * @category Flows
  */
 export function release(cleanup: CleanupFn): DisposeFn {
     return getFlow().release(cleanup);
@@ -287,7 +314,8 @@ export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
 
 
 /**
- * Wrap a flow function to create a "detached" (standalone, unnested) version
+ * Wrap a flow function to create a "detached" (standalone, unnested) version.
+ * (Shorthand for calling {@link detachedFlow}.{@link Flow.bind bind}(flowFn).)
  *
  * Wrapping a flow factory (like {@link connect}, {@link effect}, {@link job},
  * etc.) with `detached()` creates a standalone version that:
@@ -308,15 +336,23 @@ export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
  *
  * @category Flows
  */
-export function detached<T extends (...args: any[]) => any>(flowFn: T): T {
-    return <T> function (...args: Parameters<T>) {
-        return detachedFlow.run(flowFn, ...args);
-    };
+export function detached<T extends PlainFunction>(flowFn: T): T {
+    return detachedFlow.bind(flowFn);
 }
 
 function noop() {}
 
-// Hacked flow to indicate the detached state
-const detachedFlow = makeFlow();
-detachedFlow.must = () => { throw new Error("Can't add cleanups in a detached flow"); }
-detachedFlow.release = () => { return noop; }
+/**
+ * A special {@link Flow} that allows child flows but isn't directly usable.
+ *
+ * You can use it to create a root flow via detatchedFlow.{@link Flow.start start}().
+ *
+ * @category Flows
+ */
+export const detachedFlow = (() => {
+    const detachedFlow = makeFlow();
+    detachedFlow.end();
+    detachedFlow.must = () => { throw new Error("Can't add cleanups to the detached flow"); }
+    detachedFlow.release = () => noop;
+    return detachedFlow;
+})();

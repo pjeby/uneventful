@@ -173,7 +173,7 @@ describe("detached(factory)", () => {
             must(() => log("cleanup"));
         })
         // When it's invoked Then it should throw an error
-        expect(d).to.throw("Can't add cleanups in a detached flow");
+        expect(d).to.throw("Can't add cleanups to the detached flow");
     });
     it("allows creating 'nested' flows", () => {
         // Given a detached flow factory that creates a flow
@@ -223,6 +223,7 @@ describe("Flow API", () => {
 });
 
 describe("Flow instances", () => {
+    // Given a flow
     var f: Flow;
     beforeEach(() => { f = makeFlow(); });
     describe(".must()", () => {
@@ -311,5 +312,47 @@ describe("Flow instances", () => {
             });
             expect(current.flow).to.be.undefined;
         });
+        it("passes through arguments and returns the result", () => {
+            // When run is called with a function and arguments
+            const res = f.run((...args) => args.map(log), 1, 2, 3);
+            // Then the function should receive the arguments
+            see("1", "2", "3")
+            // And return its result
+            expect(res).to.deep.equal([undefined, undefined, undefined]);
+        });
+    });
+    describe(".bind() returns a function that", () => {
+        it("makes the flow active", () => {
+            var active: Flow;
+            expect(current.flow).to.be.undefined;
+            f.bind(() => { active = current.flow; })();
+            expect(active).to.equal(f);
+            expect(current.flow).to.be.undefined;
+        });
+        it("restores the context, even on error", () => {
+            const f1 = makeFlow();
+            expect(current.flow).to.be.undefined;
+            f.bind(() => {
+                expect(current.flow).to.equal(f);
+                f1.bind(() => expect(current.flow).to.equal(f1))();
+                try {
+                    f1.bind(() => { throw new Error; })();
+                } catch (e) {
+                    expect(current.flow).to.equal(f);
+                }
+            })();
+            expect(current.flow).to.be.undefined;
+        });
+        it("passes through arguments and `this`", () => {
+            // Given an object to use as `this`
+            const ob = {};
+            // When a bound function is called with a this and arguments
+            const res = f.bind(function (...args) { args.map(log); return this; }).call(ob, 1, 2, 3);
+            // Then the function should receive the arguments
+            see("1", "2", "3")
+            // And return its result
+            expect(res).to.equal(ob);
+        });
+
     });
 });
