@@ -1,6 +1,7 @@
 import { describe, it } from "mocha";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { Flow, Job } from "../mod.ts";
+import { Flow } from "../mod.ts";
+import { Cell } from "../src/cells.ts";
 import { expect } from "chai";
 
 it("swapCtx() swaps the context", () => {
@@ -12,17 +13,17 @@ it("swapCtx() swaps the context", () => {
 });
 
 it("makeCtx() creates a context w/given props", () => {
-    const j = {} as Job<any>, s = {} as Flow, ctx = makeCtx(j, s);
-    expect(ctx.job, "Should set job from first arg" ).to.equal(j);
-    expect(ctx.flow, "Should set flow from second arg").to.equal(s);
+    const c = {} as Cell, f = {} as Flow, ctx = makeCtx(f, c);
+    expect(ctx.flow, "Should set flow from first arg" ).to.equal(f);
+    expect(ctx.cell, "Should set cell from second arg").to.equal(c);
 });
 
 describe("freeCtx()", () => {
     it("Clears the props of the freed context", () => {
-        const j = {} as Job<any>, s = {} as Flow, ctx = makeCtx(j, s);
+        const c = {} as Cell, f = {} as Flow, ctx = makeCtx(f, c);
         freeCtx(ctx);
-        expect(ctx.job, "Should clear the job").to.equal(null);
         expect(ctx.flow, "Should clear the flow").to.equal(null);
+        expect(ctx.cell, "Should clear the job").to.equal(null);
     })
     it("Recycles to makeCtx()", () => {
         const ctx = makeCtx();

@@ -8,19 +8,6 @@ import { runPulls } from "../src/scheduling.ts";
 describe("job()", () => {
     useRoot();
     useClock();
-    describe("without arguments", () => {
-        it("returns undefined outside a job", () => {
-            expect(job()).to.be.undefined;
-        });
-        it("returns the current job inside a job", () => {
-            // Given a job that calls job() w/no args
-            const theJob = job(function*(){ log(job() === theJob); });
-            // When it runs
-            clock.tick(0);
-            // Then it should see a job() equal to itself
-            see("true");
-        });
-    });
     describe("with Yieldings", () => {
         it("returns the same job if given a job", () => {
             // Given an existing job
@@ -224,7 +211,7 @@ describe("Job instances", () => {
             it("asynchronously aborts a running job", () => {
                 // Given a job that .throw()s itself`
                 const j = job(function*() {
-                    job().throw("headshot");
+                    j.throw("headshot");
                     try {
                         yield r => setTimeout(resolver(r), 50);
                     } catch (e) {
@@ -282,8 +269,8 @@ describe("Job instances", () => {
             });
             it("asynchronously aborts a running job", () => {
                 // Given a job that .return()s itself`
-                const j = job(function*() {
-                    job().return(99);
+                const j = job(function*(): Yielding<any> {
+                    j.return(99);
                     try {
                         yield r => setTimeout(resolver(r), 50);
                     } finally {

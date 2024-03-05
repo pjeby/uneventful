@@ -7,12 +7,10 @@
 
 import type { Flow } from "./tracking.ts";
 import type { Cell } from "./cells.ts";
-import type { Job } from "./jobs.ts";
 
 type Opt<X> = X | undefined | null;
 
 export type Context = {
-    job: Opt<Job<any>>
     flow:  Opt<Flow>
     cell: Opt<Cell>
 }
@@ -32,23 +30,21 @@ var freelist = [] as Context[];
 
 /** Get a fresh context object (either by creation or recycling) */
 export function makeCtx(
-    job?:  Context["job"],
     flow?:  Context["flow"],
     cell?: Context["cell"],
 ): Context {
     if (freelist && freelist.length) {
         const s = freelist.pop()!;
-        s.job = job;
         s.flow = flow;
         s.cell = cell;
         return s;
     }
-    return {job, flow, cell};
+    return {flow, cell};
 }
 
 /** Put a no-longer-needed context object on the recycling heap */
 export function freeCtx(s: Context) {
-    s.job = s.flow = s.cell = null;
+    s.flow = s.cell = null;
     freelist.push(s);
 }
 

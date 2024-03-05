@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
-import { current, makeCtx, swapCtx } from "../src/ambient.ts";
+import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
 import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow } from "../mod.ts";
+import { Cell } from "../src/cells.ts";
 
 describe("makeFlow()", () => {
     it("returns new standalone flows", () => {
@@ -248,15 +249,12 @@ describe("Flow instances", () => {
             expect(c2).to.have.been.calledImmediatelyBefore(c1);
             expect(c1).to.have.been.calledOnce
         });
-        it("runs callbacks under the job they were added with", () => {
-            const job1: any = {}, job2: any = {}, job3: any = {}, old = swapCtx(makeCtx());
-            try {
-                current.job = job1; f.must(() => expect(current.job).to.equal(job1));
-                current.job = job2; f.must(() => expect(current.job).to.equal(job2));
-                current.job = job3;
-                f.end();
-                expect(current.job).to.equal(job3);
-            } finally { swapCtx(old); }
+        it("runs callbacks without an active flow or cell", () => {
+            let hasFlowOrCell: boolean = undefined;
+            f.must(() => hasFlowOrCell = !!(current.flow || current.cell));
+            const old = swapCtx(makeCtx(f, {} as Cell));
+            try { f.end(); } finally { freeCtx(swapCtx(old)); }
+            expect(hasFlowOrCell).to.equal(false);
         });
         it("converts errors to unhandled rejections", async () => {
             const cb1 = spy(), cb2 = spy();

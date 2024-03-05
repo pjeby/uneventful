@@ -124,7 +124,6 @@ export interface Flow {
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
-import type { Job } from "./jobs.ts";
 import { defer } from "./defer.ts";
 
 /**
@@ -142,6 +141,8 @@ export function getFlow() {
 
 var freelist: CleanupNode;
 
+const nullCtx = makeCtx();
+
 class _Flow implements Flow {
     /** @internal */
     static create(parent?: Flow, stop?: CleanupFn) {
@@ -154,14 +155,14 @@ class _Flow implements Flow {
 
     end = () => {
         this._done = true;
-        const old = swapCtx(makeCtx());
+        if (!this._next) return;
+        const old = swapCtx(nullCtx);
         for (var rb = this._next; rb; ) {
-            try { current.job = rb._job; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
-            if (this._next === rb) this._next = rb._next;
+            try { this._next = rb._next; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
             freeCN(rb);
             rb = this._next;
         }
-        freeCtx(swapCtx(old));
+        swapCtx(old);
     }
 
     restart() {
@@ -178,14 +179,14 @@ class _Flow implements Flow {
     protected constructor() {};
 
     run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
-        const old = swapCtx(makeCtx(current.job, this));
+        const old = swapCtx(makeCtx(this));
         try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
     }
 
     bind<F extends (...args: any[]) => any>(fn: F): F {
         const flow = this;
         return <F> function () {
-            const old = swapCtx(makeCtx(current.job, flow));
+            const old = swapCtx(makeCtx(flow));
             try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
         }
     }
@@ -203,7 +204,7 @@ class _Flow implements Flow {
     protected _next: CleanupNode = undefined;
     protected _push(cb: CleanupFn) {
         if (this._done) defer(this.end);
-        let rb = makeCN(cb, current.job, this._next);
+        let rb = makeCN(cb, this._next);
         if (this._next) this._next._prev = rb;
         return this._next = rb;
     }
@@ -213,19 +214,17 @@ type CleanupNode = {
     _next: CleanupNode,
     _prev: CleanupNode,
     _cb: CleanupFn,
-    _job: Job<any>
 }
 
-function makeCN(cb: CleanupFn, job: Job<any>, next: CleanupNode): CleanupNode {
+function makeCN(cb: CleanupFn, next: CleanupNode): CleanupNode {
     if (freelist) {
         let node = freelist;
         freelist = node._next;
         node._next = next;
         node._cb = cb;
-        node._job = job;
         return node;
     }
-    return {_next: next, _prev: undefined, _cb: cb, _job: job}
+    return {_next: next, _prev: undefined, _cb: cb}
 }
 
 function freeCN(rb: CleanupNode) {
@@ -234,7 +233,7 @@ function freeCN(rb: CleanupNode) {
         if (rb._prev) rb._prev._next = rb._next;
         rb._next = freelist;
         freelist = rb;
-        rb._prev = rb._cb = rb._job = undefined;
+        rb._prev = rb._cb = undefined;
     }
 }
 

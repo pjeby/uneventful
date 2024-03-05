@@ -1,4 +1,4 @@
-import { current, makeCtx, swapCtx } from "./ambient.ts";
+import { makeCtx, swapCtx } from "./ambient.ts";
 import { JobIterator, Request, Suspend, UntilMethod, Yielding } from "./async.ts";
 import { defer } from "./defer.ts";
 import { CleanupFn, DisposeFn, makeFlow } from "./tracking.ts";
@@ -37,8 +37,6 @@ export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
 /**
  * Create a new {@link Job} or fetch the currently-running one
  *
- * If *no* arguments are given, returns the current job (if any).
- *
  * If *one* argument is given, it should be either a {@link Yielding} object (like
  * a generator), or a no-arguments function returning a Yielding (like a
  * generator function).
@@ -51,14 +49,13 @@ export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
  * an explicit `this` parameter (e.g. `job(this, function *(this) {...}));`) in
  * order to correctly infer types inside a generator function.)
  *
- * @returns A new {@link Job}, or the current job (which may be undefined).
+ * @returns A new {@link Job}.
  *
  * @category Flows
  * @category Jobs and Scheduling
  */
 export function job<R,T>(thisObj: T, fn: (this:T) => Yielding<R>): Job<R>
 export function job<R>(fn: (this:void) => Yielding<R>): Job<R>
-export function job(): Job<unknown> | undefined
 export function job<R>(g: Yielding<R>): Job<R>
 export function job<R>(g?: Yielding<R> | ((this:void) => Yielding<R>), fn?: () => Yielding<R>): Job<R> {
     if (g || fn) {
@@ -66,7 +63,7 @@ export function job<R>(g?: Yielding<R> | ((this:void) => Yielding<R>), fn?: () =
         if (typeof fn === "function") g = fn.call(g); else if (typeof g === "function") g = g();
         // Return existing job or create a new one
         return (g instanceof _Job) ? g : new _Job(g[Symbol.iterator]());
-    } else return current.job;
+    }
 }
 
 class _Job<T> implements Job<T> {
@@ -144,12 +141,11 @@ class _Job<T> implements Job<T> {
     throw(e: any)   { this._step("throw",  e); }
 
     // === Internals === //
-    protected readonly _ctx = makeCtx(this, makeFlow(null, this.return.bind(this, undefined)));
+    protected readonly _ctx = makeCtx(makeFlow(null, this.return.bind(this, undefined)));
     protected _f = Is.Running;
     protected _res: any
     protected _iter: JobIterator<T>;
     protected _ct = 0;
-    protected _parent = current.job;
 
     protected _step(method: "next" | "throw" | "return", arg: any): void {
         if (!this.g) return;

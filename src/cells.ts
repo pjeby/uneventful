@@ -353,12 +353,7 @@ export class Cell {
                 } catch (e) {
                     flow.end();
                     this.disposeEffect();
-                    if (this.ctx.job) {
-                        // tell the owning job about the error
-                        this.ctx.job.throw(e);
-                    } else {
-                        throw e;
-                    }
+                    throw e;
                 }
             }
         } finally {
@@ -420,7 +415,7 @@ export class Cell {
     static mkCached<T>(compute: () => T) {
         const cell = new Cell;
         cell.compute = compute;
-        cell.ctx = makeCtx(null, null, cell);
+        cell.ctx = makeCtx(null, cell);
         cell.flags = Is.Lazy;
         cell.latestSource = Infinity;
         return cell.getValue.bind(cell);
@@ -431,7 +426,7 @@ export class Cell {
         var cell = new Cell, f = makeFlow();
         cell.value = q;
         cell.compute = fn.bind(null, stop);
-        cell.ctx = makeCtx(current.job, f, cell);
+        cell.ctx = makeCtx(f, cell);
         cell.flags = Is.Effect;
         q.add(cell);
         return stop;
