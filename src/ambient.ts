@@ -11,7 +11,7 @@ import type { Cell } from "./cells.ts";
 type Opt<X> = X | undefined | null;
 
 export type Context = {
-    flow:  Opt<Flow>
+    flow: Opt<Flow<unknown>>
     cell: Opt<Cell>
 }
 

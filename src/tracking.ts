@@ -4,7 +4,7 @@
  *
  * @category Types and Interfaces
  */
-export type CleanupFn = () => unknown;
+export type CleanupFn<T=any> = (res?: FlowResult<T>) => unknown;
 
 /**
  * A function that can be called to dispose of something or unsubscribe
@@ -19,36 +19,47 @@ export type DisposeFn = () => void;
  *
  * @category Types and Interfaces
  */
-export type OptionalCleanup = CleanupFn | Nothing;
+export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
 
 /**
- * A Flow object tracks and releases resources (or runs undo actions) that are
- * used within an operation or task.
+ * A cancellable asynchronous operation with automatic resource cleanup.
  *
- * By adding {@link must}() callbacks to a flow, you can later call its
- * {@link Flow.end end}() method to run all of them in reverse order, thereby
- * cleaning up after the action -- a bit like a delayed and distributed
- * `finally` block.
+ * You can add cleanup callbacks to a flow via {@link must}() or its
+ * {@link .must}() method.  When the flow is ended or canceled, the callbacks
+ * are (synchronously) run in reverse order -- a bit like a delayed and
+ * distributed collection of `finally` blocks.
+ *
+ * Flows implement the Promise interface (then, catch, and finally) so they can
+ * be passed to Promise-using APIs or awaited by async functions.  They also
+ * implement {@link Yielding}, so you can await their results from a
+ * {@link job}() using `yield *`.  They also have {@link Flow.return \.return()}
+ * and {@link Flow.throw \.throw()} methods so you can end a flow with a result
+ * or error.
+ *
+ * Most flows, however, are not intended to produce results, and are merely
+ * canceled (using {@link Flow.end \.end()} or
+ * {@link Flow.restart \.restart()}).
  *
  * Flows can be created and accessed using {@link start}(),
- * {@link detached}.start(), {@link makeFlow}(), and {@link getFlow}().
+ * {@link detached}.start(), {@link makeFlow}(), {@link job}(), and
+ * {@link getFlow}().
  *
  * @category Types and Interfaces
  */
-export interface Flow {
+export interface Flow<T=any> extends Yielding<T>, Promise<T> {
     /**
      * Add a cleanup callback to be run when the flow is ended or restarted.
      * (Non-function values are ignored.)  If the flow has already ended,
      * the callback will be invoked asynchronously in the next microtask.
      */
-    must(cleanup?: OptionalCleanup): void;
+    must(cleanup?: OptionalCleanup<T>): this;
 
     /**
      * Like {@link Flow.must}, except a function is returned that will *remove*
      * the cleanup function from the flow, if it's still present. (Also, the
      * cleanup function isn't optional.)
      */
-    release(cleanup: CleanupFn): () => void;
+    release(cleanup: CleanupFn<T>): () => void;
 
     /**
      * Start a nested interaction flow using the given function
@@ -63,7 +74,7 @@ export interface Flow {
      *
      * @returns the created {@link Flow}
      */
-    start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow;
+    start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T>;
 
     /**
      * Invoke a function with this flow as the active one, so that calling the
@@ -118,13 +129,29 @@ export interface Flow {
      * Note: this method is a bound function, so you can pass it as a callback
      * to another flow, event handler, etc.
      */
-    readonly restart: () => void;
+    restart(): this;
+
+    /**
+     * End the flow with a thrown error, passing an {@link ErrorResult} to the
+     * cleanup callbacks.  (Throws an error if the flow is already ended or is
+     * currently restarting.)
+     */
+    throw(err: any): this;
+
+    /**
+     * End the flow with a return value, passing a {@link ValueResult} to the
+     * cleanup callbacks.  (Throws an error if the flow is already ended or is
+     * currently restarting.)
+     */
+    return(val: T) : this;
 
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
+import { CancelResult, ErrorResult, FlowResult, ValueResult, isCancel, isError, isValue } from "./results.ts";
+import { Request, Yielding, reject } from "./async.ts";
 
 /**
  * Return the currently-active Flow, or throw an error if none is active.
@@ -143,22 +170,24 @@ var freelist: CleanupNode;
 
 const nullCtx = makeCtx();
 
-class _Flow implements Flow {
+class _Flow<T> implements Flow<T> {
     /** @internal */
-    static create(parent?: Flow, stop?: CleanupFn) {
-        const flow = new _Flow;
+    static create<T,R>(parent?: Flow<R>, stop?: CleanupFn<R>): Flow<T> {
+        const flow = new _Flow<T>;
         if (parent || stop) flow.must(
             (parent || getFlow()).release(stop || flow.end)
         );
         return flow;
     }
 
+    get [Symbol.toStringTag]() { return "Flow"; }
+
     end = () => {
-        this._done = true;
+        const res = (this._done ||= CancelResult);
         if (!this._next) return;
         const old = swapCtx(nullCtx);
         for (var rb = this._next; rb; ) {
-            try { this._next = rb._next; (0,rb._cb)(); } catch (e) { Promise.reject(e); }
+            try { this._next = rb._next; (0,rb._cb)(res); } catch (e) { Promise.reject(e); }
             freeCN(rb);
             rb = this._next;
         }
@@ -166,12 +195,54 @@ class _Flow implements Flow {
     }
 
     restart() {
-        if (this._done) throw new Error("Can't restart ended flow");
-        this.end(); this._done = false;
+        this._end(CancelResult); this._done = undefined; return this;
     }
 
-    start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
-        const flow = makeFlow(this);
+    _end(res: FlowResult<T>) {
+        if (this._done) throw new Error("Flow already ended");
+        this._done = res;
+        this.end();
+        return this;
+    }
+
+    throw(err: any) { return this._end(ErrorResult(err)); }
+    return(val: T)  { return this._end(ValueResult(val)); }
+
+    then<T1=T, T2=never>(
+        onfulfilled?: (value: T) => T1 | PromiseLike<T1>,
+        onrejected?: (reason: any) => T2 | PromiseLike<T2>
+    ): Promise<T1 | T2> {
+        var p = new Promise<T>((res, rej) => this.must(r => {
+            // XXX mark error handled
+            if (isError(r)) rej(r.err); else if (isValue(r)) res(r.val); else rej(r);
+        }))
+        return (onfulfilled || onrejected) ? p.then(onfulfilled, onrejected) : p as any;
+    }
+
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): Promise<T | TResult> {
+        return this.then(undefined, onrejected);
+    }
+
+    finally(onfinally?: () => void): Promise<T> {
+        return this.then().finally(onfinally);
+    }
+
+    *[Symbol.iterator]() {
+        if (this._done) {
+            if (isValue(this._done)) return this._done.val;
+            throw isError(this._done) ? this._done.err : this._done;
+        } else return yield (req: Request<T>) => {
+            // XXX should this be a release(), so if the waiter dies we
+            // don't bother? The downside is that it'd have to be mutual and
+            // the resume is a no-op anyway in that case.
+            this.must(res => {
+                if (isCancel(res)) reject(req, res); else req(res.op, res.val, res.err);
+            });
+        }
+    }
+
+    start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T> {
+        const flow = makeFlow<T>(this);
         try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
         return flow;
     }
@@ -191,19 +262,20 @@ class _Flow implements Flow {
         }
     }
 
-    must(cleanup?: OptionalCleanup) {
+    must(cleanup?: OptionalCleanup<T>) {
         if (typeof cleanup === "function") this._push(cleanup);
+        return this;
     }
 
-    release(cleanup: CleanupFn): () => void {
+    release(cleanup: CleanupFn<T>): () => void {
         var rb = this._push(() => { rb = null; cleanup(); });
         return () => { if (rb && this._next === rb) this._next = rb._next; freeCN(rb); rb = null; };
     }
 
-    protected _done = false;
+    protected _done: FlowResult<T> = undefined;
     protected _next: CleanupNode = undefined;
-    protected _push(cb: CleanupFn) {
-        if (this._done) defer(this.end);
+    protected _push(cb: CleanupFn<T>) {
+        if (this._done && !this._next) defer(this.end);
         let rb = makeCN(cb, this._next);
         if (this._next) this._next._prev = rb;
         return this._next = rb;
@@ -242,8 +314,8 @@ function freeCN(rb: CleanupNode) {
  *
  * @category Flows
  */
-export function must(cleanup?: OptionalCleanup) {
-    return getFlow().must(cleanup);
+export function must<T>(cleanup?: OptionalCleanup<T>): Flow<T> {
+    return (getFlow() as Flow<T>).must(cleanup);
 }
 
 /**
@@ -254,7 +326,7 @@ export function must(cleanup?: OptionalCleanup) {
  *
  * @category Flows
  */
-export function start(action: (stop: DisposeFn, flow: Flow) => OptionalCleanup): Flow {
+export function start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T> {
     return getFlow().start(action);
 }
 
@@ -295,7 +367,7 @@ export function release(cleanup: CleanupFn): DisposeFn {
  *
  * @category Flows
  */
-export const makeFlow: (parent?: Flow, stop?: CleanupFn) => Flow = _Flow.create;
+export const makeFlow: <T,R=unknown>(parent?: Flow<R>, stop?: CleanupFn<R>) => Flow<T> = _Flow.create;
 
 function noop() {}
 

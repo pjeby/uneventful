@@ -1,41 +1,10 @@
 import { makeCtx, swapCtx } from "./ambient.ts";
-import { JobIterator, Request, Suspend, UntilMethod, Yielding } from "./async.ts";
+import { Request, Suspend, Yielding, reject, resolve } from "./async.ts";
 import { defer } from "./defer.ts";
-import { CleanupFn, DisposeFn, makeFlow } from "./tracking.ts";
+import { Flow, getFlow, makeFlow, release, start } from "./tracking.ts";
 
 /**
- * A cancellable asynchronous task.  (Created using {@link job}().)
- *
- * Jobs implement the Promise interface (then, catch, and finally) so they can
- * be passed to Promise-using APIs or awaited by async functions.  They also
- * implement {@link Yielding}, so you can await their results in other jobs
- * using `yield *`.
- *
- * You can abort a job by throwing errors into it or executing a return() that
- * will run all its `finally` blocks (if the job's a generator).
- *
- * Last, but not least, you can register cleanup callbacks with a job using its
- * .{@link Job.must must}() and
- * .{@link Job.release release}() methods.
- *
- * @category Types and Interfaces
- */
-export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
-    /** Terminate the activity with a given result */
-    return(val?: T): void;
-
-    /** Terminate the activity with an error */
-    throw(error: any): void;
-
-    /** Register a callback to run when the activity ends */
-    must(cb: () => void): void;
-
-    /** Like must(), but with the ability to remove the callback */
-    release(cleanup: CleanupFn): DisposeFn
-}
-
-/**
- * Create a new {@link Job} or fetch the currently-running one
+ * Create an asynchronous job and return a new {@link Flow} for it.
  *
  * If *one* argument is given, it should be either a {@link Yielding} object (like
  * a generator), or a no-arguments function returning a Yielding (like a
@@ -49,156 +18,79 @@ export interface Job<T> extends Promise<T>, Yielding<T>, UntilMethod<T> {
  * an explicit `this` parameter (e.g. `job(this, function *(this) {...}));`) in
  * order to correctly infer types inside a generator function.)
  *
- * @returns A new {@link Job}.
+ * @returns A new {@link Flow}.
  *
  * @category Flows
  * @category Jobs and Scheduling
  */
-export function job<R,T>(thisObj: T, fn: (this:T) => Yielding<R>): Job<R>
-export function job<R>(fn: (this:void) => Yielding<R>): Job<R>
-export function job<R>(g: Yielding<R>): Job<R>
-export function job<R>(g?: Yielding<R> | ((this:void) => Yielding<R>), fn?: () => Yielding<R>): Job<R> {
+export function job<R,T>(thisObj: T, fn: (this:T) => Yielding<R>): Flow<R>
+export function job<R>(fn: (this:void) => Yielding<R>): Flow<R>
+export function job<R>(g: Yielding<R>): Flow<R>
+export function job<R>(g?: Yielding<R> | ((this:void) => Yielding<R>), fn?: () => Yielding<R>): Flow<R> {
     if (g || fn) {
         // Convert g or fn from a function to a yielding
         if (typeof fn === "function") g = fn.call(g); else if (typeof g === "function") g = g();
         // Return existing job or create a new one
-        return (g instanceof _Job) ? g : new _Job(g[Symbol.iterator]());
+        return (g instanceof _Flow) ? g as Flow<R>: start((_, flow) => run(g as Yielding<R>, (m, v, e) => {
+            if (m==="next") flow.return(v); else flow.throw(e);
+        }));
     }
 }
 
-class _Job<T> implements Job<T> {
+const _Flow = makeFlow().constructor;
 
-    // pretend to be a promise
-    declare [Symbol.toStringTag]: string;
+function run<R>(g: Yielding<R>, req?: Request<R>) {
+    let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getFlow()), ct = 0;
+    let done = release(() => {
+        req = undefined;
+        step("return", undefined);
+    });
+    // Start asynchronously
+    defer(() => { running = false; step("next", undefined); });
 
-    constructor(protected g: JobIterator<T>) {
-        this._ctx.flow.must(() => {
-            // Check for untrapped error, promote to unhandled rejection
-            if ((this._f & (Is.Error | Is.Promised)) === Is.Error) {
-                Promise.reject(this._res);
-            }
-        })
-        // Start asynchronously
-        defer(() => { this._f &= ~Is.Running; this._step("next", undefined); });
-    }
-
-    "uneventful.until"(): Yielding<T> { return this; }
-
-    [Symbol.iterator]() {
-        if (this._iter) return this._iter;
-        const suspend: IteratorYieldResult<Suspend<T>> = {
-            done: false,
-            value: (request: Request<T>) => {
-                this._f |= Is.Promised;
-                // XXX should this be a release(), so if the waiter dies we
-                // don't bother? The downside is that it'd have to be mutual and
-                // the resume is a no-op anyway in that case.
-                this.must(() => {
-                    request((this._f & Is.Error) === Is.Error ? "throw" : "next", this._res, this._res);
-                });
-            }
-        }
-        return this._iter = {
-            next: (): IteratorResult<Suspend<T>, T> => {
-                if (this._f & Is.Finished) {
-                    this._f |= Is.Promised;
-                    if ((this._f & Is.Error) === Is.Error) throw this._res;
-                    return {done: true, value: this._res};
-                }
-                return suspend;
-            },
-            throw: e => { throw e }  // propagate to yield*
-        }
-    }
-
-    must(cb: CleanupFn): void {
-        return this._ctx.flow.must(cb);
-    }
-
-    release(cleanup: CleanupFn): DisposeFn {
-        return this._ctx.flow.release(cleanup);
-    }
-
-    then<T1=T, T2=never>(
-        onfulfilled?: (value: T) => T1 | PromiseLike<T1>,
-        onrejected?: (reason: any) => T2 | PromiseLike<T2>
-    ): Promise<T1 | T2> {
-        this._f |= Is.Promised;
-        return new Promise((res, rej) => this.must(() => {
-            if ((this._f & Is.Error) === Is.Error) rej(this._res); else res(this._res);
-        })).then(onfulfilled, onrejected);
-    }
-
-    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): Promise<T | TResult> {
-        return this.then(undefined, onrejected);
-    }
-
-    finally(onfinally?: () => void): Promise<T> {
-        return this.then().finally(onfinally);
-    }
-
-    return(v?: T)   { this._step("return", v); }
-    throw(e: any)   { this._step("throw",  e); }
-
-    // === Internals === //
-    protected readonly _ctx = makeCtx(makeFlow(null, this.return.bind(this, undefined)));
-    protected _f = Is.Running;
-    protected _res: any
-    protected _iter: JobIterator<T>;
-    protected _ct = 0;
-
-    protected _step(method: "next" | "throw" | "return", arg: any): void {
-        if (!this.g) return;
+    function step(method: "next" | "throw" | "return", arg: any): void {
+        if (!it) return;
         // Don't resume a job while it's running
-        if (this._f & Is.Running) {
-            return defer(this._step.bind(this, method, arg));
+        if (running) {
+            return defer(step.bind(null, method, arg));
         }
-        const old = swapCtx(this._ctx);
+        const old = swapCtx(ctx);
         try {
-            this._f |= Is.Running;
+            running = true;
             try {
                 for(;;) {
-                    ++this._ct;
-                    const {done, value} = this.g[method](arg);
+                    ++ct;
+                    const {done, value} = it[method](arg);
                     if (done) {
-                        this._res = value;
-                        this._f |= Is.Finished;
+                        req && resolve(req, value);
+                        req = undefined;
                         break;
                     } else if (typeof value !== "function") {
                         method = "throw";
                         arg = new TypeError("Jobs must yield functions (or yield* Yielding<T>s)");
                         continue;
                     } else {
-                        let called = false, returned = false, count = this._ct;
+                        let called = false, returned = false, count = ct;
                         (value as Suspend<any>)((op, val, err) => {
                             if (called) return; else called = true;
                             method = op; arg = op === "next" ? val : err;
-                            if (returned && count === this._ct) this._step(op, arg);
+                            if (returned && count === ct) step(op, arg);
                         });
                         returned = true;
                         if (!called) return;
                     }
                 }
             } catch(e) {
-                this._res = e;
-                this._f |= Is.Error;
+                req ? reject(req, e) : Promise.reject(e);
+                req = undefined;
             }
-            // Generator returned or threw: ditch it and run cleanups
-            this.g = undefined;
-            this._ctx.flow.end();
+            // Iteration is finished; disconnect from flow
+            it = undefined;
+            done?.();
+            done = undefined;
         } finally {
             swapCtx(old);
-            this._f &= ~Is.Running;
+            running = false;
         }
     }
 }
-
-const enum Is {
-    Unset = 0,
-    _ = 1,
-    Running  = _ << 0,
-    Finished = _ << 1,
-    Error    = (_ << 2 | Finished),
-    Promised = _ << 3,
-}
-

@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
     job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runEffects
+    IsStream, value, cached, runEffects, isError
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
@@ -196,12 +196,8 @@ describe("Job instances", () => {
             it("interrupts a suspended job", () => {
                 // Given a suspended job
                 const j = job(function*() {
-                    try {
-                        yield r => setTimeout(resolver(r), 50);
-                    } catch (e) {
-                        log(`err: ${e}`);
-                    }
-                });
+                    yield r => setTimeout(resolver(r), 50);
+                }).must(r => isError(r) && log(`err: ${r.err}`));
                 clock.tick(0); // get to suspend
                 // When it's throw()n
                 j.throw("boom")
@@ -212,12 +208,8 @@ describe("Job instances", () => {
                 // Given a job that .throw()s itself`
                 const j = job(function*() {
                     j.throw("headshot");
-                    try {
-                        yield r => setTimeout(resolver(r), 50);
-                    } catch (e) {
-                        log(`err: ${e}`);
-                    }
-                });
+                    yield r => setTimeout(resolver(r), 50);
+                }).must(r => isError(r) && log(`err: ${r.err}`));
                 // When it next suspends
                 clock.tick(1);
                 // Then it should receive the error at the suspend point
@@ -226,12 +218,8 @@ describe("Job instances", () => {
             it("asynchronously aborts a starting job", () => {
                 // Given a job
                 const j = job(function*() {
-                    try {
-                        yield r => setTimeout(resolver(r), 50);
-                    } catch (e) {
-                        log(`err: ${e}`);
-                    }
-                });
+                    yield r => setTimeout(resolver(r), 50);
+                }).must(r => isError(r) && log(`err: ${r.err}`));
                 // When it'ts thrown before starting
                 j.throw("headshot"); clock.tick(0);
                 // Then it should receive the error at the first suspend point
@@ -242,7 +230,7 @@ describe("Job instances", () => {
                 const j = job(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n
-                j.throw("boom");
+                expect(() => j.throw("boom")).to.throw("Flow already ended");
                 // Then the result is unaffected
                 job(function*() { log(yield * j); }); clock.tick(0);
                 see("42");
@@ -270,8 +258,8 @@ describe("Job instances", () => {
             it("asynchronously aborts a running job", () => {
                 // Given a job that .return()s itself`
                 const j = job(function*(): Yielding<any> {
-                    j.return(99);
                     try {
+                        j.return(99);
                         yield r => setTimeout(resolver(r), 50);
                     } finally {
                         log("exiting");
@@ -307,7 +295,7 @@ describe("Job instances", () => {
                 const j = job(function*() { return 42; });
                 clock.tick(0);
                 // When return()ed
-                j.return(99);
+                expect(() => j.return(99)).to.throw("Flow already ended");
                 // Then the result is unaffected
                 job(function*(){ log(yield * j); }); clock.tick(0);
                 see("42");
@@ -473,7 +461,8 @@ describe("Async Ops", () => {
         describe("with no arguments", () => {
             it("suspends the job until returned or thrown", () => {
                 // Given a job, When suspended on a suspend()
-                const j = suspendOn(suspend()); clock.runAll(); see();
+                const j = suspendOn(suspend()).must(r => isError(r) && log(`err: ${r.err}`));
+                clock.runAll(); see();
                 // Then it should not do anything until thrown or returned
                 j.throw(42);
                 see("err: 42");

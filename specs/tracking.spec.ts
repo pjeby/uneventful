@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow } from "../mod.ts";
+import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeFlow()", () => {
@@ -27,13 +27,19 @@ describe("makeFlow()", () => {
             clock.runAll(); see();
             f.end(); see("must()2", "release()2");
         });
+        it("passes CancelResult to cleanups", () => {
+            const f = makeFlow();
+            f.must(r => log(isCancel(r)));
+            f.restart();
+            see("true");
+        });
         describe("won't revive an ended flow", () => {
             it("after the end()", () => {
                 // Given an ended flow
                 const r = makeFlow(); r.end();
                 // When restart is called
                 // Then it should throw
-                expect(() => r.restart()).to.throw("Can't restart ended flow")
+                expect(() => r.restart()).to.throw("Flow already ended")
             });
             it("during the end()", () => {
                 // Given a flow with a callback that runs restart
@@ -44,7 +50,7 @@ describe("makeFlow()", () => {
                 // When the flow is ended
                 f.end();
                 // Then the restart attempt should throw
-                see("Error: Can't restart ended flow");
+                see("Error: Flow already ended");
             });
         });
     });
@@ -206,8 +212,8 @@ describe("Flow API", () => {
         afterEach(() => { current.flow = undefined; });
         it("must()", () => {
             const m = spy(t1, "must");
-            expect(must(cb)).to.be.undefined;
-            expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(undefined);
+            expect(must(cb)).to.equal(t1);
+            expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(t1);
         })
         it("release()", () => {
             const m = spy(t1, "release");
@@ -271,7 +277,42 @@ describe("Flow instances", () => {
             });
             expect(reason.message).to.equal("caught me!");
         })
+        it("passes CancelResult to cleanups", () => {
+            f.must(r => log(isCancel(r)));
+            f.end();
+            see("true");
+        });
     })
+    describe(".throw()", () => {
+        it("Fails on an already ended flow", () => {
+            f.end();
+            expect(() => f.throw("boom")).to.throw("Flow already ended");
+            f = makeFlow(); f.return(99);
+            expect(() => f.throw("boom")).to.throw("Flow already ended");
+            f = makeFlow(); f.throw("blah");
+            expect(() => f.throw("boom")).to.throw("Flow already ended");
+        });
+        it("passes an ErrorResult to callbacks", () => {
+            f.must(r => log(isError(r) && r.err));
+            f.throw("pow");
+            see("pow");
+        });
+    });
+    describe(".return()", () => {
+        it("Fails on an already ended flow", () => {
+            f.end();
+            expect(() => f.return(42)).to.throw("Flow already ended");
+            f = makeFlow(); f.return(99);
+            expect(() => f.return(42)).to.throw("Flow already ended");
+            f = makeFlow(); f.throw("blah");
+            expect(() => f.return(42)).to.throw("Flow already ended");
+        });
+        it("passes a ValueResult to callbacks", () => {
+            f.must(r => log(isValue(r) && r.val));
+            f.return(42);
+            see("42");
+        });
+    });
     describe(".release()", () => {
         it("calls the callback on cleanup", () => {
             const cb = spy();
