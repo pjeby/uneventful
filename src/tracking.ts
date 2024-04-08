@@ -152,6 +152,7 @@ import { Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
 import { CancelResult, ErrorResult, FlowResult, ValueResult, isCancel, isError, isValue } from "./results.ts";
 import { Request, Yielding, reject } from "./async.ts";
+import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
 
 /**
  * Return the currently-active Flow, or throw an error if none is active.
@@ -165,8 +166,6 @@ export function getFlow() {
     if (flow) return flow;
     throw new Error("No flow is currently active");
 }
-
-var freelist: CleanupNode;
 
 const nullCtx = makeCtx();
 
@@ -183,14 +182,8 @@ class _Flow<T> implements Flow<T> {
     get [Symbol.toStringTag]() { return "Flow"; }
 
     end = () => {
-        const res = (this._done ||= CancelResult);
-        if (!this._next) return;
-        const old = swapCtx(nullCtx);
-        for (var rb = this._next; rb; ) {
-            try { this._next = rb._next; (0,rb._cb)(res); } catch (e) { Promise.reject(e); }
-            freeCN(rb);
-            rb = this._next;
-        }
+        const res = (this._done ||= CancelResult), cbs = this._cbs, old = swapCtx(nullCtx);
+        while (!isEmpty(cbs)) try { pop(cbs)(res); } catch (e) { Promise.reject(e); }
         swapCtx(old);
     }
 
@@ -263,49 +256,19 @@ class _Flow<T> implements Flow<T> {
     }
 
     must(cleanup?: OptionalCleanup<T>) {
-        if (typeof cleanup === "function") this._push(cleanup);
+        if (typeof cleanup === "function") push(this._chain(), cleanup);
         return this;
     }
 
     release(cleanup: CleanupFn<T>): () => void {
-        var rb = this._push(() => { rb = null; cleanup(); });
-        return () => { if (rb && this._next === rb) this._next = rb._next; freeCN(rb); rb = null; };
+        return pushCB(this._chain(), cleanup);
     }
 
     protected _done: FlowResult<T> = undefined;
-    protected _next: CleanupNode = undefined;
-    protected _push(cb: CleanupFn<T>) {
-        if (this._done && !this._next) defer(this.end);
-        let rb = makeCN(cb, this._next);
-        if (this._next) this._next._prev = rb;
-        return this._next = rb;
-    }
-}
-
-type CleanupNode = {
-    _next: CleanupNode,
-    _prev: CleanupNode,
-    _cb: CleanupFn,
-}
-
-function makeCN(cb: CleanupFn, next: CleanupNode): CleanupNode {
-    if (freelist) {
-        let node = freelist;
-        freelist = node._next;
-        node._next = next;
-        node._cb = cb;
-        return node;
-    }
-    return {_next: next, _prev: undefined, _cb: cb}
-}
-
-function freeCN(rb: CleanupNode) {
-    if (rb) {
-        if (rb._next) rb._next._prev = rb._prev;
-        if (rb._prev) rb._prev._next = rb._next;
-        rb._next = freelist;
-        freelist = rb;
-        rb._prev = rb._cb = undefined;
+    protected _cbs = chain<CleanupFn<T>>();
+    protected _chain() {
+        if (this._done && isEmpty(this._cbs)) defer(this.end);
+        return this._cbs;
     }
 }
 
