@@ -1,6 +1,7 @@
 /**
- * A cleanup function is any zero-argument function.  It will always be run in
- * the job context it was registered from.
+ * A cleanup function is a callback invoked when a flow is ended or restarted.
+ * It receives a result that indicates whether the flow ended itself with a return
+ * value or error, or was canceled/restarted by its creator.
  *
  * @category Types and Interfaces
  */
@@ -47,6 +48,12 @@ export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
  * @category Types and Interfaces
  */
 export interface Flow<T=any> extends Yielding<T>, Promise<T> {
+    /**
+     * The result of the flow (canceled, returned value, or error), or
+     * undefined if the flow isn't finished.
+     */
+    result(): FlowResult<T> | undefined;
+
     /**
      * Add a cleanup callback to be run when the flow is ended or restarted.
      * (Non-function values are ignored.)  If the flow has already ended,
@@ -150,7 +157,6 @@ export interface Flow<T=any> extends Yielding<T>, Promise<T> {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
-import { CancelResult, ErrorResult, FlowResult, ValueResult, isCancel, isError, isValue } from "./results.ts";
 import { Request, Yielding, reject } from "./async.ts";
 import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
 
@@ -178,6 +184,8 @@ class _Flow<T> implements Flow<T> {
         );
         return flow;
     }
+
+    result() { return this._done; }
 
     get [Symbol.toStringTag]() { return "Flow"; }
 
@@ -333,6 +341,75 @@ export function release(cleanup: CleanupFn): DisposeFn {
 export const makeFlow: <T,R=unknown>(parent?: Flow<R>, stop?: CleanupFn<R>) => Flow<T> = _Flow.create;
 
 function noop() {}
+
+/**
+ * A {@link FlowResult} that indicates the flow was ended via a return() value.
+ *
+ * @category Types and Interfaces
+ */
+export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
+
+/**
+ * A {@link FlowResult} that indicates the flow was ended via a throw() or other
+ * error.
+ *
+ * @category Types and Interfaces
+ */
+export type ErrorResult    = {op: "throw",   val: undefined, err: any};
+
+/**
+ * A {@link FlowResult} that indicates the flow was canceled by its creator (via
+ * end() or restart()).
+ *
+ * @category Types and Interfaces
+ */
+export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
+
+/**
+ * A result passed to a flow's cleanup callbacks
+ *
+ * @category Types and Interfaces
+ */
+export type FlowResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
+
+function mkResult<T>(op: "next", val?: T): ValueResult<T>;
+function mkResult(op: "throw", val: undefined|null, err: any): ErrorResult;
+function mkResult(op: "cancel"): CancelResult;
+function mkResult<T>(op: string, val?: T, err?: any): FlowResult<T> {
+    return {op, val, err} as FlowResult<T>
+}
+
+const CancelResult = mkResult("cancel");
+
+function ValueResult<T>(val: T): ValueResult<T> { return mkResult("next", val); }
+function ErrorResult(err: any): ErrorResult { return mkResult("throw", undefined, err); }
+
+/**
+ * Returns true if the given result is a {@link CancelResult}.
+ *
+ * @category Flows
+ */
+export function isCancel(res: FlowResult<any> | undefined): res is CancelResult {
+    return res === CancelResult;
+}
+
+/**
+ * Returns true if the given result is a {@link ValueResult}.
+ *
+ * @category Flows
+ */
+export function isValue<T>(res: FlowResult<T> | undefined): res is ValueResult<T> {
+    return res ? res.op === "next" : false;
+}
+
+/**
+ * Returns true if the given result is a {@link ErrorResult}.
+ *
+ * @category Flows
+ */
+export function isError(res: FlowResult<any> | undefined): res is ErrorResult {
+    return res ? res.op === "throw" : false;
+}
 
 /**
  * A special {@link Flow} with no parents, that can be used to create standalone
