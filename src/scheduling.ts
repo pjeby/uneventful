@@ -80,7 +80,7 @@ export class RunQueue<K> {
 }
 
 /** @internal */
-export const pulls = new RunQueue<Conduit>(defer, pulls => {
+export const pulls = new RunQueue<{doPull(): void}>(defer, pulls => {
     for (const conn of pulls) { pulls.delete(conn); conn.doPull(); }
 })
 

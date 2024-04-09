@@ -113,7 +113,7 @@ export class Conduit implements Inlet {
     /** @internal */
     protected _flags = Is.Open | Is.Ready;
     /** @internal */
-    protected _flow: Flow;
+    protected _flow: Flow<void>;
     /** @internal */
     protected _callbacks: Map<Producer, CleanupFn>;
     /** @internal */
@@ -156,7 +156,7 @@ export class Conduit implements Inlet {
      * microtask.  Otherwise, cleanup callbacks run in reverse order as with
      * any other flow.
      */
-    must(fn?: OptionalCleanup): this {
+    must(fn?: OptionalCleanup<void>): this {
         this._flow.must(fn);
         return this;
     }
@@ -239,7 +239,7 @@ export class Conduit implements Inlet {
     close = () => {
         if (this._flags & Is.Open) {
             this._flags &= ~(Is.Open|Is.Ready);
-            this._flow.end();
+            this._flow.return();
         }
         return this;
     }
@@ -258,7 +258,9 @@ export class Conduit implements Inlet {
     throw(reason: any) {
         if (this._flags & Is.Open) {
             this._flags |= Is.Error;
+            this._flags &= ~(Is.Open|Is.Ready);
             this.reason = reason;
+            this._flow.throw(reason);
             this.close();
         }
         return this;

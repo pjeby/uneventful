@@ -1,14 +1,14 @@
 import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
 import { Conduit } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult } from "../mod.ts";
 
 function mkConduit(parent: Flow = null) {
     if (!parent) return detached.run(() => new Conduit());
     return new Conduit(parent);
 }
 
-function logClose() { log("closed"); }
+function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("connect()", () => {
     useRoot();
@@ -87,20 +87,19 @@ describe("Conduit", () => {
     describe("is inactive after closing:", () => {
         it("ignores close() if already thrown", () => {
             // Given a conduit with a thrown error
-            const e = new Error, c = mkConduit().throw(e);
+            const e = new Error("x"), c = mkConduit().must(logClose).throw(e);
             // When it's close()d
             c.close();
             // Then it should still have its error and reason
-            expect(c.hasError()).to.be.true;
-            expect(c.reason).to.equal(e);
+            see("closed", "err: Error: x");
         });
         it("ignores throw() if already thrown", () => {
             // Given a conduit with a thrown error
-            const e = new Error, c = mkConduit().throw(e);
+            const e = new Error("x"), c = mkConduit().must(logClose).throw(e);
             // When it's thrown again
-            c.throw(new Error);
+            c.throw(new Error("y"));
             // Then it should still have its original reason
-            expect(c.reason).to.equal(e);
+            see("closed", "err: Error: x");
         });
         it("ignores throw() if already closed", () => {
             // Given a conduit that's closed
@@ -138,11 +137,11 @@ describe("Conduit", () => {
         });
         it("with the error state known", () => {
             // Given a conduit with a must callback
-            const c = mkConduit().must(() => { log(c.hasError()); log(c.reason); });
+            const c = mkConduit().must(logClose);
             // When the conduit is thrown()
             c.throw("this is the reason")
             // Then the callback should see the correct error state
-            see("true", "this is the reason");
+            see("closed", "err: this is the reason");
         });
         it("when the enclosing flow is cleaned up", () => {
             // Given a flow and a conduit it's attached to

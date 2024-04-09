@@ -1,5 +1,5 @@
 import { Source, connect } from "./streams.ts";
-import { OptionalCleanup, start } from "./tracking.ts";
+import { OptionalCleanup, isCancel, isError, start } from "./tracking.ts";
 
 /**
  * A request for a value (or error) to be returned asynchronously.
@@ -240,8 +240,8 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     }
     if (typeof source === "function") {
         return wait(r => {
-            const conn = connect(source, resolver(r)).must(() => {
-                reject(r, conn.hasError() ? conn.reason : new Error("Stream ended"));
+            connect(source, resolver(r)).must(res => {
+                if (!isCancel(res)) reject(r, isError(res) ? res.err : new Error("Stream ended"));
             });
         })
     }

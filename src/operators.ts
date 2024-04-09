@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
 import { Conduit, Inlet, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
-import { detached, must } from "./tracking.ts";
+import { detached, isError, must } from "./tracking.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -190,11 +190,10 @@ export function share<T>(source: Source<T>): Source<T> {
                 for(const [s,l] of links) {
                     if (l.push(s,v)) resumed = true; else l.onReady(resume);
                 }
-                resumed || uplink.pause();
-            }).must(() => {
-                const {reason} = uplink, err = uplink.hasError();
+                resumed || uplink?.pause();
+            }).must(res => {
                 uplink = undefined;
-                links.forEach(([_,l]) => err ? l.throw(reason) : l.end());
+                links.forEach(([_,l]) => isError(res) ? l.throw(res.err) : l.end());
             })
         }
         function resume() {

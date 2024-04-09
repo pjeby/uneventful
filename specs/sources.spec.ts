@@ -1,7 +1,7 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runEffects } from "../src/mod.ts";
+import { connect, value, runEffects, isError, FlowResult } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { Conduit } from "../src/streams.ts";
 import {
@@ -9,7 +9,7 @@ import {
     fromValue, fromSubscribe, interval, lazy, never
 } from "../src/sources.ts";
 
-function logClose() { log("closed"); }
+function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("Sources", () => {
     useRoot();
@@ -57,12 +57,13 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit); runPulls();
+            const c = connect(e.source, log.emit).must(r => {
+                if (isError(r)) log(`err: ${r.err}`);
+            }); runPulls();
             // And the emitter throws
             e.throw("a reason");
             // Then the connection should be thrown as well
-            expect(c.hasError()).to.be.true;
-            expect(c.reason).to.equal("a reason");
+            see("err: a reason");
         });
         it("should close() to its subscriber(s)", () => {
             // Given an emitter
@@ -175,10 +176,9 @@ describe("Sources", () => {
             // When it's subscribed
             const c = connect(s, log.emit).must(logClose);
             // Then it should output the values up to the error (asynchronously)
-            see();
-            await waitAndSee("1", "2", "3", "4", "5", "closed");
             // And then throw
-            expect(c.hasError()).to.be.true;
+            see();
+            await waitAndSee("1", "2", "3", "4", "5", "closed", "err: Error");
         })
     });
     describe("fromIterable()", () => {
@@ -244,8 +244,7 @@ describe("Sources", () => {
             // And then throw
             see();
             runPulls();
-            see("1", "2", "3", "4", "5", "closed");
-            expect(c.hasError()).to.be.true;
+            see("1", "2", "3", "4", "5", "closed", "err: Error");
         })
     });
     describe("fromPromise()", () => {
@@ -265,9 +264,7 @@ describe("Sources", () => {
             // When the stream is connected
             const c = connect(s, log.emit).must(logClose);
             // Then it should throw the connection asynchronously
-            see(); await Promise.resolve(); see("closed");
-            expect(c.hasError()).to.be.true;
-            expect(c.reason).to.equal("some reason");
+            see(); await Promise.resolve(); see("closed", "err: some reason");
         });
         it("should await pending promises", async () => {
             // Given a fromPromise() of a pending native promise
