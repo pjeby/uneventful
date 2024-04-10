@@ -1,9 +1,9 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runEffects, isError, FlowResult } from "../src/mod.ts";
+import { connect, value, runEffects, isError, FlowResult, isValue } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { Conduit } from "../src/streams.ts";
+import { Connector, pause, resume } from "../src/streams.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
     fromValue, fromSubscribe, interval, lazy, never
@@ -29,7 +29,7 @@ describe("Sources", () => {
             const c2 = connect(e.source, log.emit); runPulls();
             e(44); see("44");
             e(45); see("45");
-            c2.close();
+            c2.end();
         });
         it("should be ok with no subscribers", () => {
             // Given an emitter
@@ -48,9 +48,9 @@ describe("Sources", () => {
             // Then it should emit to the currently-subscribed sinks
             e(43); see("43"); expect(emits).to.equal(1);
             // Until their connections close
-            c1.close();
+            c1.end();
             e(44); see(); expect(emits).to.equal(2);
-            c2.close();
+            c2.end();
             e(45); see(); expect(emits).to.equal(2);
         });
         it("should throw to its subscriber(s)", () => {
@@ -78,13 +78,12 @@ describe("Sources", () => {
     });
     describe("empty()", () => {
         it("immediately closes", () => {
-            // Given an empty stream and conduit
+            // Given an empty stream
             const s = empty()
-            const c = new Conduit().must(logClose);
             // When it's subscribed
-            s(log.emit, c);
+            const c = connect(s, log.emit);
             // Then it should close the connection
-            see("closed");
+            expect(isValue(c.result())).to.be.true;
         });
     });
     describe("fromDomEvent()", () => {
@@ -102,7 +101,7 @@ describe("Sources", () => {
             // And the pusher should emit from the stream
             see(); (pusher as any)("push"); see("push");
             // And its removeEventListener should be called when the stream is closed
-            c.close();
+            c.end();
             expect(target.removeEventListener).to.have.been.calledOnceWithExactly("blur", pusher, options);
         });
     });
@@ -135,7 +134,7 @@ describe("Sources", () => {
             // And the connection should still be open
             await waitAndSee("1", "2", "3");
             // And When the connection is resumed
-            c.resume()
+            resume(c)
             see();
             // Then it should output the rest on the next tick
             // And close the connection
@@ -161,7 +160,7 @@ describe("Sources", () => {
             see();
             await waitAndSee("1", "2", "3");
             // And When the connection is closed
-            c.close();
+            c.end();
             // Then the iterator should be return()ed
             await waitAndSee("closed", "return");
         });
@@ -197,12 +196,12 @@ describe("Sources", () => {
             // Given a fromIterable() stream
             const s = fromIterable([1,2,3,"a","b","c"]);
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => (log(v), v === 3 && c.pause())).must(logClose);
+            const c = connect(s, v => (log(v), v === 3 && pause(c))).must(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see(); runPulls(); see("1", "2", "3");
             // And When the connection is resumed
-            c.resume();
+            resume(c);
             // Then it should output the rest
             // And close the connection
             see("a", "b", "c", "closed");
@@ -219,14 +218,14 @@ describe("Sources", () => {
             // and a fromIterable based on it
             const s = fromIterable(iterable);
             // When it's subscribed and pulled with a pausing sink
-            const c = connect(s, v => (log(v), v === 3 && c.pause())).must(logClose);
+            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).must(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see();
             runPulls();
             see("1", "2", "3");
             // And When the connection is closed
-            c.close();
+            c.end();
             // Then the iterator should be return()ed
             see("closed", "return");
         });
@@ -331,13 +330,13 @@ describe("Sources", () => {
             // Given a fromSignal(value())
             const v = value(42), s = fromSignal(v);
             // When it's subscribed and paused, and set to various values
-            const c = connect(s, log.emit).pause();
+            const c = connect(s, log.emit); pause(c);
             // Then it should not output until resumed
             v.set(43); runEffects(); runPulls(); see();
             v.set(44); runEffects(); runPulls(); see();
             // And only show the latest value
-            c.resume(); see("44");
-            c.close();
+            resume(c); see("44");
+            c.end();
         });
         it("doesn't send values during its effect()", () => {
             // Given a fromSignal(value())
@@ -361,7 +360,7 @@ describe("Sources", () => {
             const c = connect(s, log.emit);
             // Then the subscribe function should not be called until resumed
             expect(subscribe).to.not.have.been.called;
-            c.resume(); runPulls();
+            resume(c); runPulls();
             expect(subscribe).to.have.been.calledOnce;
             expect(pusher).to.be.a("function");
             // And calling the pusher should emit the value and return void
@@ -369,7 +368,7 @@ describe("Sources", () => {
             see("42");
             // And the unsub function should be called on close
             expect(unsub).to.not.have.been.called;
-            c.close();
+            c.end();
             expect(unsub).to.have.been.calledOnce;
         });
     });
@@ -399,7 +398,7 @@ describe("Sources", () => {
             see("0");
             clock.tick(42);
             see("1", "2", "3", "4", "5", "6");
-            c.close();
+            c.end();
             clock.tick(100);
             see();
         });

@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
-import { Conduit, Inlet, IsStream, Sink, Source, Transformer, connect } from "./streams.ts";
-import { detached, isError, must } from "./tracking.ts";
+import { Connection, Connector, IsStream, Inlet, Sink, Source, Transformer, connect, pause, resume, subconnect, getInlet } from "./streams.ts";
+import { detached, isError, isValue, must } from "./tracking.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -33,19 +33,19 @@ export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T>
  * @category Stream Operators
  */
 export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn) => {
-        let inner: Conduit;
+    return (sink, conn=connect()) => {
+        let inner: Connector;
         const inputs: Source<T>[] = [];
-        let outer = conn.link(sources, s => {
-            inputs.push(s); startNext(); outer.pause();
-        }).must(() => {
+        let outer = subconnect(conn, sources, s => {
+            inputs.push(s); startNext(); pause(outer);
+        }).must(r => {
             outer = undefined
-            inputs.length || inner || conn.end();
+            inputs.length || inner || !isValue(r) || conn.return();
         });
         function startNext() {
-            inner ||= conn.link(inputs.shift(), sink, conn).must(() => {
+            inner ||= subconnect(conn, inputs.shift(), sink, conn).must(r => {
                 inner = undefined;
-                inputs.length ? startNext() : (outer ? outer.resume() : conn.end());
+                inputs.length ? startNext() : (outer ? resume(outer) : !isValue(r) || conn.return());
             });
         }
         return IsStream;
@@ -124,17 +124,17 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> 
  * @category Stream Operators
  */
 export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn) => {
-        const uplinks: Set<Conduit> = new Set;
-        let outer = conn.link(sources, (s) => {
-            const c = conn.link(s, sink, conn).must(() => {
+    return (sink, conn=connect()) => {
+        const uplinks: Set<Connector> = new Set;
+        let outer = subconnect(conn, sources, (s) => {
+            const c = subconnect(conn, s, sink, conn).must(r => {
                 uplinks.delete(c);
-                uplinks.size || outer || conn.end();
+                uplinks.size || outer || !isValue(r) || conn.return();
             });
             uplinks.add(c);
-        }).must(() => {
+        }).must(r => {
             outer = undefined;
-            uplinks.size || conn.end();
+            uplinks.size || !isValue(r) || conn.return();
         });
         return IsStream;
     }
@@ -174,32 +174,35 @@ export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transfo
  * @category Stream Operators
  */
 export function share<T>(source: Source<T>): Source<T> {
-    let uplink: Conduit, resumed = false;
-    let links = new Set<[sink: Sink<T>, link: Inlet]>;
-    return (sink, conn) => {
-        const self: [Sink<T>, Inlet] = [sink, conn];
+    let uplink: Connector, resumed = false;
+    let links = new Set<[sink: Sink<T>, conn: Connection, inlet: Inlet]>;
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
+        const self: [Sink<T>, Connection, Inlet] = [sink, conn, inlet];
         links.add(self);
-        conn.onReady(resume);
+        inlet.onReady(produce);
         must(() => {
             links.delete(self);
-            if (!links.size) uplink?.close();
+            if (!links.size) uplink?.end();
         });
         if (links.size === 1) {
-            uplink = detached.run(connect, source, v => {
+            uplink = detached.bind(connect)(source, v => {
                 resumed = false;
-                for(const [s,l] of links) {
-                    if (l.push(s,v)) resumed = true; else l.onReady(resume);
+                for(const [s,_,l] of links) {
+                    if (l.push(s,v)) resumed = true; else l.onReady(produce);
                 }
-                resumed || uplink?.pause();
-            }).must(res => {
+                resumed || pause(uplink);
+            }).must(r => {
                 uplink = undefined;
-                links.forEach(([_,l]) => isError(res) ? l.throw(res.err) : l.end());
+                links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
+                    isValue(r) ? c.return() : c.end()
+                ));
             })
         }
-        function resume() {
+        function produce() {
             if (!resumed) {
                 resumed = true;
-                uplink?.resume();
+                resume(uplink);
             };
         }
         return IsStream;
@@ -226,9 +229,9 @@ export function skip<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (sink, conn) => {
+    return src => (sink, conn=connect()) => {
         let taking = false;
-        const c = conn.link(notifier, () => { taking = true; c.close(); });
+        const c = subconnect(conn, notifier, () => { taking = true; c.end(); });
         return src(v => taking && sink(v), conn);
     }
 }
@@ -262,17 +265,17 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
  * @category Stream Operators
  */
 export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn) => {
-        let inner: Conduit;
-        let outer = conn.link(sources, s => {
-            inner?.close();
-            inner = conn.link(s, sink, conn).must(() => {
+    return (sink, conn=connect()) => {
+        let inner: Connector;
+        let outer = subconnect(conn, sources, s => {
+            inner?.end();
+            inner = subconnect(conn, s, sink, conn).must(r => {
                 inner = undefined;
-                outer || conn.end();
+                outer || !isValue(r) || conn.return();
             });
-        }).must(() => {
+        }).must(r => {
             outer = undefined;
-            inner || conn.end();
+            inner || !isValue(r) || conn.return();
         });
         return IsStream;
     }
@@ -313,8 +316,8 @@ export function take<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (sink, conn) => {
-        conn.link(notifier, () => conn.end());
+    return src => (sink, conn=connect()) => {
+        subconnect(conn, notifier, () => conn.return());
         return src(sink, conn);
     }
 }
@@ -334,6 +337,6 @@ export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transfo
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
     return src => (sink, conn) => {
         let idx = 0;
-        return src(v => condition(v, idx++) ? sink(v) : conn.end(), conn);
+        return src(v => condition(v, idx++) ? sink(v) : conn?.return(), conn);
     };
 }

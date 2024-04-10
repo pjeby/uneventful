@@ -1,32 +1,122 @@
+import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { pulls } from "./scheduling.ts";
-import { CleanupFn, OptionalCleanup, type Flow, makeFlow } from "./tracking.ts";
+import { CleanupFn, type Flow, isError, getFlow, start } from "./tracking.ts";
 
-export interface Inlet {
-    isReady(): boolean
-    onReady(cb: Producer): void;
-    writer<T>(sink: Sink<T>): (val: T) => boolean
-    push<T>(sink: Sink<T>, val: T): boolean
-    end(): this;
-    throw(reason: any): this;
-    link<T>(src?: Source<T>, sink?: Sink<T>, root?: Inlet): Conduit;
+type ThrottleExt = ExtType<"uneventful/throttle", _Throttle>;
+type MaybeThrottled = MaybeHas<ThrottleExt>;
+const {get: throttle, set: setThrottle} = extension<ThrottleExt>("uneventful/throttle");
+
+/**
+ * @category Stream Consumers
+ */
+export function pause(s: Connector | undefined) {
+    throttle(s)?.pause();
 }
+
+/**
+ * Un-pause, and iterate backpressure-able sources' onReady callbacks to
+ * resume sending immediately.
+ *
+ * @category Stream Consumers
+ */
+export function resume(s: Connector | undefined) {
+    throttle(s)?.resume();
+}
+
+/**
+ * @category Types and Interfaces
+ */
+export interface Inlet {
+    /** Is the connection currently ready to receive data? */
+    isReady(): boolean
+
+    /**
+     * Register a callback to run when an async consumer wishes to resume event
+     * production (i.e., when a sink calls {@link resume}()).  The callback is
+     * automatically unregistered when invoked, so the producer must re-register
+     * it after each call if it wishes to keep being called.
+     */
+    onReady(cb: Producer): this;
+
+    /**
+     * Return a bound version of .{@link push}() for a specific sink
+     *
+     * @returns a 1-argument function that sends its argument to the sink,
+     * returning the sink's return value, or false if the conduit is closed or
+     * thrown.  If the sink throws, the error is thrown to the conduit as well.
+     */
+    writer<T>(sink: Sink<T>): (val: T) => boolean
+
+    /**
+     * Send data to a sink, returning the conduit's ready state.
+     *
+     * If the sink throws an error, the conduit closes with that error, and push() returns false.
+     */
+    push<T>(sink: Sink<T>, val: T): boolean
+}
+
+/**
+ * @category Stream Producers
+ */
+export function getInlet(s: Connector): Inlet {
+    return new _Inlet(throttle(s), s);
+}
+
+/**
+ * @category Types and Interfaces
+ */
+export interface Throttle {
+    pause(): void;
+    resume(): void;
+}
+
+
+/**
+ * @category Stream Producers
+ */
+export type Connection = Flow<void>;
+
+/**
+ * @category Stream Consumers
+ */
+export type Connector = Flow<void> & MaybeThrottled;
+
+class _Inlet implements Inlet {
+
+    constructor(protected t: _Throttle, protected _flow = getFlow()) {}
+
+    protected isOpen(): boolean { return !this._flow.result() && this.t.isOpen(); }
+
+    isReady(): boolean { return this.isOpen() && this.t.isReady(); }
+
+    onReady(cb: Producer): this {
+        this.isOpen() && this.t.onReady(cb, this._flow);
+        return this;
+    }
+
+    writer<T>(sink: Sink<T>): (val: T) => boolean {
+        return this.push.bind<this, [Sink<T>], [T], boolean>(this, sink);
+    }
+
+    push<T>(sink: Sink<T>, val: T): boolean {
+        return this.isOpen() && (sink(val), this.isReady());
+    }
+}
+
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
  * produced and sent to a {@link Sink} function for consumption, until the
- * associated {@link Conduit} is closed (either by the source or the sink, e.g.
- * if the sink doesn't want more data or the source has no more to send).
- *
- * The source function is invoked with the conduit's flow active, so it can
- * freely use flows or resources that need {@link must} and the like.
+ * associated {@link Connection} is closed (either by the source or the sink,
+ * e.g. if the sink doesn't want more data or the source has no more to send).
  *
  * The function must return the special {@link IsStream} value, so TypeScript
  * can tell what functions are actually sources.  (As otherwise any void
- * function with no arguments would appear to be usable as a source.)
+ * function with no arguments would appear to be usable as a source!)
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (sink: Sink<T>, conn: Inlet) => typeof IsStream;
+export type Source<T> = (sink: Sink<T>, conn?: Connection) => typeof IsStream;
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
@@ -39,15 +129,6 @@ export const IsStream = "uneventful/is-stream" as const;
 
 /**
  * A `Sink` is a function that receives data from a {@link Source}.
- *
- * A sink must return `true` if it can immediately (i.e. synchronously) be
- * called with the next value.  It should return `false` instead if a
- * synchronous source should wait before producing more values (and then call
- * the conduit's {@link Conduit.resume .resume()} method when it's ready to receive
- * the next value).
- *
- * (Note: the return value only affects *synchronous* sources, as async sources
- * can call the sink at any time, as long as the conduit is still open.)
  *
  * @category Types and Interfaces
  */
@@ -66,150 +147,61 @@ type Producer = () => any
 
 
 /**
- * Subscribe a sink to a source, returning a conduit linked to the active flow.
- *
- * Note: some sources may not begin sending events until after
- * {@link Conduit.resume .resume()} is called on the returned conduit.
+ * Subscribe a sink to a source, returning a nested flow.
  *
  * @category Stream Consumers
  */
-export function connect<T>(src: Source<T>, sink: Sink<T>) {
-    return new Conduit(null, null, src, sink);
-}
-
-/** Conduit state flags */
-const enum Is {
-    Unset = 0,
-    _ = 1,
-    Open    = _ << 0,
-    Error   = _ << 1,
-    Caught  = _ << 2,
-    Ready   = _ << 3,
-    Pulling = _ << 4,
-}
-function is(flags: Is, mask: Is, eq = mask) {
-    return (flags & mask) === eq;
+export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
+    return <Connector> start((_, flow) => {
+        setThrottle(flow as Connector, (throttle(to as Connector) || new _Throttle(flow)));
+        if (src && sink) src(sink, flow);
+    });
 }
 
 /**
- * The connection between an event {@link Source} and its {@link Sink}
- * (subscriber).
- *
- * Conduits simplify coding of stream transformers and event sources by managing
- * resource cleanup (via {@link must}() callbacks) and connection state.
- * Sources can {@link push}() data to a sink as long as the conduit is open, and
- * sinks can {@link resume}() to say, "I'm ready for more data".  (Which sources
- * can subscribe to via {@link onReady}().)
- *
- * Sources can also create child conduits (via a conduit's {@link link}() and
- * {@link fork}() methods), making it easier to implement operators like
- * `reduce()` or `takeUntil()`, and have the other connections disposed of when
- * the main one is, or automatically propagate errors from a child conduit to
- * its parent.
- *
- * @category Types and Interfaces
+ * @category Stream Producers
  */
-export class Conduit implements Inlet {
-    /** @internal */
-    protected _flags = Is.Open | Is.Ready;
-    /** @internal */
-    protected _flow: Flow<void>;
+export function subconnect<T>(parent: Connection, src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
+    return parent.run(() => {
+        const flow = getFlow();
+        if (flow.result()) throw new Error("Can't fork or link a closed conduit");
+        return connect(src, sink, to).must(res => { if (isError(res)) flow.throw(res.err); });
+    })
+}
+
+class _Throttle {
     /** @internal */
     protected _callbacks: Map<Producer, CleanupFn>;
-    /** @internal */
-    protected _root: Conduit;
-
-    /** The reason passed to throw(), if any */
-    reason: any;
 
     /** @internal */
-    constructor(parent?: Flow, root?: Conduit, src?: Source<any>, sink?: Sink<any>) {
-        this._root = root ?? this;
-        this._flow = makeFlow(parent, this.close);
-        if (src && sink) this._flow.run(src, sink, this);
-    }
+    constructor(protected _flow: Flow<void>) {}
 
-    /** @internal */
-    protected isOpen(): boolean { return is(this._flags, Is.Open); }
+    isOpen(): boolean { return !this._flow.result(); }
 
     /** Is the conduit currently ready to receive data? */
-    isReady(): boolean { return is(this._root._flags, Is.Ready); }
+    isReady(): boolean { return this.isOpen() && this._isReady; }
 
-    /** Has the comment been closed with an error? */
-    hasError(): boolean { return is(this._flags, Is.Error); }
+    _isReady = true;
+    _isPulling = false;
 
-    /**
-     * Has the conduit been closed with an error without a corresponding
-     * {@link catch}()?
-     *
-     * Note: this always returns false if a catch() function has been
-     * registered, even if the catch() function hasn't been run yet.
-     */
-    hasUncaught(): boolean {
-        return is(this._flags, (Is.Error|Is.Caught), Is.Error);
-    }
-
-    /**
-     * Register a cleanup function to run when the conduit closes or throws.
-     *
-     * If the conduit is already closed, the function will run in the next
-     * microtask.  Otherwise, cleanup callbacks run in reverse order as with
-     * any other flow.
-     */
-    must(fn?: OptionalCleanup<void>): this {
-        this._flow.must(fn);
-        return this;
-    }
-
-    /**
-     * Register a callback to run when an async consumer wishes to resume event
-     * production (i.e., when a sink calls {@link resume}()).  The callback is
-     * automatically unregistered when invoked, so the producer must re-register
-     * it after each call if it wishes to keep being called.
-     */
-    onReady(cb: Producer) {
+    onReady(cb: Producer, flow: Flow) {
         if (!this.isOpen()) return this;
-        const {_root} = this, _callbacks = (_root._callbacks ||= new Map);
-        const unlink = this._flow.release(() => _callbacks.delete(cb));
-        if (_root.isReady() && is(_root._flags, Is.Pulling, Is.Unset) && !_callbacks.size) {
-            pulls.add(_root);
+        const _callbacks = (this._callbacks ||= new Map);
+        const unlink = flow.release(() => _callbacks.delete(cb));
+        if (this.isReady() && this && !_callbacks.size) {
+            pulls.add(this);
         }
         _callbacks.set(cb, unlink);
         return this;
     }
 
-    /**
-     * Return a bound version of .{@link push}() for a specific sink
-     *
-     * @returns a 1-argument function that sends its argument to the sink,
-     * returning the sink's return value, or false if the conduit is closed or
-     * thrown.  If the sink throws, the error is thrown to the conduit as well.
-     */
-    writer<T>(sink: Sink<T>): (val: T) => boolean {
-        return this.push.bind<this, [Sink<T>], [T], boolean>(this, sink);
-    }
-
-    /**
-     * Send data to a sink, returning the conduit's ready state.
-     *
-     * If the sink throws an error, the conduit closes with that error, and push() returns false.
-     */
-    push<T>(sink: Sink<T>, val: T): boolean {
-        try {
-            return this.isOpen() && (sink(val), this._root.isReady());
-        } catch(e) {
-            this.throw(e);
-            return false;
-        }
-    }
-
-    pause() { this._flags &= ~Is.Ready; return this; } // XXX throw if not this?
+    pause() { this._isReady = false; return this; }
 
     doPull() {
-        if (is(this._flags, Is.Pulling)) return;
+        if (this._isPulling) return;
         const {_callbacks} = this;
         if (!_callbacks?.size) return;
-        this._flags |= Is.Pulling;
+        this._isPulling = true;
         try {
             for(let [cb, unlink] of _callbacks) {
                 unlink()
@@ -218,99 +210,15 @@ export class Conduit implements Inlet {
                 cb() // XXX error handling?
             }
         } finally {
-            this._flags &= ~Is.Pulling;
+            this._isPulling = false;
         }
     }
 
-    /**
-     * Un-pause, and iterate backpressure-able sources' onReady callbacks to
-     * resume sending immediately.
-     */
     resume() {
-        if (is(this._root._flags, (Is.Ready|Is.Open), Is.Open)) {
-            this._root._flags |= Is.Ready;
-        }
-        if (this.isOpen()) this._root.doPull();
-    }
-
-    /**
-     * Close the conduit, cleaning up resources and terminating child conduits.
-     */
-    close = () => {
-        if (this._flags & Is.Open) {
-            this._flags &= ~(Is.Open|Is.Ready);
-            this._flow.return();
-        }
-        return this;
-    }
-
-    end = this.close;
-
-    /**
-     * Close the conduit with an error, cleaning up resources and terminating
-     * child conduits. If the conduit was created via {@link link}(), the error
-     * will be passed along to the parent conduit (if it's not already closed or
-     * thrown).
-     *
-     * The reason passed to throw() will be readable via the conduit's
-     * {@link Conduit.reason .reason} property.
-     */
-    throw(reason: any) {
-        if (this._flags & Is.Open) {
-            this._flags |= Is.Error;
-            this._flags &= ~(Is.Open|Is.Ready);
-            this.reason = reason;
-            this._flow.throw(reason);
-            this.close();
-        }
-        return this;
-    }
-
-    /**
-     * Add an asynchronous error handler that responds to throw()
-     *
-     * The handler will be called asynchronously if the conduit already has an
-     * error.
-     */
-    catch(handler?: (reason: any, conn: this) => unknown): this {
-        this._flags |= Is.Caught;
-        if (handler) return this.must(() => { if (this.hasError()) handler(this.reason, this); });
-        return this;
-    }
-
-    /**
-     * Create a child conduit, optionally setting up a source subscription.
-     *
-     * If a source and sink are supplied, the source is called with the sink and
-     * the new conduit.
-     *
-     * The returned conduit will close when the parent conduit closes or throws.
-     * (Errors in the child will *not* propagate to the parent and so must be
-     * explicitly handled.  If you want automatic error propagation, use
-     * {@link link}() instead.)
-     */
-    fork<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
         if (this.isOpen()) {
-            return new Conduit(this._flow, root, src, sink);
+            this._isReady = true;
+            this.doPull();
         }
-        throw new Error("Can't fork or link a closed conduit")
-    }
-
-    /**
-     * Create a linked conduit, optionally setting up a source subscription.
-     *
-     * If a source and sink are supplied, the source is called with the sink and
-     * the new conduit.
-     *
-     * The returned conduit will close when the parent conduit closes or throws.
-     * Errors in the child will automatically be propagated to the parent, so that
-     * it will also throw if the child does.
-     */
-    link<T>(src?: Source<T>, sink?: Sink<T>, root?: Conduit) {
-        const f = this.fork(src, sink, root).must(() => {
-            if (f.hasError()) this.throw(f.reason);
-        });
-        return f;
     }
 }
 

@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
     job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runEffects, isError
+    IsStream, value, cached, runEffects, isError, getInlet
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
@@ -566,7 +566,7 @@ describe("Async Ops", () => {
             });
             it("throwing on throw", () => {
                 // When a suspended until() on a throwing stream is run
-                suspendOn(until((_,c) => { c.onReady(() => c.throw("boom")); return IsStream; }));
+                suspendOn(until((_,c) => { getInlet(c).onReady(() => c.throw("boom")); return IsStream; }));
                 clock.runAll();
                 // Then the job should throw once pulls run
                 runPulls(); see("err: boom");

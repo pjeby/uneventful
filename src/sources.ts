@@ -1,6 +1,6 @@
 import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
-import { type Source, IsStream, Inlet } from "./streams.ts";
+import { type Source, IsStream, Connection, getInlet, connect, Sink } from "./streams.ts";
 import { must, type DisposeFn, getFlow } from "./tracking.ts";
 
 /**
@@ -31,16 +31,15 @@ export interface Emitter<T> {
  * @category Stream Producers
  */
 export function emitter<T>(): Emitter<T> {
-    let write: (val: T) => boolean, inlet: Inlet;
+    let write: Sink<T>, outlet: Connection;
     function emit(val: T) { if (write) write(val); };
     emit.source = share<T>((sink, conn) => {
-        write = conn.writer(sink);
-        inlet = conn;
-        must(() => write = inlet = undefined);
+        write = sink; outlet = conn;
+        must(() => write = outlet = undefined);
         return IsStream;
     });
-    emit.end = () => inlet?.end();
-    emit.throw = (e: any) => inlet?.throw(e);
+    emit.end = () => outlet?.return();
+    emit.throw = (e: any) => outlet?.throw(e);
     return emit;
 }
 
@@ -50,7 +49,7 @@ export function emitter<T>(): Emitter<T> {
  * @category Stream Producers
  */
 export function empty(): Source<never> {
-    return (_, conn) => (conn.end(), IsStream);
+    return (_, conn) => (conn?.return(), IsStream);
 }
 
 /**
@@ -63,14 +62,15 @@ export function empty(): Source<never> {
  * @category Stream Producers
  */
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
-    return (sink, conn) => {
-        const send = conn.writer(sink), iter = iterable[Symbol.asyncIterator]();
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
+        const send = inlet.writer(sink), iter = iterable[Symbol.asyncIterator]();
         if (iter.return) must(() => iter.return());
-        return conn.onReady(next), IsStream;
+        return inlet.onReady(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
-                if (done) conn.end(); else conn.onReady(() => {
-                    if (send(value)) next(); else conn.onReady(next);
+                if (done) conn.return(); else inlet.onReady(() => {
+                    if (send(value)) next(); else inlet.onReady(next);
                 })
             }, e => conn.throw(e));
         }
@@ -107,8 +107,8 @@ export function fromDomEvent<T extends Event>(
 export function fromDomEvent<T extends EventTarget, K extends string>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
 ): Source<Event> {
-    return (sink, conn) => {
-        const push = conn.writer(sink);
+    return (sink) => {
+        function push(v: Event) { sink(v); }
         target.addEventListener(type, push, options);
         must(() => target.removeEventListener(type, push, options));
         return IsStream;
@@ -125,16 +125,17 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * @category Stream Producers
  */
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
-    return (sink, conn) => {
-        const send = conn.writer(sink), iter = iterable[Symbol.iterator]();
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
+        const send = inlet.writer(sink), iter = iterable[Symbol.iterator]();
         if (iter.return) must(() => iter.return());
-        return conn.onReady(loop), IsStream;
+        return inlet.onReady(loop), IsStream;
         function loop() {
             try {
                 for(;;) {
                     const {value, done} = iter.next();
-                    if (done) return conn.end();
-                    if (!send(value)) return conn.onReady(loop);
+                    if (done) return conn.return();
+                    if (!send(value)) return inlet.onReady(loop);
                 }
             } catch (e) {
                 conn.throw(e);
@@ -156,9 +157,10 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  */
 export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
     return (sink, conn) => {
+        const flow = getFlow();
         Promise.resolve(promise).then(
-            v => (conn.push(sink, v), conn.end()),
-            e => conn.throw(e)
+            v => void (flow.result() || (sink(v), conn?.return())),
+            e => void (flow.result() || conn?.throw(e))
         )
         return IsStream;
     }
@@ -175,10 +177,11 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
  */
 export function fromSignal<T>(s: () => T): Source<T> {
     s = cached(s);
-    return (sink, conn) => {
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
         let val: T;
-        function sendVal() { conn.push(sink, val); val = undefined; }
-        effect(() => { val = s(); conn.onReady(sendVal); });
+        function sendVal() { inlet.push(sink, val); val = undefined; }
+        effect(() => { val = s(); inlet.onReady(sendVal); });
         return IsStream;
     }
 }
@@ -192,14 +195,15 @@ export function fromSignal<T>(s: () => T): Source<T> {
  * when the connection is closed.
  *
  * (Note: it's okay if the act of subscribing causes an immediate callback, as
- * the subscribe function will be called in its own microtask.)
+ * the subscribe function will be called in a separate microtask.)
  *
  * @category Stream Producers
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
-    return (sink, conn) => {
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
         const f = getFlow();
-        return conn.onReady(() => f.must(subscribe(v => { conn.push(sink, v); }))), IsStream;
+        return inlet.onReady(() => f.must(subscribe(v => { inlet.push(sink, v); }))), IsStream;
     }
 }
 
@@ -209,8 +213,8 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  * @category Stream Producers
  */
 export function fromValue<T>(val: T): Source<T> {
-    return (sink, conn) => {
-        return conn.onReady(() => { conn.push(sink, val); conn.end(); }), IsStream;
+    return (sink, conn=connect()) => {
+        return getInlet(conn).onReady(() => { sink(val); conn.return(); }), IsStream;
     }
 }
 
@@ -221,9 +225,8 @@ export function fromValue<T>(val: T): Source<T> {
  * @category Stream Producers
  */
 export function interval(ms: number): Source<number> {
-    return (sink, conn) => {
-        let idx = 0;
-        const id = setInterval(() => conn.push(sink, idx++), ms);
+    return (sink) => {
+        let idx = 0, id = setInterval(() => sink(idx++), ms);
         return must(() => clearInterval(id)), IsStream;
     }
 }

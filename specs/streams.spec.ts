@@ -1,25 +1,23 @@
-import { log, see, describe, expect, it, spy, useClock, clock, useRoot } from "./dev_deps.ts";
-import { Conduit } from "../src/streams.ts";
+import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
+import { Connection, Connector, Inlet, getInlet, pause, resume, subconnect } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult } from "../mod.ts";
 
-function mkConduit(parent: Flow = null) {
-    if (!parent) return detached.run(() => new Conduit());
-    return new Conduit(parent);
+type Conn = Connector & Connection;
+function mkConn(parent: Flow = null) {
+    return (parent || detached).run(() => connect());
 }
 
 function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("connect()", () => {
     useRoot();
-    it("calls source with sink and returns a Conduit", () => {
+    it("calls source with sink and returns a Connector", () => {
         // Given a source and a sink
         const src = spy(), sink = spy();
         // When connect() is called with them
         const c = connect(src, sink);
-        // Then you should get a conduit
-        expect(c).to.be.an.instanceOf(Conduit);
-        // And the source should have been called with the conduit and the sink
+        // Then the source should have been called with the sink and connector
         expect(src).to.have.been.calledOnceWithExactly(sink, c);
     });
     it("is linked to the running flow", () => {
@@ -38,210 +36,58 @@ describe("connect()", () => {
         function sink() { return true; }
         function src(_sink: Sink<any>) { must(() => log("cleanup")); return IsStream; }
         // When connect() is called with them and closed
-        connect(src, sink).close();
+        connect(src, sink).end();
         // Then cleanups added by the source should be called
         see("cleanup");
     });
 });
 
-describe("Conduit", () => {
-    it("initially isReady(), and not hasError()", () => {
-        // Given a Conduit
-        const c = mkConduit();
-        // When its status is checked
-        // Then it should be open and not have an error
-        expect(c.isReady()).to.be.true;
-        expect(c.hasError()).to.be.false;
-        expect(c.hasUncaught()).to.be.false;
+describe("Limiter", () => {
+    it("initially isReady()", () => {
+        // Given a limiter
+        const l = getInlet(mkConn());
+        // Then it should be ready
+        expect(l.isReady()).to.be.true;
     });
-    it(".hasError(), .hasUncaught(), and .reason when .throw()n", () => {
-        // Given a conduit with a thrown error
-        const e = new Error, c = mkConduit().throw(e);
-        // When its status is checked
-        // Then it should be closed and have an error
-        expect(c.hasError()).to.be.true;
-        expect(c.hasUncaught()).to.be.true;
-        // And the reason should be the thrown error
-        expect(c.reason).to.equal(e);
-    });
-    it("is closed(+unready) with no error when .close()d", () => {
-        // Given a conduit that's closed
-        const c = mkConduit().must(logClose).close();
+    it("is unready when connection is ended", () => {
+        // Given an ended connection
+        const c = mkConn().must(logClose); c.end();
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
-        expect(c.isReady()).to.be.false;
-        expect(c.hasError()).to.be.false;
+        expect(getInlet(c).isReady()).to.be.false;
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
-        // Given a flow and a conduit it's attached to
+        // Given a flow and a connection it's attached to
         detached.start(end => {
-            const c = mkConduit(getFlow()).must(logClose);
+            const c = mkConn(getFlow()).must(logClose);
             // When the flow ends
             end();
-            // Then the conduit should be closed
+            // Then the connection should be closed and the limiter unready
             see("closed");
-            expect(c.isReady()).to.be.false;
+            expect(getInlet(c).isReady()).to.be.false;
         });
     });
-    describe("is inactive after closing:", () => {
-        it("ignores close() if already thrown", () => {
-            // Given a conduit with a thrown error
-            const e = new Error("x"), c = mkConduit().must(logClose).throw(e);
-            // When it's close()d
-            c.close();
-            // Then it should still have its error and reason
-            see("closed", "err: Error: x");
-        });
-        it("ignores throw() if already thrown", () => {
-            // Given a conduit with a thrown error
-            const e = new Error("x"), c = mkConduit().must(logClose).throw(e);
-            // When it's thrown again
-            c.throw(new Error("y"));
-            // Then it should still have its original reason
-            see("closed", "err: Error: x");
-        });
-        it("ignores throw() if already closed", () => {
-            // Given a conduit that's closed
-            const c = mkConduit().close();
-            // When it's thrown
-            c.throw(new Error);
-            // Then it should not have an error
-            expect(c.hasError()).to.be.false;
-        });
-        it("won't fork() or link()", () => {
-            // Given a closed conduit
-            const c = mkConduit().close();
-            // When fork() or link() is called
-            // Then an error should be thrown
-            expect(() => c.fork()).to.throw("Can't fork or link a closed conduit");
-            expect(() => c.link()).to.throw("Can't fork or link a closed conduit");
-        });
-    });
-    describe("runs .must() callbacks synchronously in LIFO order", () => {
-        it("when close()d", () => {
-            // Given a conduit with two must callbacks
-            const c = mkConduit().must(() => log("first")).must(() => log("last"));
-            // When the conduit is closed
-            c.close();
-            // Then the callbacks should be run in reverse order
-            see("last", "first");
-        });
-        it("when thrown()", () => {
-            // Given a conduit with two must callbacks
-            const c = mkConduit().must(() => log("first")).must(() => log("last"));
-            // When the conduit is thrown()
-            c.throw(new Error);
-            // Then the callbacks should be run in reverse order
-            see("last", "first");
-        });
-        it("with the error state known", () => {
-            // Given a conduit with a must callback
-            const c = mkConduit().must(logClose);
-            // When the conduit is thrown()
-            c.throw("this is the reason")
-            // Then the callback should see the correct error state
-            see("closed", "err: this is the reason");
-        });
-        it("when the enclosing flow is cleaned up", () => {
-            // Given a flow and a conduit it's attached to
-            detached.start(end => {
-                const c = mkConduit(getFlow());
-                // And two must callbacks
-                c.must(() => log("first")).must(() => log("last"));
-                // When the flow is cleaned up
-                end();
-                // Then the callbacks should be run in reverse order
-                see("last", "first");
-            });
-        });
-    });
-    describe("runs .must() callbacks asynchronously in LIFO order", () => {
-        useClock();
-        it("when already close()d", () => {
-            // Given a closed conduit
-            const c = mkConduit().close();
-            // When must() is called with two new callbacks
-            c.must(() => log("first")).must(() => log("last"))
-            // Then they should not be run
-            see()
-            // Until the next microtask
-            clock.tick(0);
-            see("last", "first");
-        });
-        it("when already throw()n", () => {
-            // Given a thrown conduit
-            const c = mkConduit().throw(new Error);
-            // When must() is called with two new callbacks
-            c.must(() => log("first")).must(() => log("last"))
-            // Then they should not be run
-            see()
-            // Until the next microtask
-            clock.tick(0);
-            see("last", "first");
-        });
-        it("while other .must callbacks are running", () => {
-            // Given a conduit with two must callbacks, one of which calls a third
-            const c = mkConduit()
-                .must(() => log("first"))
-                .must(() => c.must(() => log("last")));
-            // When the conduit is closed
-            c.close();
-            // Then the newly-added callback should run immediately
-            see("last", "first");
-        });
-    });
+
     describe(".isReady()", () => {
         it("is false after pause(), true after resume() (if open)", () => {
             // Given a conduit
-            const c = mkConduit()
+            const c = mkConn()
             // When it's paused, Then it shoud be unready
-            c.pause(); expect(c.isReady()).to.be.false;
+            pause(c); expect(getInlet(c).isReady()).to.be.false;
             // And when resumed it should be ready again
-            c.resume(); expect(c.isReady()).to.be.true;
+            resume(c); expect(getInlet(c).isReady()).to.be.true;
             // Unless it's closed
-            c.close(); expect(c.isReady()).to.be.false;
+            c.end(); expect(getInlet(c).isReady()).to.be.false;
             // In which case it should not be resumable
-            c.resume(); expect(c.isReady()).to.be.false;
+            resume(c); expect(getInlet(c).isReady()).to.be.false;
         });
     });
-    describe(".catch()", () => {
-        it("prevents hasUncaught() before the fact", () => {
-            // Given a conduit with .catch() called
-            const e = new Error, c = mkConduit().catch();
-            // When the conduit is thrown
-            c.throw(e);
-            // Then it should be considered caught
-            expect(c.hasError()).to.be.true;
-            expect(c.hasUncaught()).to.be.false;
-        });
-        it("resets hasUncaught() after the fact", () => {
-            // Given a conduit with a thrown error
-            const e = new Error, c = mkConduit().throw(e);
-            // Then it should be uncaught
-            expect(c.hasUncaught()).to.be.true;
-            // Until catch() is called
-            c.catch();
-            // Then it should no longer be uncaught
-            expect(c.hasUncaught()).to.be.false;
-        });
-        it("invokes its callback with the reason and connection", () => {
-            // Given a conduit with a .catch callback
-            const e = new Error, cb = spy(), c = mkConduit().catch(cb);
-            // When the conduit is thrown
-            c.throw(e);
-            // Then it should be considered caught
-            expect(c.hasError()).to.be.true;
-            expect(c.hasUncaught()).to.be.false;
-            // And the callback should have been called with the reason and conduit
-            expect(cb).to.have.been.calledOnceWithExactly(e, c);
-        });
-    });
-    function verifyWrite(makeWriter: <T>(c: Conduit, cb: Sink<T>) => (val: T) => boolean) {
+    function verifyWrite(makeWriter: <T>(c: Inlet, cb: Sink<T>) => (val: T) => boolean) {
         it("does nothing if the conduit is closed", () => {
             // Given a writer of a closed conduit
-            const c = mkConduit(), w = makeWriter(c, v => { log(v); return true; });
-            c.close();
+            const c = mkConn(), w = makeWriter(getInlet(c), v => { log(v); return true; });
+            c.end();
             // When the writer is called
             const res = w(42);
             // Then it returns false
@@ -252,28 +98,17 @@ describe("Conduit", () => {
         it("calls the sink and returns the ready state", () => {
             // Given a conduit and its writer()
             let ret = true;
-            const c = mkConduit(), cb = spy(() => ret);
-            const w = makeWriter(c, cb);
+            const c = mkConn(), cb = spy(() => ret);
+            const w = makeWriter(getInlet(c), cb);
             // When the writer is called
             // Then it returns the conduit's ready state
             expect(w(42)).to.be.true;
-            c.pause();
+            pause(c);
             expect(w(43)).to.be.false;
             // And the sink is invoked with the value
             expect(cb).to.have.been.calledTwice;
             expect(cb).to.have.been.calledWithExactly(42);
             expect(cb).to.have.been.calledWithExactly(43);
-        });
-        it("traps errors and throws them", () => {
-            // Given a conduit and a writer that throws
-            const c = mkConduit(), e = new Error, w = makeWriter(c, cb);
-            function cb() { throw e; return true; }
-            // When the writer is called
-            const res = w(42);
-            // Then false is returned and the conduit enters a thrown state
-            expect(res).to.be.false;
-            expect(c.hasError()).to.be.true;
-            expect(c.reason).to.equal(e);
         });
     }
     describe(".writer() returns a value-taking function that", () => {
@@ -283,24 +118,24 @@ describe("Conduit", () => {
         verifyWrite((c, cb) => (val) => c.push(cb, val));
     });
     describe(".resume()", () => {
-        let c: Conduit;
+        let c: Conn;
         beforeEach(() => {
             // Given a paused conduit with an onReady
-            c = mkConduit().pause().onReady(() => log("resumed"));
+            c = mkConn(); pause(c); getInlet(c).onReady(() => log("resumed"));
         });
         describe("does nothing if", () => {
             it("conduit is already closed", () => {
                 // Given a paused conduit with an onReady
                 // When the conduit is closed and resume()ed
-                see(); c.close(); c.resume();
+                see(); c.end(); resume(c);
                 // Then the callback is not invoked
                 runPulls(); see();
             });
             it("no onReady() is set", () => {
                 // Given a conduit without an onReady
-                c = mkConduit();
+                c = mkConn();
                 // When the conduit is resume()d
-                c.resume();
+                resume(c);
                 // Then nothing happens
                 runPulls();
                 see();
@@ -309,60 +144,83 @@ describe("Conduit", () => {
                 // Given a paused conduit with an onReady
                 // When the conduit is resume()d twice
                 // Then nothing should happen the second time
-                c.resume(); runPulls(); see("resumed");
-                c.resume(); runPulls(); see();
+                resume(c); runPulls(); see("resumed");
+                resume(c); runPulls(); see();
             });
         });
         it("synchronously runs callbacks", () => {
             // Given a paused conduit with an onReady
             // When the conduit is resume()d
             // Then the onReady callback should be invoked
-            c.resume(); see("resumed");
+            resume(c); see("resumed");
             // And When a new onReady() is set
-            c.onReady(() => log("resumed again"));
+            getInlet(c).onReady(() => log("resumed again"));
             // Then the new callback should be invoked asynchronously
             see(); // but not synchronously
             runPulls(); see("resumed again");
         });
         it("doesn't run duplicate onReady callbacks", () => {
             // Given a paused conduit with added duplicate functions
-            const c = mkConduit().pause(), f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
-            c.onReady(f1).onReady(f2).onReady(f1).onReady(f2);
+            const c = mkConn(); pause(c); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
+            getInlet(c).onReady(f1).onReady(f2).onReady(f1).onReady(f2);
             // When the conduit is resumed
-            c.resume();
+            resume(c);
             // Then it should run each function only once
             see("f1", "f2");
         });
     });
+});
 
-    function testChildConduit(mkChild: <T>(c: Conduit, src?: Source<T>, sink?: Sink<T>) => Conduit) {
+describe("subconnect()", () => {
+    it("won't work on a closed connection", () => {
+        // Given a closed conduit
+        const c = mkConn(); c.end();
+        // When fork() or link() is called
+        // Then an error should be thrown
+        expect(() => subconnect(c)).to.throw("Can't fork or link a closed conduit");
+    });
+
+    describe("returns a conduit that", () => {
+        testChildConduit((c, src?, sink?) => subconnect(c, src, sink));
+        it("throws to its parent when throw()n", () => {
+            // Given a conduit and its link()ed child
+            const c = mkConn(), f = subconnect(c), e = new Error("x");
+            c.must(e => { log("c"); logClose(e); });
+            f.must(e => { log("f"); logClose(e); });
+            // When the child is thrown
+            f.throw(e);
+            // Then it and its parent should have the same error
+            see("f", "closed", "err: Error: x", "c", "closed", "err: Error: x");
+        });
+    });
+
+    function testChildConduit(mkChild: <T>(c: Connection, src?: Source<T>, sink?: Sink<T>) => Connector) {
         it("is open", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).must(logClose);
             // Then the link should be open and not equal the conduit
             see();
             expect(f).to.not.equal(c);
         });
         it("closes when the parent closes", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).must(logClose);
             // When the conduit is closed
-            c.close();
+            c.end();
             // Then the link should also be closed
             see("closed");
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = mkConduit(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).must(logClose);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error
             see("closed");
-            expect(f.hasError()).to.be.false;
         });
         it("subscribes a source if given one", () => {
             // Given a conduit, a source, and a sink
-            const c = mkConduit(), src = spy(), sink = spy();
+            const c = mkConn(), src = spy(), sink = spy();
             // When the conduit is forked/linked
             const f = mkChild(c, src, sink);
             // Then the source should be called with the new conduit and the sink
@@ -370,32 +228,15 @@ describe("Conduit", () => {
         });
         it("runs with the new conduit's flow", () => {
             // Given a conduit, a source and a sink
-            const c = mkConduit();
+            const c = mkConn();
             function sink() { return true; }
             function src() { must(() => log("cleanup")); return IsStream; }
             // When the conduit is forked/linked and closed
-            mkChild(c, src, sink).close();
+            mkChild(c, src, sink).end();
             // Then cleanups added by the source should be called
             see("cleanup");
         });
     }
-    describe(".fork() returns a conduit that", () => {
-        testChildConduit((c, src?, sink?) => c.fork(src, sink));
-    });
-    describe(".link() returns a conduit that", () => {
-        testChildConduit((c, src?, sink?) => c.link(src, sink));
-        it("throws to its parent when throw()n", () => {
-            // Given a conduit and its link()ed child
-            const c = mkConduit(), f = c.link(), e = new Error;
-            // When the child is thrown
-            f.throw(e);
-            // Then it and its parent should have the same error
-            expect(f.hasError()).to.be.true;
-            expect(c.hasError()).to.be.true;
-            expect(f.reason).to.equal(e);
-            expect(c.reason).to.equal(e);
-        });
-    });
 });
 
 describe("pipe()", () => {

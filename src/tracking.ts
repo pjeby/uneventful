@@ -185,6 +185,8 @@ class _Flow<T> implements Flow<T> {
         return flow;
     }
 
+    "uneventful/ext": {} = undefined
+
     result() { return this._done; }
 
     get [Symbol.toStringTag]() { return "Flow"; }

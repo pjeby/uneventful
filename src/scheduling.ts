@@ -1,5 +1,4 @@
 import { defer } from "./defer.ts";
-import { type Conduit } from "./streams.ts";
 
 /** Scheduler state flags */
 const enum Is {

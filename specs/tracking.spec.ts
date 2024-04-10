@@ -246,6 +246,41 @@ describe("Flow instances", () => {
             expect(cb).to.have.been.calledOnce;
         });
     });
+    describe("run .must() callbacks asynchronously in LIFO order", () => {
+        useClock();
+        it("when already end()ed", () => {
+            // Given an ended flow
+            f.end();
+            // When must() is called with two new callbacks
+            f.must(() => log("first")).must(() => log("last"))
+            // Then they should not be run
+            see()
+            // Until the next microtask
+            clock.tick(0);
+            see("last", "first");
+        });
+        it("when already throw()n", () => {
+            // Given a thrown flow
+            f.throw(new Error);
+            // When must() is called with two new callbacks
+            f.must(() => log("first")).must(() => log("last"))
+            // Then they should not be run
+            see()
+            // Until the next microtask
+            clock.tick(0);
+            see("last", "first");
+        });
+        it("while other .must callbacks are running", () => {
+            // Given a flow with two must callbacks, one of which calls a third
+            f
+                .must(() => log("first"))
+                .must(() => f.must(() => log("last")));
+            // When the flow is ended
+            f.end();
+            // Then the newly-added callback should run immediately
+            see("last", "first");
+        });
+    });
     describe(".end()", () => {
         it("runs callbacks in reverse order", () => {
             const c1 = spy(), c2 = spy(), c3 = spy();

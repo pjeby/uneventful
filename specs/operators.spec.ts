@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -32,13 +32,13 @@ describe("Operators", () => {
             // Given a concat of multiple streams
             const s = concat([fromIterable([1, 2, 3]), fromIterable([5, 6, 7])])
             // When it's connected with a sink that pauses, and pulls run
-            const c = connect(s, v => { log(v); !!(v%3) || c.pause() }).must(logClose); runPulls()
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).must(logClose); runPulls()
             // Then it should emit the values up to the first pause
             see("1", "2", "3");
             // Then continue when resumed
-            c.resume(); see("5", "6");
+            resume(c); see("5", "6");
             // And close after the final resume
-            c.resume(); see("7", "closed");
+            resume(c); see("7", "closed");
         });
     });
     describe("concatAll()", () => {
@@ -62,9 +62,9 @@ describe("Operators", () => {
             // Given a concatAll() of an emitter source
             const e = emitter<Source<number>>(), s = concatAll(e.source);
             // When it's connected to a paused sink
-            const c = connect(s, log.emit).pause().must(logClose);
+            const c = connect(s, log.emit).must(logClose); pause(c);
             // And a source is pushed followed by a close and a resume of the sink
-            e(fromIterable([1, 2])); e.end(); c.resume();
+            e(fromIterable([1, 2])); e.end(); resume(c);
             // Then it should see all the output before closing
             see("1", "2", "closed");
         });
@@ -144,7 +144,7 @@ describe("Operators", () => {
             // Then it should emit values from either
             e1(1); see("1");
             e2("a"); see("a");
-            c.close();
+            c.end();
         });
         it("should close after all inputs do", () => {
             // Given a merge of two values
@@ -159,12 +159,12 @@ describe("Operators", () => {
             // Given a merge of multiple streams
             const s = merge([fromIterable([2, 3, 4]), fromIterable([6, 7, 8])])
             // When it's connected with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || c.pause(); }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c); }).must(logClose);
             // Then it should emit values and pause accordingly, resuming on request
             runPulls(); see("2", "3");
-            c.resume(); see("6");
+            resume(c); see("6");
             // And close after the final pull
-            c.resume(); see("4", "7", "8", "closed");
+            resume(c); see("4", "7", "8", "closed");
         });
     });
     describe("mergeAll()", () => {
@@ -215,25 +215,25 @@ describe("Operators", () => {
             // Then the upstream should only be called once
             expect(src).to.have.been.calledOnce;
             // Even if it's unsubscribed and subscribed again
-            c1.close();
+            c1.end();
             const c3 = connect(s, log.emit);
             expect(src).to.have.been.calledOnce;
             // And its original connection should still be open
             see();
             // Unless all the subscribers close
-            c2.close(); c3.close();
+            c2.end(); c3.end();
             see("closed");
             // And a new connection is opened
             const c4 = connect(s, log.emit);
             // In which case it's called again
             expect(src).to.have.been.calledTwice
-            c4.close();
+            c4.end();
         });
         it("pauses if all subscribers pause, resumes if any resume", () => {
             // Given a shared synchronous source
             const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
             // When it's connected and pulled with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || c.pause() }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).must(logClose);
             see(); runPulls();
             // Then it should emit values until the pause
             see("1", "2", "3");
@@ -269,7 +269,7 @@ describe("Operators", () => {
             notify(undefined);
             // And then outputs will be visible
             input(44); see("44");
-            c.close();
+            c.end();
         });
     });
     describe("skipWhile()", () => {
@@ -333,13 +333,13 @@ describe("Operators", () => {
                 fromIterable([1,2,3,4,5,6,7])
             ]));
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => { log(v); !!(v%3)|| c.pause(); }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3)|| pause(c); }).must(logClose);
             // Then output should pause
             runPulls(); see("1", "2", "3");
             // And resume on demand
-            c.resume(); runPulls(); see("4", "5", "6");
+            resume(c); runPulls(); see("4", "5", "6");
             // And finally close
-            c.resume(); runPulls(); see("7", "closed");
+            resume(c); runPulls(); see("7", "closed");
         });
     });
     describe("switchMap()", () => {
