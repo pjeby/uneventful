@@ -290,18 +290,21 @@ export class Cell {
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
+            if (this.validThrough === timestamp) throw new WriteConflict("Value already used");
         } else {
+            // Skip update if unchanged
             if (val === this.value) return;
-            ++timestamp;
+            // If we had readers this timestamp, bump it so they'll run again
+            if (this.validThrough === timestamp) ++timestamp;
         }
-        if (this.validThrough === timestamp) throw new WriteConflict("Value already used");
-        markDependentsDirty(this);
+        // If we changed as of the current timestamp, we're already dirty
+        (this.lastChanged === timestamp) || markDependentsDirty(this);
         this.value = val;
     }
 
     catchUp() {
         const {validThrough} = this;
-        if (validThrough >= timestamp) return;
+        if (validThrough === timestamp) return;
         this.validThrough = timestamp;
         if ((this.latestSource !== 0 && this.latestSource <= validThrough) || !(this.flags & Is.Computed)) return;
         if (this.sources) {
