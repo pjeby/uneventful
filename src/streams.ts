@@ -171,7 +171,7 @@ export function subconnect<T>(parent: Connection, src?: Source<T>, sink?: Sink<T
 
 class _Throttle {
     /** @internal */
-    protected _callbacks: Map<Producer, CleanupFn>;
+    protected _callbacks: Map<Producer, CleanupFn> = undefined;
 
     /** @internal */
     constructor(protected _flow: Flow<void>) {}

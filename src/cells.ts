@@ -170,7 +170,7 @@ function markDependentsDirty(cell: Cell) {
     for(; cell; cell = dirtyStack.pop()) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
             const tgt = sub.tgt;
-            if (tgt.latestSource >= latestSource) continue;
+            if (tgt.latestSource >= latestSource || tgt.latestSource === 0) continue;
             tgt.latestSource = latestSource;
             if (tgt.flags & Is.Effect) (tgt.value as RunQueue<Cell>).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
@@ -225,7 +225,7 @@ function mksub(source: Cell, target: Cell) {
     // track that this source has had a subscription added during this calculation
     source.adding = sub;
     // Set up reciprocal subscription if needed
-    (target.latestSource === Infinity) || source.subscribe(sub);  // XXX
+    (target.latestSource === 0) || source.subscribe(sub);  // XXX
 }
 
 function delsub(sub: Subscription) {
@@ -239,20 +239,20 @@ function delsub(sub: Subscription) {
 
 /** @internal */
 export class Cell {
-    value: any // the value, or, for an effect, the scheduler
+    value: any = undefined // the value, or, for an effect, the scheduler
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
-    latestSource = timestamp; // max lastChanged of this cell or any ancestor source
+    latestSource = timestamp; // max lastChanged of this cell or any ancestor source (0 = Infinity)
     flags = 0;
-    ctx: Context;
+    ctx: Context = undefined;
     /** The subscription being added during the current calculation - used for uniqueness */
-    adding: Subscription;
+    adding: Subscription = undefined;
     /** Linked list of sources */
-    sources: Subscription;
+    sources: Subscription = undefined;
     /** Linked list of targets */
-    subscribers: Subscription;
+    subscribers: Subscription = undefined;
 
-    compute: () => any
+    compute: () => any = undefined;
 
     getValue() {
         this.catchUp();
@@ -303,12 +303,12 @@ export class Cell {
         const {validThrough} = this;
         if (validThrough >= timestamp) return;
         this.validThrough = timestamp;
-        if (this.latestSource <= validThrough || !(this.flags & Is.Computed)) return;
+        if ((this.latestSource !== 0 && this.latestSource <= validThrough) || !(this.flags & Is.Computed)) return;
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
                 // if source is clean, skip it (most should be)
-                if (s.latestSource <= validThrough) continue;
+                if (s.latestSource !== 0 && s.latestSource <= validThrough) continue;
                 // changed since our last compute? we're definitely dirty
                 if (sub.ts !== s.lastChanged) return this.doRecalc();
                 // not a simple yes or no -- "it's complicated" -- so recurse
@@ -400,7 +400,7 @@ export class Cell {
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
         if (!this.subscribers && this.flags & Is.Lazy) {
-            this.latestSource = Infinity;
+            this.latestSource = 0;
             for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
         }
     }
@@ -417,7 +417,7 @@ export class Cell {
         cell.compute = compute;
         cell.ctx = makeCtx(null, cell);
         cell.flags = Is.Lazy;
-        cell.latestSource = Infinity;
+        cell.latestSource = 0;
         return cell.getValue.bind(cell);
     }
 
