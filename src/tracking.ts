@@ -157,7 +157,7 @@ export interface Flow<T=any> extends Yielding<T>, Promise<T> {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
-import { Request, Yielding, reject } from "./async.ts";
+import type { Request, Yielding } from "./async.ts";
 import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
 
 /**
@@ -239,7 +239,7 @@ class _Flow<T> implements Flow<T> {
             // don't bother? The downside is that it'd have to be mutual and
             // the resume is a no-op anyway in that case.
             this.must(res => {
-                if (isCancel(res)) reject(req, res); else req(res.op, res.val, res.err);
+                if (isCancel(res)) req("throw", undefined, res); else req(res.op, res.val, res.err);
             });
         }
     }

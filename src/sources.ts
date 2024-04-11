@@ -1,7 +1,6 @@
-import { share } from "./operators.ts";
 import { cached, effect } from "./signals.ts";
-import { type Source, IsStream, Connection, getInlet, connect, Sink } from "./streams.ts";
-import { must, type DisposeFn, getFlow } from "./tracking.ts";
+import { type Source, IsStream, Connection, getInlet, connect, Sink, Connector, Inlet, pause, resume } from "./streams.ts";
+import { must, type DisposeFn, getFlow, detached, isError, isValue } from "./tracking.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -252,4 +251,59 @@ export function lazy<T>(factory: () => Source<T>): Source<T> {
  */
 export function never(): Source<never> {
     return () => IsStream;
+}
+
+/**
+ * Wrap a source to allow multiple subscribers to the same underlying stream
+ *
+ * The input source will be susbcribed when the output has at least one
+ * subscriber, and unsubscribed when the output has no subscribers.  The input
+ * will only be paused when all subscribers pause (i.e. all sinks return false),
+ * and will be resumed when any subscriber resume()s.  All subscribers are closed
+ * or thrown if the input source closes or throws.
+ *
+ * (Generally speaking, you should place the share call as late in your pipelines
+ * as possible, if you use it at all.  It adds some overhead that is wasted if
+ * the stream doesn't have multiple subscribers, and may be redundant if an
+ * upstream source is already shared.  It's mainly useful if there is a lot of
+ * mapping, filtering, or other complicated processing taking place upstream of
+ * the share, and you know for a fact there will be enough subscribers to make
+ * it a bottleneck.)
+ *
+ * @category Stream Operators
+ */
+export function share<T>(source: Source<T>): Source<T> {
+    let uplink: Connector, resumed = false;
+    let links = new Set<[sink: Sink<T>, conn: Connection, inlet: Inlet]>;
+    return (sink, conn=connect()) => {
+        const inlet = getInlet(conn);
+        const self: [Sink<T>, Connection, Inlet] = [sink, conn, inlet];
+        links.add(self);
+        inlet.onReady(produce);
+        must(() => {
+            links.delete(self);
+            if (!links.size) uplink?.end();
+        });
+        if (links.size === 1) {
+            uplink = detached.bind(connect)(source, v => {
+                resumed = false;
+                for(const [s,_,l] of links) {
+                    if (l.push(s,v)) resumed = true; else l.onReady(produce);
+                }
+                resumed || pause(uplink);
+            }).must(r => {
+                uplink = undefined;
+                links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
+                    isValue(r) ? c.return() : c.end()
+                ));
+            })
+        }
+        function produce() {
+            if (!resumed) {
+                resumed = true;
+                resume(uplink);
+            };
+        }
+        return IsStream;
+    }
 }

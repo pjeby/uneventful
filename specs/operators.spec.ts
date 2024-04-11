@@ -4,7 +4,7 @@ import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
     switchAll, switchMap, take, takeUntil, takeWhile
-} from "../src/operators.ts";
+} from "../src/mod.ts";
 
 function logClose() { log("closed"); }
 
