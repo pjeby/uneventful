@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue } from "../mod.ts";
+import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue, worker } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeFlow()", () => {
@@ -429,5 +429,70 @@ describe("Flow instances", () => {
             expect(res).to.equal(ob);
         });
 
+    });
+});
+
+describe("worker()", () => {
+    it("runs functions in worker-specific, restarting flows, until enclosing flow ends", () => {
+        // Given a worker created in an outer flow
+        const outer = makeFlow(), w = outer.bind(worker)();
+        let f1: Flow, f2: Flow;
+        // When it's called with a function
+        w(() => { f1 = getFlow(); log("called"); must(() => log("undo")); });
+        // Then the function should run in a distinct flow
+        see("called");
+        expect(f1).to.be.instanceOf(outer.constructor);
+        expect(f1).to.not.equal(outer);
+        // And when it's called with another function
+        w(() => { f2 = getFlow(); log("another"); return () => log("undo 2"); });
+        // Then it should run in the same flow after restarting
+        expect(f1).to.equal(f2);
+        see("undo", "another");
+        // And if the outer flow ends, so should the inner
+        outer.end();
+        see("undo 2");
+        // Following which, it should throw an error if called again:
+        expect(() => w(() => log("this won't do"))).to.throw("Flow already ended")
+    });
+    it("uses a different flow for each worker", () => {
+        // Given two workers created in an outer flow
+        const outer = makeFlow(), w1 = outer.bind(worker)(), w2 = outer.bind(worker)();
+        let f1: Flow, f2: Flow;
+        // When they are called
+        w1(() => { f1 = getFlow(); });
+        w2(() => { f2 = getFlow(); });
+        // Then the functions should run in two different flows
+        expect(f1).to.be.instanceOf(outer.constructor);
+        expect(f2).to.be.instanceOf(outer.constructor);
+        expect(f1).to.not.equal(outer);
+        expect(f1).to.not.equal(f2);
+    });
+    it("when given a function, matches its signature", () => {
+        // Given a worker wrapping a function
+        const outer = makeFlow(), w = outer.bind(worker)((a,b,c) => { log(a); log(b); log(c); return 42; });
+        // When it is called
+        const res = w("a", 22, 54);
+        // Then it should receive any arguments
+        see("a", "22", "54");
+        // And return the result
+        expect(res).to.equal(42);
+    });
+    it("rolls back when an error is thrown", () => {
+        // Given a worker wrapping a function that throws
+        const outer = makeFlow(), w = outer.bind(worker)(() => { must(()=> log("undo")); throw "whoops"; });
+        // When the function is called, it should throw
+        expect(w).to.throw("whoops");
+        // And Then it should end the flow
+        see("undo");
+        expect(isFlowActive()).to.be.false;
+        expect(w).to.throw("Flow already ended");
+    });
+    it("can be used as a method", () => {
+        // Given a worker method
+        const w = {m: makeFlow().bind(worker)(function () { log(this === w); })};
+        // When called as a method
+        w.m();
+        // Then its `this` should be the object
+        see("true")
     });
 });

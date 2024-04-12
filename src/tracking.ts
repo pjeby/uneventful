@@ -155,7 +155,7 @@ export interface Flow<T=any> extends Yielding<T>, Promise<T> {
 }
 
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { Nothing, PlainFunction } from "./types.ts";
+import { AnyFunction, Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
 import type { Request, Yielding } from "./async.ts";
 import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
@@ -431,3 +431,50 @@ export const detached = (() => {
     detached.release = () => noop;
     return detached;
 })();
+
+/**
+ * Wrap a function in a {@link Flow} that restarts each time the wrapped
+ * function is called, thereby canceling any nested flows and cleaning up any
+ * resources used by previous calls. (This can be useful for such things as
+ * canceling an in-progress search when the user types more text in a field.)
+ *
+ * You can wrap any task function any number of times: each worker() gets its
+ * own flow linked to the flow where it was created, so it will end when the
+ * enclosing flow does. (Calling the worker after its flow has ended will result
+ * in an error.)
+ *
+ * @param task (Optional) The function the worker will perform when called. This
+ * can be any function: the returned worker will match its call signature
+ * exactly, including overloads.  (So for example you could wrap the {@link job}
+ * API via `worker(job)`, to create a worker you can pass generator functions
+ * to.  When called, the worker would cancel any outstanding job from a previous
+ * call, and start the new one in its place.)
+ *
+ * @returns A function of identical type to the input function.  If no input
+ * function was given, the returned worker will be of type {@link Worker} (i.e.,
+ * a function accepting a task function to execute, canceling any previous task
+ * executed by that worker).
+ *
+ * @category Flows
+ */
+export function worker(): Worker
+export function worker<F extends AnyFunction>(task: F): F
+export function worker<F extends AnyFunction>(task?: F): F {
+    const outer = getFlow(), inner = makeFlow<never>(), {end} = inner;
+    task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
+    return <F>function() {
+        inner.restart().must(outer.release(end));
+        const old = swapCtx(makeCtx(inner));
+        try { return task.apply(this, arguments as any); }
+        catch(e) { inner.throw(e); throw e; }
+        finally { freeCtx(swapCtx(old)); }
+    };
+}
+
+/**
+ * A {@link worker} that performs arbitrary tasks.  The supplied task function
+ * is called with no arguments, and may return a cleanup callback.
+ *
+ * @category Types and Interfaces
+ */
+export type Worker = (task: () => OptionalCleanup<never>) => void;
