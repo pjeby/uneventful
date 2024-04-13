@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
     job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runEffects, isError, getInlet
+    IsStream, value, cached, runEffects, isError, getInlet, sleep
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
@@ -456,6 +456,28 @@ describe("Async Ops", () => {
     function suspendOn(t: Yielding<any>) {
         return job(function*(): Yielding<any> { try { log(yield *t); } catch(e) { log(`err: ${e}`)}; });
     }
+
+    describe("sleep()", () => {
+        it("sleeps for the given ms", () => {
+            // Given a job, suspended on a sleep()
+            const j = suspendOn(sleep(50));
+            // When the time expires, the job should resume (and not before)
+            clock.tick(49);
+            see();
+            clock.tick(1);
+            see("undefined");
+        });
+        it("cancels the timeout if ended early", () => {
+            // Given a suspended sleep
+            const i = sleep(10)[Symbol.iterator]();
+            (i.next().value as Suspend<void>)(()=> log("called"));
+            // If the iterator is returned (flow is canceled)
+            i.return()
+            // Then the callback should not be invoked
+            clock.tick(10);
+            see();
+        });
+    });
 
     describe("suspend()", () => {
         describe("with no arguments", () => {

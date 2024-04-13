@@ -247,3 +247,20 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     }
     throw new TypeError("until(): must be signal, source, or then-able");
 }
+
+/**
+ * Pause the job for the specified time in ms, e.g. `yield *sleep(1000)` to wait
+ * one second.
+ *
+ * @category Jobs and Scheduling
+ */
+export function *sleep(ms: number): Yielding<void> {
+    try {
+        var id: ReturnType<typeof setTimeout>;
+        yield r => {
+            id = setTimeout(() => { id = undefined; resolve(r, void 0); },  ms);
+        }
+    } finally {
+        if (id) clearTimeout(id);
+    }
+}
