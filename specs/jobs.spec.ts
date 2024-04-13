@@ -5,13 +5,15 @@ import {
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
+const noop = { *[Symbol.iterator]() {} };
+
 describe("job()", () => {
     useRoot();
     useClock();
     describe("with Yieldings", () => {
         it("returns the same job if given a job", () => {
             // Given an existing job
-            const j = job([]);
+            const j = job(noop);
             // When job() is called on it
             // Then the same job is returned
             expect(job(j)).to.equal(j);
@@ -24,12 +26,12 @@ describe("job()", () => {
             // Then the generator should be advanced asynchronously
             see(); clock.tick(0); see("run");
         });
-        it("iterates iterables of Suspend and calls them", () => {
-            // Given an array of Suspend callbacks
-            const j: Suspend<any>[] = [
-                r => { log("called first"); resolve(r, 42); },
-                r => { log("called second"); resolve(r, 99); },
-            ]
+        it("iterates generators of Suspend and calls them", () => {
+            // Given an generator yielding Suspend callbacks
+            const j = (function*j(){
+                yield <Suspend<any>>(r => { log("called first"); resolve(r, 42); });
+                yield <Suspend<any>>(r => { log("called second"); resolve(r, 99); });
+            })();
             // When made into a job
             job(j);
             // Then they should be called after a tick
@@ -314,7 +316,7 @@ describe("Job instances", () => {
         describe(".must()", () => {
             it("runs when the job completes", () => {
                 // Given an empty job with an must()
-                job([]).must(() => log("end"));
+                job(noop).must(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -323,7 +325,7 @@ describe("Job instances", () => {
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
-                const j = job([]); clock.tick(0); see();
+                const j = job(noop); clock.tick(0); see();
                 // When a cleanup is registered
                 j.must(() => log("end")); see();
                 // Then the cleanup should run async
@@ -333,7 +335,7 @@ describe("Job instances", () => {
         describe(".release()", () => {
             it("runs when the job completes", () => {
                 // Given an empty job with an must()
-                job([]).release(() => log("end"));
+                job(noop).release(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -342,7 +344,7 @@ describe("Job instances", () => {
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
-                const j = job([]); clock.tick(0); see();
+                const j = job(noop); clock.tick(0); see();
                 // When a release() is registered
                 j.release(() => log("end")); see();
                 // Then the cleanup should run async
@@ -351,7 +353,7 @@ describe("Job instances", () => {
             describe("doesn't run if canceled", () => {
                 it("when registered before the job", () => {
                     // Given an empty job with a canceled release()
-                    job([]).release(() => log("end"))(); see();
+                    job(noop).release(() => log("end"))(); see();
                     // When the job is started
                     clock.tick(0);
                     // Then the cleanup should not run
@@ -359,7 +361,7 @@ describe("Job instances", () => {
                 });
                 it("when registered after the job", () => {
                     // Given an empty completed job
-                    const j = job([]); clock.tick(0); see();
+                    const j = job(noop); clock.tick(0); see();
                     // When a release() is registered and canceled
                     j.release(() => log("end"))();
                     // Then the cleanup should not run async

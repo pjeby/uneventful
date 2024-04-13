@@ -88,7 +88,7 @@ export type Yielding<T> = {[Symbol.iterator](): JobIterator<T>}
  *
  * @category Types and Interfaces
  */
-export type JobIterator<T> = Iterator<Suspend<any>, T, any>
+export type JobIterator<T> = Generator<Suspend<any>, T, any>
 
 /**
  * An asynchronous operation that can be waited on by a {@link Job}.  (Normally
