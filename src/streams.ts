@@ -137,7 +137,7 @@ export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Co
 /**
  * @category Stream Producers
  */
-export function subconnect<T>(parent: Connection, src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
+export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>, to?: Connection): Connector {
     return parent.run(() => {
         const flow = getFlow();
         if (flow.result()) throw new Error("Can't fork or link a closed conduit");

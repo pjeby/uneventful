@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
 import { Connection, Connector, Inlet, getInlet, pause, resume, subconnect } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult } from "../mod.ts";
+import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult, noop } from "../mod.ts";
 
 type Conn = Connector & Connection;
 function mkConn(parent: Flow = null) {
@@ -144,14 +144,14 @@ describe("subconnect()", () => {
         const c = mkConn(); c.end();
         // When fork() or link() is called
         // Then an error should be thrown
-        expect(() => subconnect(c)).to.throw("Can't fork or link a closed conduit");
+        expect(() => subconnect(c, () => IsStream, noop)).to.throw("Can't fork or link a closed conduit");
     });
 
     describe("returns a conduit that", () => {
         testChildConduit((c, src?, sink?) => subconnect(c, src, sink));
         it("throws to its parent when throw()n", () => {
             // Given a conduit and its link()ed child
-            const c = mkConn(), f = subconnect(c), e = new Error("x");
+            const c = mkConn(), f = subconnect(c, () => IsStream, noop), e = new Error("x");
             c.must(e => { log("c"); logClose(e); });
             f.must(e => { log("f"); logClose(e); });
             // When the child is thrown
