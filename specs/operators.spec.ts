@@ -1,4 +1,4 @@
-import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
+import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
 import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
@@ -135,6 +135,7 @@ describe("Operators", () => {
         });
     });
     describe("merge()", () => {
+        useClock();
         it("should emit when any input does", () => {
             // Given a merge of two emitters
             const e1 = emitter<number>(), e2 = emitter<string>();
@@ -149,8 +150,8 @@ describe("Operators", () => {
         it("should close after all inputs do", () => {
             // Given a merge of two values
             const s = merge([fromValue(1), fromValue(2)]);
-            // When it's connected and pulled
-            connect(s, log.emit).must(logClose); runPulls();
+            // When it's connected and they both start
+            connect(s, log.emit).must(logClose); runPulls(); clock.tick(0);
             // Then it should emit values from both
             // And then close
             see("1", "2", "closed");

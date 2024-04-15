@@ -37,22 +37,6 @@ export interface Inlet {
      * it after each call if it wishes to keep being called.
      */
     onReady(cb: Producer): this;
-
-    /**
-     * Return a bound version of .{@link push}() for a specific sink
-     *
-     * @returns a 1-argument function that sends its argument to the sink,
-     * returning the sink's return value, or false if the conduit is closed or
-     * thrown.  If the sink throws, the error is thrown to the conduit as well.
-     */
-    writer<T>(sink: Sink<T>): (val: T) => boolean
-
-    /**
-     * Send data to a sink, returning the conduit's ready state.
-     *
-     * If the sink throws an error, the conduit closes with that error, and push() returns false.
-     */
-    push<T>(sink: Sink<T>, val: T): boolean
 }
 
 /**
@@ -92,14 +76,6 @@ class _Inlet implements Inlet {
     onReady(cb: Producer): this {
         this.isOpen() && this.t.onReady(cb, this._flow);
         return this;
-    }
-
-    writer<T>(sink: Sink<T>): (val: T) => boolean {
-        return this.push.bind<this, [Sink<T>], [T], boolean>(this, sink);
-    }
-
-    push<T>(sink: Sink<T>, val: T): boolean {
-        return this.isOpen() && (sink(val), this.isReady());
     }
 }
 

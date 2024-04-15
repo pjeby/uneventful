@@ -83,40 +83,7 @@ describe("Limiter", () => {
             resume(c); expect(getInlet(c).isReady()).to.be.false;
         });
     });
-    function verifyWrite(makeWriter: <T>(c: Inlet, cb: Sink<T>) => (val: T) => boolean) {
-        it("does nothing if the conduit is closed", () => {
-            // Given a writer of a closed conduit
-            const c = mkConn(), w = makeWriter(getInlet(c), v => { log(v); return true; });
-            c.end();
-            // When the writer is called
-            const res = w(42);
-            // Then it returns false
-            expect(res).to.be.false;
-            // And the sink is not invoked
-            see();
-        });
-        it("calls the sink and returns the ready state", () => {
-            // Given a conduit and its writer()
-            let ret = true;
-            const c = mkConn(), cb = spy(() => ret);
-            const w = makeWriter(getInlet(c), cb);
-            // When the writer is called
-            // Then it returns the conduit's ready state
-            expect(w(42)).to.be.true;
-            pause(c);
-            expect(w(43)).to.be.false;
-            // And the sink is invoked with the value
-            expect(cb).to.have.been.calledTwice;
-            expect(cb).to.have.been.calledWithExactly(42);
-            expect(cb).to.have.been.calledWithExactly(43);
-        });
-    }
-    describe(".writer() returns a value-taking function that", () => {
-        verifyWrite((c, cb) => c.writer(cb));
-    });
-    describe(".push()", () => {
-        verifyWrite((c, cb) => (val) => c.push(cb, val));
-    });
+
     describe(".resume()", () => {
         let c: Conn;
         beforeEach(() => {

@@ -328,7 +328,8 @@ describe("Sources", () => {
         });
     });
     describe("fromSubscribe()", () => {
-        it("should subscribe w/pusher on pull and unsub on close", () => {
+        useClock();
+        it("should subscribe w/pusher after defer, and unsub on close", () => {
             // Given a subscribe function
             let pusher: (v: any) => void;
             const unsub = spy(), subscribe = spy(cb  => ((pusher = cb), unsub));
@@ -336,9 +337,9 @@ describe("Sources", () => {
             const s = fromSubscribe(subscribe);
             // When it's subscribed
             const c = connect(s, log.emit);
-            // Then the subscribe function should not be called until resumed
+            // Then the subscribe function should not be called until after defer
             expect(subscribe).to.not.have.been.called;
-            resume(c); runPulls();
+            clock.tick(0);
             expect(subscribe).to.have.been.calledOnce;
             expect(pusher).to.be.a("function");
             // And calling the pusher should emit the value and return void
@@ -351,6 +352,7 @@ describe("Sources", () => {
         });
     });
     describe("fromValue()", () => {
+        useClock();
         it("should output the value, then close", () => {
             // Given a fromValue() stream
             const s = fromValue(42);
@@ -359,7 +361,7 @@ describe("Sources", () => {
             // Then it should only output the value on the next tick
             // And close the connection
             see();
-            runPulls();
+            clock.tick(0);
             see("42", "closed")
         });
     });
