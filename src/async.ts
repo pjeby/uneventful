@@ -189,7 +189,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
 export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yielding<T> {
     return yield outer => {
         let called = false;
-        start(stop => action((o, v, e) => called || (called=true, stop(), outer(o, v, e))));
+        start(flow => action((o, v, e) => called || (called=true, flow.end(), outer(o, v, e))));
     }
 }
 

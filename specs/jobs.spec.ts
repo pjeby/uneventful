@@ -1,28 +1,28 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
-    job, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
+    start, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
     IsStream, value, cached, runEffects, isError, backpressure, sleep
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
 const noop = { *[Symbol.iterator]() {} };
 
-describe("job()", () => {
+describe("async start()", () => {
     useRoot();
     useClock();
     describe("with Yieldings", () => {
         it("returns the same job if given a job", () => {
             // Given an existing job
-            const j = job(noop);
-            // When job() is called on it
+            const j = start(noop);
+            // When start() is called on it
             // Then the same job is returned
-            expect(job(j)).to.equal(j);
+            expect(start(j)).to.equal(j);
         });
         it("runs generators asynchronously", () => {
             // Given a generator
             const g = (function*() { log("run"); })();
-            // When job() is called on it
-            job(g);
+            // When start() is called on it
+            start(g);
             // Then the generator should be advanced asynchronously
             see(); clock.tick(0); see("run");
         });
@@ -33,7 +33,7 @@ describe("job()", () => {
                 yield <Suspend<any>>(r => { log("called second"); resolve(r, 99); });
             })();
             // When made into a job
-            job(j);
+            start(j);
             // Then they should be called after a tick
             see(); clock.tick(0); see("called first", "called second");
         });
@@ -43,8 +43,8 @@ describe("job()", () => {
             // Given a generator function
             const defaultThis = (function(){ return this; })();
             function*g() { log(this === defaultThis); }
-            // When job() is called on it
-            job(g);
+            // When start() is called on it
+            start(g);
             // Then the generator should be advanced asynchronously with no this
             see(); clock.tick(0); see("true");
         });
@@ -52,8 +52,8 @@ describe("job()", () => {
             // Given an object and a generator function
             const thisArg = {};
             function*g() { log(this === thisArg); }
-            // When job() is called with both
-            job(thisArg, g);
+            // When start() is called with both
+            start(thisArg, g);
             // Then the generator should be advanced asynchronously with the given this
             see(); clock.tick(0); see("true");
         });
@@ -70,7 +70,7 @@ describe("Job instances", () => {
         describe("can be async awaited", () => {
             it("for values", async () => {
                 // Given a job that returns a value
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 // When you await it
                 const r = await j
                 // Then you get the value
@@ -78,7 +78,7 @@ describe("Job instances", () => {
             });
             it("for errors", async () => {
                 // Given a job that throws
-                const j = job(function*() { throw "this in particular"; });
+                const j = start(function*() { throw "this in particular"; });
                 // When you await it
                 try { await j } catch (e) { log(e); }
                 // Then it should throw the error
@@ -89,7 +89,7 @@ describe("Job instances", () => {
         describe(".then()", () => {
             it("for values", async () => {
                 // Given a job that returns a value
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 // When you await its .then()
                 await j.then(v => log(`v:${v}`), e => log(`e:${e}`));
                 // Then it should call the value callback
@@ -97,7 +97,7 @@ describe("Job instances", () => {
             });
             it("for errors", async () => {
                 // Given a job that throws
-                const j = job(function*() { throw "this in particular"; });
+                const j = start(function*() { throw "this in particular"; });
                 // When you await its .then()
                 await j.then(v => log(`v:${v}`), e => log(`e:${e}`));
                 // Then it should call the error callback
@@ -107,7 +107,7 @@ describe("Job instances", () => {
         describe(".catch()", () => {
             it("for values", async () => {
                 // Given a job that returns a value
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 // When you await its .catch()
                 await j.catch(e => log(`e:${e}`));
                 // Then it should not call the catch callback
@@ -115,7 +115,7 @@ describe("Job instances", () => {
             });
             it("for errors", async () => {
                 // Given a job that throws
-                const j = job(function*() { throw "this in particular"; });
+                const j = start(function*() { throw "this in particular"; });
                 // When you await its .catch()
                 await j.catch(e => log(`e:${e}`));
                 // Then it should call the catch callback
@@ -125,7 +125,7 @@ describe("Job instances", () => {
         describe(".finally()", () => {
             it("for values", async () => {
                 // Given a job that returns a value
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 // When you await its .finally()
                 await j.finally(() => log("finally"));
                 // Then it should call the finally callback
@@ -133,7 +133,7 @@ describe("Job instances", () => {
             });
             it("for errors", async () => {
                 // Given a job that throws
-                const j = job(function*() { throw "this in particular"; });
+                const j = start(function*() { throw "this in particular"; });
                 // When you await its .finally()
                 try { await j.finally(() => log("finally")) } catch(e) { log(e); };
                 // Then it should call the finally callback and still throw
@@ -147,17 +147,17 @@ describe("Job instances", () => {
             describe("when already finished", () => {
                 it("for values", async () => {
                     // Given a job that returns a value
-                    const j = job(function*() { return 42; });
+                    const j = start(function*() { return 42; });
                     // When awaited in another job
-                    await job(function*() { log(yield* j); });
+                    await start(function*() { log(yield* j); });
                     // Then it should see the value
                     see("42");
                 });
                 it("for errors", async () => {
                     // Given a job that throws
-                    const j = job(function*() { throw "this in particular"; });
+                    const j = start(function*() { throw "this in particular"; });
                     // When awaited in another job
-                    await job(function*() { yield* j; }).catch(log);
+                    await start(function*() { yield* j; }).catch(log);
                     // Then it should throw the error
                     see("this in particular");
                 });
@@ -166,10 +166,10 @@ describe("Job instances", () => {
                 it("for values", async () => {
                     // Given a started, suspended job that returns its response
                     let req: Request<any>
-                    const j1 = job(function*() { return yield r => req = r; });
+                    const j1 = start(function*() { return yield r => req = r; });
                     await Promise.resolve();  // ensure j1 reaches suspend point
                     // And that's awaited in another job
-                    const j2 = job(function*() { log(yield* j1); });
+                    const j2 = start(function*() { log(yield* j1); });
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with a value
                     resolve(req, 42);
@@ -179,10 +179,10 @@ describe("Job instances", () => {
                 it("for errors", async () => {
                     // Given a started, suspended job that returns its response
                     let req: Request<any>
-                    const j1 = job(function*() { return yield r => req = r; });
+                    const j1 = start(function*() { return yield r => req = r; });
                     await Promise.resolve();  // ensure j1 reaches suspend point
                     // And that's awaited in another job
-                    const j2 = job(function*() { log(yield* j1); });
+                    const j2 = start(function*() { log(yield* j1); });
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with an error
                     reject(req, "an error");
@@ -197,7 +197,7 @@ describe("Job instances", () => {
         describe(".throw()", () => {
             it("interrupts a suspended job", () => {
                 // Given a suspended job
-                const j = job(function*() {
+                const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
                 }).must(r => isError(r) && log(`err: ${r.err}`));
                 clock.tick(0); // get to suspend
@@ -208,7 +208,7 @@ describe("Job instances", () => {
             });
             it("asynchronously aborts a running job", () => {
                 // Given a job that .throw()s itself`
-                const j = job(function*() {
+                const j = start(function*() {
                     j.throw("headshot");
                     yield r => setTimeout(resolver(r), 50);
                 }).must(r => isError(r) && log(`err: ${r.err}`));
@@ -219,7 +219,7 @@ describe("Job instances", () => {
             });
             it("asynchronously aborts a starting job", () => {
                 // Given a job
-                const j = job(function*() {
+                const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
                 }).must(r => isError(r) && log(`err: ${r.err}`));
                 // When it'ts thrown before starting
@@ -229,19 +229,19 @@ describe("Job instances", () => {
             });
             it("doesn't affect a completed job", () => {
                 // Given a completed job
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n
                 expect(() => j.throw("boom")).to.throw("Flow already ended");
                 // Then the result is unaffected
-                job(function*() { log(yield * j); }); clock.tick(0);
+                start(function*() { log(yield * j); }); clock.tick(0);
                 see("42");
             });
         });
         describe(".return()", () => {
             it("interrupts a suspended job", () => {
                 // Given a suspended job
-                const j = job(function*(): Yielding<any> {
+                const j = start(function*(): Yielding<any> {
                     try {
                         yield r => setTimeout(resolver(r), 50);
                     } finally {
@@ -254,12 +254,12 @@ describe("Job instances", () => {
                 // Then it should exit at the suspend point
                 see("exiting");
                 // And return the value
-                job(function*(){ log(yield *j); }); clock.tick(0);
+                start(function*(){ log(yield *j); }); clock.tick(0);
                 see("data");
             });
             it("asynchronously aborts a running job", () => {
                 // Given a job that .return()s itself`
-                const j = job(function*(): Yielding<any> {
+                const j = start(function*(): Yielding<any> {
                     try {
                         j.return(99);
                         yield r => setTimeout(resolver(r), 50);
@@ -272,12 +272,12 @@ describe("Job instances", () => {
                 // Then it should exit at the suspend point
                 see("exiting");
                 // And return the value given
-                job(function*(){ log(yield *j); }); clock.tick(0);
+                start(function*(){ log(yield *j); }); clock.tick(0);
                 see("99");
             });
             it("asynchronously aborts a starting job", () => {
                 // Given a job
-                const j = job(function*(): Yielding<any> {
+                const j = start(function*(): Yielding<any> {
                     try {
                         yield r => setTimeout(resolver(r), 50);
                     } finally {
@@ -289,17 +289,17 @@ describe("Job instances", () => {
                 // Then it should exit at the suspend point
                 see("exiting");
                 // And return the value given
-                job(function*(){ log(yield *j); }); clock.tick(0);
+                start(function*(){ log(yield *j); }); clock.tick(0);
                 see("99");
             });
             it("doesn't affect a completed job", () => {
                 // Given a completed job
-                const j = job(function*() { return 42; });
+                const j = start(function*() { return 42; });
                 clock.tick(0);
                 // When return()ed
                 expect(() => j.return(99)).to.throw("Flow already ended");
                 // Then the result is unaffected
-                job(function*(){ log(yield * j); }); clock.tick(0);
+                start(function*(){ log(yield * j); }); clock.tick(0);
                 see("42");
             });
         });
@@ -307,7 +307,7 @@ describe("Job instances", () => {
     describe("as flows", () => {
         it("runs its contents in a flow", () => {
             // Given a job with a cleanup function
-            job(function*() { must(() => log("end")); });
+            start(function*() { must(() => log("end")); });
             // When the job finishes
             see(); clock.tick(0);
             // Then the cleanup should run
@@ -316,7 +316,7 @@ describe("Job instances", () => {
         describe(".must()", () => {
             it("runs when the job completes", () => {
                 // Given an empty job with an must()
-                job(noop).must(() => log("end"));
+                start(noop).must(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -325,7 +325,7 @@ describe("Job instances", () => {
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
-                const j = job(noop); clock.tick(0); see();
+                const j = start(noop); clock.tick(0); see();
                 // When a cleanup is registered
                 j.must(() => log("end")); see();
                 // Then the cleanup should run async
@@ -335,7 +335,7 @@ describe("Job instances", () => {
         describe(".release()", () => {
             it("runs when the job completes", () => {
                 // Given an empty job with an must()
-                job(noop).release(() => log("end"));
+                start(noop).release(() => log("end"));
                 see();
                 // When the job is started
                 clock.tick(0);
@@ -344,7 +344,7 @@ describe("Job instances", () => {
             });
             it("runs async if registered after completion", () => {
                 // Given an empty completed job
-                const j = job(noop); clock.tick(0); see();
+                const j = start(noop); clock.tick(0); see();
                 // When a release() is registered
                 j.release(() => log("end")); see();
                 // Then the cleanup should run async
@@ -353,7 +353,7 @@ describe("Job instances", () => {
             describe("doesn't run if canceled", () => {
                 it("when registered before the job", () => {
                     // Given an empty job with a canceled release()
-                    job(noop).release(() => log("end"))(); see();
+                    start(noop).release(() => log("end"))(); see();
                     // When the job is started
                     clock.tick(0);
                     // Then the cleanup should not run
@@ -361,7 +361,7 @@ describe("Job instances", () => {
                 });
                 it("when registered after the job", () => {
                     // Given an empty completed job
-                    const j = job(noop); clock.tick(0); see();
+                    const j = start(noop); clock.tick(0); see();
                     // When a release() is registered and canceled
                     j.release(() => log("end"))();
                     // Then the cleanup should not run async
@@ -374,7 +374,7 @@ describe("Job instances", () => {
         it("require functions to receive the request", () => {
             // Given a job that yields a non-function
             var err: any
-            job(function*(){ try { yield; } catch(e) { err = e; } });
+            start(function*(){ try { yield; } catch(e) { err = e; } });
             // When it runs
             clock.tick(0);
             // Then it should throw an error
@@ -384,14 +384,14 @@ describe("Job instances", () => {
         describe("resolve() to a value", () => {
             it("synchronously", async () => {
                 // Given a job that yields to a self-response
-                job(function*() { log(yield r => resolve(r, 42)); })
+                start(function*() { log(yield r => resolve(r, 42)); })
                 // Then it should resolve immediately after it starts
                 clock.tick(0); see("42");
             });
             it("asynchronously", () => {
                 // Given a started, suspended job that logs its response
                 let req: Request<any>
-                job(function*() { log(yield r => req = r); }); clock.tick(0);
+                start(function*() { log(yield r => req = r); }); clock.tick(0);
                 // When resolved
                 resolve(req, 42);
                 // Then it should resume immediately
@@ -400,7 +400,7 @@ describe("Job instances", () => {
             it("only once", () => {
                 // Given a started, suspended job
                 let req: Request<any>
-                job(function*() {
+                start(function*() {
                     log(yield r => req = r);
                     yield r => { setTimeout(resolver(r), 50); }
                     log("complete");
@@ -417,14 +417,14 @@ describe("Job instances", () => {
         describe("reject() to a throw", () => {
             it("synchronously", async () => {
                 // Given a job that yields to a self-reject
-                job(function*() { try { yield r => reject(r, "boom!"); } catch (e) { log(e); }; })
+                start(function*() { try { yield r => reject(r, "boom!"); } catch (e) { log(e); }; })
                 // Then it should resolve immediately after it starts
                 clock.tick(0); see("boom!");
             });
             it("asynchronously", () => {
                 // Given a started, suspended job that logs its response
                 let req: Request<any>
-                job(function*() { try { log(yield r => req = r); } catch(e) { log(`err: ${e}`)}; });
+                start(function*() { try { log(yield r => req = r); } catch(e) { log(`err: ${e}`)}; });
                 clock.tick(0);
                 // When rejected
                 reject(req, "boom!");
@@ -434,7 +434,7 @@ describe("Job instances", () => {
             it("only once", () => {
                 // Given a started, suspended job
                 let req: Request<any>
-                job(function*() {
+                start(function*() {
                     try { log(yield r => req = r); } catch(e) { log(`err: ${e}`)};
                     yield r => { setTimeout(resolver(r), 50); }
                     log("complete");
@@ -456,7 +456,7 @@ describe("Async Ops", () => {
     useRoot();
     useClock();
     function suspendOn(t: Yielding<any>) {
-        return job(function*(): Yielding<any> { try { log(yield *t); } catch(e) { log(`err: ${e}`)}; });
+        return start(function*(): Yielding<any> { try { log(yield *t); } catch(e) { log(`err: ${e}`)}; });
     }
 
     describe("sleep()", () => {

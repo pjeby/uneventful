@@ -120,7 +120,7 @@ type Producer = () => any
  * @category Stream Consumers
  */
 export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
-    return <Connector> start((_, flow) => {
+    return <Connector> start((flow) => {
         setThrottle(flow as Connector, (throttle(to as Connector) || new _Throttle(flow)));
         if (src && sink) src(sink, flow);
     });

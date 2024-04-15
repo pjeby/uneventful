@@ -60,10 +60,10 @@ describe("backpressure()", () => {
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a connection it's attached to
-        detached.start(end => {
+        detached.start(flow => {
             const c = mkConn(getFlow()).must(logClose);
             // When the flow ends
-            end();
+            flow.end();
             // Then the connection should be closed and the limiter unready
             see("closed");
             expect(backpressure(c)()).to.be.false;

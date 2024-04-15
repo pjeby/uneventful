@@ -23,6 +23,35 @@ export type DisposeFn = () => void;
 export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
 
 /**
+ * An asynchronous start function must return a {@link Yielding}-compatible
+ * object, such as a flow or generator.  The returned iterator will be run
+ * asynchronously, in the context of the newly-started flow.  Any result it
+ * returns or error it throws will be treated as the result of the flow.  If the
+ * flow is canceled, the iterator's `.return()` method will be called to abort
+ * it (thereby running any try-finally clauses in the generator), and the result
+ * of the call will be otherwise ignored.
+ *
+ * @category Types and Interfaces
+ */
+export type AsyncStart<T,C=void> = (this: C, job: Flow<T>) => Yielding<T>;
+
+/**
+ * A synchronous start function can return void or a {@link CleanupFn}. It runs
+ * immediately and gets passed the newly created flow as its first argument.
+ *
+ * @category Types and Interfaces
+ */
+export type SyncStart<T,C=void>  = (this: C, job: Flow<T>) => OptionalCleanup<T>;
+
+/**
+ * A synchronous or asynchronous initializing function for use with the
+ * {@link start}() function or a flow's {@link Flow.start .start}() method.
+ *
+ * @category Types and Interfaces
+ */
+export type Start<T,C=void> = AsyncStart<T,C> | SyncStart<T,C>
+
+/**
  * A cancellable asynchronous operation with automatic resource cleanup.
  *
  * You can add cleanup callbacks to a flow via {@link must}() or its
@@ -33,17 +62,16 @@ export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
  * Flows implement the Promise interface (then, catch, and finally) so they can
  * be passed to Promise-using APIs or awaited by async functions.  They also
  * implement {@link Yielding}, so you can await their results from a
- * {@link job}() using `yield *`.  They also have {@link Flow.return \.return()}
- * and {@link Flow.throw \.throw()} methods so you can end a flow with a result
- * or error.
+ * {@link start}() using `yield *`.  They also have
+ * {@link Flow.return \.return()} and {@link Flow.throw \.throw()} methods so
+ * you can end a flow with a result or error.
  *
  * Most flows, however, are not intended to produce results, and are merely
  * canceled (using {@link Flow.end \.end()} or
  * {@link Flow.restart \.restart()}).
  *
  * Flows can be created and accessed using {@link start}(),
- * {@link detached}.start(), {@link makeFlow}(), {@link job}(), and
- * {@link getFlow}().
+ * {@link detached}.start(), {@link makeFlow}(), and {@link getFlow}().
  *
  * @category Types and Interfaces
  */
@@ -69,19 +97,13 @@ export interface Flow<T=any> extends Yielding<T>, Promise<T> {
     release(cleanup: CleanupFn<T>): () => void;
 
     /**
-     * Start a nested interaction flow using the given function
-     *
-     * The function is immediately invoked with a callback that can be used
-     * to end the flow and release any resources it used. The flow itself is passed
-     * as a second argument, and also returned by this method.
-     *
-     * As with an effect, the action function can register cleanups with
-     * {@link must} and/or by returning a cleanup callback.  If the action function
-     * throws an error, the flow will be ended, and the error re-thrown.
-     *
-     * @returns the created {@link Flow}
+     * Start a nested flow using the given function (or {@link Yielding}). (Like
+     * {@link start}, but using a specific flow as the parent, rather than
+     * whatever flow is active.  Zero, one, and two arguments are supported,
+     * just as with start().)
      */
-    start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T>;
+    start<T>(fn?: Start<T>|Yielding<T>): Flow<T>;
+    start<T,C>(ctx: C, fn: Start<T,C>): Flow<T>;
 
     /**
      * Invoke a function with this flow as the active one, so that calling the
@@ -159,6 +181,7 @@ import { AnyFunction, Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
 import type { Request, Yielding } from "./async.ts";
 import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
+import { runGen } from "./jobs.ts";
 
 /**
  * Return the currently-active Flow, or throw an error if none is active.
@@ -244,10 +267,38 @@ class _Flow<T> implements Flow<T> {
         }
     }
 
-    start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T> {
+    start<T>(fn?: Start<T>|Yielding<T>): Flow<T>;
+    start<T,C>(ctx: C, fn: Start<T,C>): Flow<T>;
+    start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
+        if (!fnOrCtx) return makeFlow(this);
+        let init: Start<T,C>;
+        if (typeof fn === "function") {
+            init = fn.bind(fnOrCtx as C);
+        } else if (typeof fnOrCtx === "function") {
+            init = fnOrCtx as Start<T,C>;
+        } else if (fnOrCtx instanceof _Flow) {
+            return fnOrCtx;
+        } else if (typeof fnOrCtx[Symbol.iterator] === "function") {
+            init = () => fnOrCtx as Yielding<T>;
+        } else {
+            // XXX handle promises or other things here?
+            throw new TypeError("Invalid argument for start()");
+        }
         const flow = makeFlow<T>(this);
-        try { flow.must(flow.run(action, flow.end, flow)); } catch(e) { flow.end(); throw e; }
-        return flow;
+        try {
+            const result = flow.run(init as Start<T>, flow);
+            if (typeof result === "function") return flow.must(result);
+            if (result && typeof result[Symbol.iterator] === "function") {
+                flow.run(runGen, result, <Request<T>>((m, v, e) => {
+                    if (flow.result()) return;
+                    if (m==="next") flow.return(v); else flow.throw(e);
+                }));
+            }
+            return flow;
+        } catch(e) {
+            flow.end();
+            throw e;
+        }
     }
 
     protected constructor() {};
@@ -292,15 +343,55 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Flow<T> {
 }
 
 /**
- * Start a nested interaction flow within the currently-active flow.  (Shorthand
- * for {@link getFlow}().{@link Flow.start start}(action).)
+ * Start a nested flow within the currently-active flow.  (Shorthand for
+ * {@link getFlow}().{@link Flow.start start}(...).)
+ *
+ * This function can be called with zero, one, or two arguments:
+ *
+ * - When called with zero arguments, the new flow is returned without any other
+ *   initialization.
+ *
+ * - When called with one argument that's a {@link Yielding} iterator (such as a
+ *   generator or an existing flow): it's attached to the new flow and executed
+ *   asynchronously. (Starting in the next available microtask.)
+ *
+ * - When called with one argument that's a function (either a {@link SyncStart}
+ *   or {@link AsyncStart}): the function is run inside the new flow and
+ *   receives it as an argument.  It can return a {@link Yielding} iterator
+ *   (such as a generator), a cleanup callback ({@link CleanupFn}), or void.  A
+ *   returned Yielding will be treated as if the method was called with that to
+ *   begin with; a cleanup callback will be added to the flow as a `must()`.
+ *
+ * - When called with two arguments -- a "this" object and a function -- it
+ *   works the same as one argument that's a function, except the function is
+ *   bound to the supplied "this" before being called.
+ *
+ *   This last signature is needed because you can't make generator arrows in JS
+ *   yet: if you want to start() a generator function bound to the current
+ *   `this`, you'll want to use `.start(this, function*() { ...whatever  })`.
+ *
+ *   (Note, however, that TypeScript and/or VSCode may require that you give
+ *   such a function an explicit `this` parameter (e.g. `.start(this, function
+ *   *(this) {...}));`) in order to correctly infer types inside a generator
+ *   function.)
+ *
+ * In any of the above cases, if a supplied function throws an error, the new
+ * flow will be ended, and the error re-thrown.
  *
  * @returns the created {@link Flow}
  *
  * @category Flows
  */
-export function start<T=void>(action: (stop: DisposeFn, flow: Flow<T>) => OptionalCleanup): Flow<T> {
-    return getFlow().start(action);
+export function start<T>(fn?: Start<T>|Yielding<T>): Flow<T>;
+
+/**
+ * The two-argument variant of start() allows you to pass a "this" object that
+ * will be bound to the initialization function.  (It's mostly useful for
+ * generator functions, since generator arrows aren't a thing yet.)
+ */
+export function start<T,C>(ctx: C, fn: Start<T,C>): Flow<T>;
+export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
+    return getFlow().start(fnOrCtx, fn);
 }
 
 /**
@@ -449,8 +540,8 @@ export const detached = (() => {
  *
  * @param task (Optional) The function to be wrapped. This can be any function:
  * the returned wrapper function will match its call signature exactly, including
- * overloads.  (So for example you could wrap the {@link job} API via
- * `restarting(job)`, to create a function you can pass generator functions to.
+ * overloads.  (So for example you could wrap the {@link start} API via
+ * `restarting(start)`, to create a function you can pass flow-start functions to.
  * When called, the function would cancel any outstanding job from a previous
  * call, and start the new one in its place.)
  *

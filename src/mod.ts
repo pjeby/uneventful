@@ -1,7 +1,6 @@
 export { defer } from "./defer.ts";
 export * from "./tracking.ts";
 export * from "./async.ts";
-export * from "./jobs.ts";
 export * from "./signals.ts";
 export * from "./streams.ts"
 export * from "./sources.ts";
