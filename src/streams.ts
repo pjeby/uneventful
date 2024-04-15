@@ -24,26 +24,33 @@ export function resume(s: Connector | undefined) {
 }
 
 /**
+ * A backpressure controller: returns true if downstream is ready to accept
+ * data.
+ *
+ * @param cb (optional) - a callback to run when the downstream consumer wishes
+ * to resume event production (i.e., when a sink calls {@link resume}()).  The
+ * callback is automatically unregistered when invoked, so the producer must
+ * re-register it after each call if it wishes to keep being called.
+ *
  * @category Types and Interfaces
  */
-export interface Inlet {
-    /** Is the connection currently ready to receive data? */
-    isReady(): boolean
+export type Backpressure = (cb?: Producer) => boolean
 
-    /**
-     * Register a callback to run when an async consumer wishes to resume event
-     * production (i.e., when a sink calls {@link resume}()).  The callback is
-     * automatically unregistered when invoked, so the producer must re-register
-     * it after each call if it wishes to keep being called.
-     */
-    onReady(cb: Producer): this;
-}
 
 /**
+ * Create a backpressure control function for the given connection
+ *
  * @category Stream Producers
  */
-export function getInlet(s: Connector): Inlet {
-    return new _Inlet(throttle(s), s);
+export function backpressure(conn: Connector): Backpressure {
+    const flow = getFlow(), t = throttle(conn);
+    return (cb?: Producer) => {
+        if (!flow.result() && t.isOpen()) {
+            if (cb) t.onReady(cb, flow);
+            return t.isReady();
+        }
+        return false;
+    }
 }
 
 /**
@@ -64,21 +71,6 @@ export type Connection = Flow<void>;
  * @category Stream Consumers
  */
 export type Connector = Flow<void> & MaybeThrottled;
-
-class _Inlet implements Inlet {
-
-    constructor(protected t: _Throttle, protected _flow = getFlow()) {}
-
-    protected isOpen(): boolean { return !this._flow.result() && this.t.isOpen(); }
-
-    isReady(): boolean { return this.isOpen() && this.t.isReady(); }
-
-    onReady(cb: Producer): this {
-        this.isOpen() && this.t.onReady(cb, this._flow);
-        return this;
-    }
-}
-
 
 /**
  * A `Source` is a function that can be called to arrange for data to be

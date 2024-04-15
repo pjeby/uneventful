@@ -1,6 +1,6 @@
 import { defer } from "./defer.ts";
 import { EffectScheduler, cached } from "./signals.ts";
-import { type Source, IsStream, Connection, getInlet, connect, Sink, Connector, Inlet, pause, resume } from "./streams.ts";
+import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
 import { must, type DisposeFn, getFlow, detached, isError, isValue, noop } from "./tracking.ts";
 
 /**
@@ -63,14 +63,14 @@ export function empty(): Source<never> {
  */
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (sink, conn=connect()) => {
-        const inlet = getInlet(conn);
+        const ready = backpressure(conn);
         const iter = iterable[Symbol.asyncIterator]();
         if (iter.return) must(() => iter.return());
-        return inlet.onReady(next), IsStream;
+        return ready(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
-                if (done) conn.return(); else inlet.onReady(() => {
-                    if (sink(value), inlet.isReady()) next(); else inlet.onReady(next);
+                if (done) conn.return(); else ready(() => {
+                    if (sink(value), ready()) next(); else ready(next);
                 })
             }, e => conn.throw(e));
         }
@@ -126,16 +126,16 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  */
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (sink, conn=connect()) => {
-        const inlet = getInlet(conn);
+        const ready = backpressure(conn);
         const iter = iterable[Symbol.iterator]();
         if (iter.return) must(() => iter.return());
-        return inlet.onReady(loop), IsStream;
+        return ready(loop), IsStream;
         function loop() {
             try {
                 for(;;) {
                     const {value, done} = iter.next();
                     if (done) return conn.return();
-                    if (sink(value), !inlet.isReady()) return inlet.onReady(loop);
+                    if (sink(value), !ready()) return ready(loop);
                 }
             } catch (e) {
                 conn.throw(e);
@@ -276,12 +276,12 @@ export function never(): Source<never> {
  */
 export function share<T>(source: Source<T>): Source<T> {
     let uplink: Connector, resumed = false;
-    let links = new Set<[sink: Sink<T>, conn: Connection, inlet: Inlet]>;
+    let links = new Set<[sink: Sink<T>, conn: Connection, bp: Backpressure]>;
     return (sink, conn=connect()) => {
-        const inlet = getInlet(conn);
-        const self: [Sink<T>, Connection, Inlet] = [sink, conn, inlet];
+        const ready = backpressure(conn);
+        const self: [Sink<T>, Connection, Backpressure] = [sink, conn, ready];
         links.add(self);
-        inlet.onReady(produce);
+        ready(produce);
         must(() => {
             links.delete(self);
             if (!links.size) uplink?.end();
@@ -289,8 +289,8 @@ export function share<T>(source: Source<T>): Source<T> {
         if (links.size === 1) {
             uplink = detached.bind(connect)(source, v => {
                 resumed = false;
-                for(const [s,_,l] of links) {
-                    if (s(v), l.isReady()) resumed = true; else l.onReady(produce);
+                for(const [s,_,ready] of links) {
+                    if (s(v), ready()) resumed = true; else ready(produce);
                 }
                 resumed || pause(uplink);
             }).must(r => {

@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
-import { Connection, Connector, Inlet, getInlet, pause, resume, subconnect } from "../src/streams.ts";
+import { Connection, Connector, backpressure, pause, resume, subconnect } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult, noop } from "../mod.ts";
 
@@ -42,12 +42,13 @@ describe("connect()", () => {
     });
 });
 
-describe("Limiter", () => {
-    it("initially isReady()", () => {
-        // Given a limiter
-        const l = getInlet(mkConn());
+describe("backpressure()", () => {
+    useRoot();
+    it("initially is ready", () => {
+        // Given a ready function
+        const ready = backpressure(mkConn());
         // Then it should be ready
-        expect(l.isReady()).to.be.true;
+        expect(ready()).to.be.true;
     });
     it("is unready when connection is ended", () => {
         // Given an ended connection
@@ -55,7 +56,7 @@ describe("Limiter", () => {
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
-        expect(getInlet(c).isReady()).to.be.false;
+        expect(backpressure(c)()).to.be.false;
     });
     it("closes(+unready) when its enclosing flow is cleaned up", () => {
         // Given a flow and a connection it's attached to
@@ -65,7 +66,7 @@ describe("Limiter", () => {
             end();
             // Then the connection should be closed and the limiter unready
             see("closed");
-            expect(getInlet(c).isReady()).to.be.false;
+            expect(backpressure(c)()).to.be.false;
         });
     });
 
@@ -74,13 +75,13 @@ describe("Limiter", () => {
             // Given a conduit
             const c = mkConn()
             // When it's paused, Then it shoud be unready
-            pause(c); expect(getInlet(c).isReady()).to.be.false;
+            pause(c); expect(backpressure(c)()).to.be.false;
             // And when resumed it should be ready again
-            resume(c); expect(getInlet(c).isReady()).to.be.true;
+            resume(c); expect(backpressure(c)()).to.be.true;
             // Unless it's closed
-            c.end(); expect(getInlet(c).isReady()).to.be.false;
+            c.end(); expect(backpressure(c)()).to.be.false;
             // In which case it should not be resumable
-            resume(c); expect(getInlet(c).isReady()).to.be.false;
+            resume(c); expect(backpressure(c)()).to.be.false;
         });
     });
 
@@ -88,7 +89,7 @@ describe("Limiter", () => {
         let c: Conn;
         beforeEach(() => {
             // Given a paused conduit with an onReady
-            c = mkConn(); pause(c); getInlet(c).onReady(() => log("resumed"));
+            c = mkConn(); pause(c); backpressure(c)(() => log("resumed"));
         });
         describe("does nothing if", () => {
             it("conduit is already closed", () => {
@@ -121,7 +122,7 @@ describe("Limiter", () => {
             // Then the onReady callback should be invoked
             resume(c); see("resumed");
             // And When a new onReady() is set
-            getInlet(c).onReady(() => log("resumed again"));
+            backpressure(c)(() => log("resumed again"));
             // Then the new callback should be invoked asynchronously
             see(); // but not synchronously
             runPulls(); see("resumed again");
@@ -129,7 +130,7 @@ describe("Limiter", () => {
         it("doesn't run duplicate onReady callbacks", () => {
             // Given a paused conduit with added duplicate functions
             const c = mkConn(); pause(c); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
-            getInlet(c).onReady(f1).onReady(f2).onReady(f1).onReady(f2);
+            const r = backpressure(c); r(f1); r(f2); r(f1); r(f2);
             // When the conduit is resumed
             resume(c);
             // Then it should run each function only once
