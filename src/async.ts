@@ -1,5 +1,5 @@
 import { Source, connect } from "./streams.ts";
-import { OptionalCleanup, isCancel, isError, start } from "./tracking.ts";
+import { OptionalCleanup, isCancel, isError, noop, start } from "./tracking.ts";
 
 /**
  * A request for a value (or error) to be returned asynchronously.
@@ -192,8 +192,6 @@ export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yiel
         start(stop => action((o, v, e) => called || (called=true, stop(), outer(o, v, e))));
     }
 }
-
-const noop = () => {};
 
 /**
  * An object that can be waited on with `yield *until()`.

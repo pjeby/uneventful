@@ -342,7 +342,10 @@ export function release(cleanup: CleanupFn): DisposeFn {
  */
 export const makeFlow: <T,R=unknown>(parent?: Flow<R>, stop?: CleanupFn<R>) => Flow<T> = _Flow.create;
 
-function noop() {}
+/**
+ * A function that does nothing and returns void.
+ */
+export function noop() {}
 
 /**
  * A {@link FlowResult} that indicates the flow was ended via a return() value.
