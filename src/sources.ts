@@ -1,4 +1,5 @@
-import { cached, effect } from "./signals.ts";
+import { defer } from "./defer.ts";
+import { EffectScheduler, cached } from "./signals.ts";
 import { type Source, IsStream, Connection, getInlet, connect, Sink, Connector, Inlet, pause, resume } from "./streams.ts";
 import { must, type DisposeFn, getFlow, detached, isError, isValue } from "./tracking.ts";
 
@@ -168,19 +169,20 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
 /**
  * Create an event source from a signal (or signal-using function)
  *
- * The resulting event source will emit an event equal to each value
- * the signal or function produces, including its current value at
- * the time of subscription.
+ * The resulting event source will emit an event equal to each value the given
+ * function produces, including its current value at the time of subscription.
+ * (Technically, at the time of its first post-subscription scheduling.)
+ *
+ * @param scheduler - An {@link EffectScheduler} that will be used to sample the
+ * signal.  Events will be only be emitted when the given scheduler is run.  If
+ * no scheduler is given, the default (microtask-based) scheduler is used.
  *
  * @category Stream Producers
  */
-export function fromSignal<T>(s: () => T): Source<T> {
+export function fromSignal<T>(s: () => T, scheduler = EffectScheduler.for(defer)): Source<T> {
     s = cached(s);
-    return (sink, conn=connect()) => {
-        const inlet = getInlet(conn);
-        let val: T;
-        function sendVal() { inlet.push(sink, val); val = undefined; }
-        effect(() => { val = s(); inlet.onReady(sendVal); });
+    return (sink) => {
+        scheduler.effect(() => { sink(s()); });
         return IsStream;
     }
 }

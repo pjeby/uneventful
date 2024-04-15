@@ -326,28 +326,6 @@ describe("Sources", () => {
             v2.set(1);
             see(); runEffects(); runPulls(); see("44");
         });
-        it("doesn't queue values when paused", () => {
-            // Given a fromSignal(value())
-            const v = value(42), s = fromSignal(v);
-            // When it's subscribed and paused, and set to various values
-            const c = connect(s, log.emit); pause(c);
-            // Then it should not output until resumed
-            v.set(43); runEffects(); runPulls(); see();
-            v.set(44); runEffects(); runPulls(); see();
-            // And only show the latest value
-            resume(c); see("44");
-            c.end();
-        });
-        it("doesn't send values during its effect()", () => {
-            // Given a fromSignal(value())
-            const v = value(42), s = fromSignal(v);
-            // When it's subscribed and set to various values
-            connect(s, log.emit);
-            // Then the subscriber should not be called during effects
-            runEffects(); see();
-            // But only during the subsequent runPulls
-            runPulls(); see("42");
-        });
     });
     describe("fromSubscribe()", () => {
         it("should subscribe w/pusher on pull and unsub on close", () => {
