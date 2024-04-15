@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue, worker } from "../mod.ts";
+import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue, restarting } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeFlow()", () => {
@@ -432,10 +432,10 @@ describe("Flow instances", () => {
     });
 });
 
-describe("worker()", () => {
-    it("runs functions in worker-specific, restarting flows, until enclosing flow ends", () => {
-        // Given a worker created in an outer flow
-        const outer = makeFlow(), w = outer.bind(worker)();
+describe("restarting()", () => {
+    it("runs functions in call-specific, restarting flows, until enclosing flow ends", () => {
+        // Given a restarting wrapper created in an outer flow
+        const outer = makeFlow(), w = outer.bind(restarting)();
         let f1: Flow, f2: Flow;
         // When it's called with a function
         w(() => { f1 = getFlow(); log("called"); must(() => log("undo")); });
@@ -454,9 +454,9 @@ describe("worker()", () => {
         // Following which, it should throw an error if called again:
         expect(() => w(() => log("this won't do"))).to.throw("Flow already ended")
     });
-    it("uses a different flow for each worker", () => {
-        // Given two workers created in an outer flow
-        const outer = makeFlow(), w1 = outer.bind(worker)(), w2 = outer.bind(worker)();
+    it("uses a different flow for each wrapper", () => {
+        // Given two restarting wrappers created in an outer flow
+        const outer = makeFlow(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
         let f1: Flow, f2: Flow;
         // When they are called
         w1(() => { f1 = getFlow(); });
@@ -468,8 +468,8 @@ describe("worker()", () => {
         expect(f1).to.not.equal(f2);
     });
     it("when given a function, matches its signature", () => {
-        // Given a worker wrapping a function
-        const outer = makeFlow(), w = outer.bind(worker)((a,b,c) => { log(a); log(b); log(c); return 42; });
+        // Given a restarting wrapper around a function
+        const outer = makeFlow(), w = outer.bind(restarting)((a,b,c) => { log(a); log(b); log(c); return 42; });
         // When it is called
         const res = w("a", 22, 54);
         // Then it should receive any arguments
@@ -478,8 +478,8 @@ describe("worker()", () => {
         expect(res).to.equal(42);
     });
     it("rolls back when an error is thrown", () => {
-        // Given a worker wrapping a function that throws
-        const outer = makeFlow(), w = outer.bind(worker)(() => { must(()=> log("undo")); throw "whoops"; });
+        // Given a restarting wrapper around a function that throws
+        const outer = makeFlow(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
         // When the function is called, it should throw
         expect(w).to.throw("whoops");
         // And Then it should end the flow
@@ -488,8 +488,8 @@ describe("worker()", () => {
         expect(w).to.throw("Flow already ended");
     });
     it("can be used as a method", () => {
-        // Given a worker method
-        const w = {m: makeFlow().bind(worker)(function () { log(this === w); })};
+        // Given a restarting-wrapped method
+        const w = {m: makeFlow().bind(restarting)(function () { log(this === w); })};
         // When called as a method
         w.m();
         // Then its `this` should be the object

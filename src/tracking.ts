@@ -433,33 +433,33 @@ export const detached = (() => {
 })();
 
 /**
- * Wrap a function in a {@link Flow} that restarts each time the wrapped
+ * Wrap a function in a {@link Flow} that restarts each time the resulting
  * function is called, thereby canceling any nested flows and cleaning up any
  * resources used by previous calls. (This can be useful for such things as
  * canceling an in-progress search when the user types more text in a field.)
  *
- * You can wrap any task function any number of times: each worker() gets its
- * own flow linked to the flow where it was created, so it will end when the
- * enclosing flow does. (Calling the worker after its flow has ended will result
- * in an error.)
+ * The restarting flow will be ended when the flow that invoked `restarting()`
+ * is finished, canceled, or restarted.  Calling the wrapped function after its
+ * flow has ended will result in an error.  You can wrap any function any number
+ * of times: each call to `restarting()` creates a new, distinct "restarting
+ * flow" and function wrapper to go with it.
  *
- * @param task (Optional) The function the worker will perform when called. This
- * can be any function: the returned worker will match its call signature
- * exactly, including overloads.  (So for example you could wrap the {@link job}
- * API via `worker(job)`, to create a worker you can pass generator functions
- * to.  When called, the worker would cancel any outstanding job from a previous
+ * @param task (Optional) The function to be wrapped. This can be any function:
+ * the returned wrapper function will match its call signature exactly, including
+ * overloads.  (So for example you could wrap the {@link job} API via
+ * `restarting(job)`, to create a function you can pass generator functions to.
+ * When called, the function would cancel any outstanding job from a previous
  * call, and start the new one in its place.)
  *
  * @returns A function of identical type to the input function.  If no input
- * function was given, the returned worker will be of type {@link Worker} (i.e.,
- * a function accepting a task function to execute, canceling any previous task
- * executed by that worker).
+ * function was given, the returned function will just take one argument (a
+ * zero-argument function optionally returning a {@link CleanupFn}).
  *
  * @category Flows
  */
-export function worker(): Worker
-export function worker<F extends AnyFunction>(task: F): F
-export function worker<F extends AnyFunction>(task?: F): F {
+export function restarting(): (task: () => OptionalCleanup<never>) => void
+export function restarting<F extends AnyFunction>(task: F): F
+export function restarting<F extends AnyFunction>(task?: F): F {
     const outer = getFlow(), inner = makeFlow<never>(), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
     return <F>function() {
@@ -470,11 +470,3 @@ export function worker<F extends AnyFunction>(task?: F): F {
         finally { freeCtx(swapCtx(old)); }
     };
 }
-
-/**
- * A {@link worker} that performs arbitrary tasks.  The supplied task function
- * is called with no arguments, and may return a cleanup callback.
- *
- * @category Types and Interfaces
- */
-export type Worker = (task: () => OptionalCleanup<never>) => void;
