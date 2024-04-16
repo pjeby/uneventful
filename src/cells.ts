@@ -4,8 +4,8 @@ import { RunQueue } from "./scheduling.ts";
 import { DisposeFn, OptionalCleanup, makeFlow, release } from "./tracking.ts";
 
 /**
- * Error indicating an effect has attempted to write a value it indirectly
- * depends on, or which has already been read by another effect in the current
+ * Error indicating a rule has attempted to write a value it indirectly
+ * depends on, or which has already been read by another rule in the current
  * batch. (Also thrown when a cached function attempts to write a value at all,
  * directly or inidirectly.)
  *
@@ -14,7 +14,7 @@ import { DisposeFn, OptionalCleanup, makeFlow, release } from "./tracking.ts";
 export class WriteConflict extends Error {}
 
 /**
- * Error indicating an effect has attempted to write a value it directly depends
+ * Error indicating a rule has attempted to write a value it directly depends
  * on, or a cached function has called itself, directly or indirectly.
  *
  * @category Errors
@@ -22,44 +22,44 @@ export class WriteConflict extends Error {}
 export class CircularDependency extends Error {}
 
 var timestamp = 1;
-var currentEffect: Cell;
-var currentQueue: EffectScheduler;
+var currentRule: Cell;
+var currentQueue: RuleScheduler;
 
 /**
- * A queue for effects to run during a particular kind of period, such as
+ * A queue for rules to run during a particular kind of period, such as
  * microtasks or animation frames.  (Can only be obtained or created via
- * {@link EffectScheduler.for}().)
+ * {@link RuleScheduler.for}().)
  *
  * @category Signals
  */
-export class EffectScheduler {
+export class RuleScheduler {
 
     /** @internal */
-    protected static cache = new WeakMap<Function, EffectScheduler>();
+    protected static cache = new WeakMap<Function, RuleScheduler>();
 
     /** @internal */
     protected readonly q: RunQueue<Cell>;
 
     /**
-     * Run all pending effects on this scheduler.
+     * Run all pending rules on this scheduler.
      *
      * This is a bound method
      *
-     * (Note: "pending" effects are ones with at least one changed ancestor
+     * (Note: "pending" rules are ones with at least one changed ancestor
      * dependency; this doesn't mean they will actually *do* anything,
      * since intermediate cached() function results might end up unchanged.)
      */
     flush: () => void;
 
     /**
-     * Create an {@link EffectScheduler} from a callback-taking function, that
-     * you can then use to make effects that run in a specific time frame.
+     * Create an {@link RuleScheduler} from a callback-taking function, that
+     * you can then use to make rules that run in a specific time frame.
      *
      * ```ts
-     * // frame.effect will now create effects that run during animation fames
-     * const frame = EffectScheduler.for(requestAnimationFrame);
+     * // frame.rule will now create rules that run during animation fames
+     * const animate = RuleScheduler.for(requestAnimationFrame).rule;
      *
-     * frame.effect(() => {
+     * animate(() => {
      *     // ... do stuff in an animation frame when signals used here change
      * })
      * ```
@@ -71,7 +71,7 @@ export class EffectScheduler {
      * requestAnimationFrame, setImmediate, or queueMicrotask).  The scheduler
      * will call it from time to time with a single callback.  The scheduling
      * function should then arrange for that callback to be invoked *once* at
-     * some future point, when it is the desired time for all pending effects on
+     * some future point, when it is the desired time for all pending rules on
      * that scheduler to run.
      */
     static for(scheduleFn: (cb: () => unknown) => unknown = defer) {
@@ -85,34 +85,34 @@ export class EffectScheduler {
             if (currentQueue) return;
             currentQueue = this;
             try {
-                // run effects marked dirty by value changes
-                for(currentEffect of _queue) {
-                    currentEffect.catchUp();
-                    _queue.delete(currentEffect);
+                // run rules marked dirty by value changes
+                for(currentRule of _queue) {
+                    currentRule.catchUp();
+                    _queue.delete(currentRule);
                 }
             } finally {
-                currentQueue = currentEffect = undefined;
+                currentQueue = currentRule = undefined;
             }
         });
         this.flush = this.q.flush;
     }
 
     /**
-     * @inheritdoc effect tied to a specific scheduler.  See {@link effect} for
+     * @inheritdoc rule tied to a specific scheduler.  See {@link rule} for
      * more details.
      *
-     * @remarks The effect will only run during its matching
-     * {@link EffectScheduler.flush}().
+     * @remarks The rule will only run during its matching
+     * {@link RuleScheduler.flush}().
      *
      * This is a bound method, so you can use it independently of the scheduler
      * it came from.
      */
-    effect = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
-        return Cell.mkEffect(fn, this.q);
+    rule = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
+        return Cell.mkRule(fn, this.q);
     };
 }
 
-const defaultQueue = EffectScheduler.for(defer);
+const defaultQueue = RuleScheduler.for(defer);
 
 /**
  * Subscribe a function to run every time certain values change.
@@ -123,43 +123,43 @@ const defaultQueue = EffectScheduler.for(defer);
  * during its previous run.
  *
  * The created subscription is tied to the currently-active flow.  So when that
- * flow is ended or restarted, the effect will be terminated automatically.  You
+ * flow is ended or restarted, the rule will be terminated automatically.  You
  * can also terminate it early by calling the "stop" function that is both
- * passed to the effect function and returned by `effect()`.
+ * passed to the rule function and returned by `rule()`.
  *
  * Note: this function will throw an error if called without an active flow. If
- * you need a standalone effect, use {@link root} or {@link detached} to wrap
- * the call to effect.
+ * you need a standalone rule, use {@link root} or {@link detached} to wrap
+ * the call to rule.
  *
  * @param fn The function that will be run each time its dependencies change.
  * The function will be run in a fresh flow each time, with any resources used
  * by the previous run being cleaned up.  The function is passed a single
- * argument: a function that can be called to terminate the effect.   The
+ * argument: a function that can be called to terminate the rule.   The
  * function should return a cleanup function or void.
  *
- * @returns A function that can be called to terminate the effect.
+ * @returns A function that can be called to terminate the rule.
  *
  * @category Signals
  * @category Flows
  */
-export const effect = defaultQueue.effect;
+export const rule = defaultQueue.rule;
 
 /**
- * Synchronously run pending effects from the default scheduler.
+ * Synchronously run pending rules from the default scheduler.
  *
  * @remarks Equivalent to calling
- * {@link EffectScheduler.for}(defer).{@link EffectScheduler.flush flush}().
+ * {@link RuleScheduler.for}(defer).{@link RuleScheduler.flush flush}().
  *
  * Note that you should normally only need to call this when you need
  * side-effects to occur within a specific synchronous timeframe, e.g. if
- * effects need to be able to cancel a synchronous event or continue an
- * IndexedDB transaction.  (You can also define effects to run in a specific
- * timeframe by creating a {@link EffectScheduler} for them, via
- * {@link EffectScheduler.for}.)
+ * rules need to be able to cancel a synchronous event or continue an
+ * IndexedDB transaction.  (You can also define rules to run in a specific
+ * timeframe by creating a {@link RuleScheduler} for them, via
+ * {@link RuleScheduler.for}.)
  *
  * @category Signals
  */
-export const runEffects = defaultQueue.flush
+export const runRules = defaultQueue.flush
 
 
 const dirtyStack: Cell[] = [];
@@ -172,7 +172,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource || tgt.latestSource === 0) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Effect) (tgt.value as RunQueue<Cell>).add(tgt);
+            if (tgt.flags & Is.Rule) (tgt.value as RunQueue<Cell>).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -180,12 +180,12 @@ function markDependentsDirty(cell: Cell) {
 
 
 const enum Is {
-    Effect = 1 << 0,
+    Rule = 1 << 0,
     Lazy   = 1 << 2,
     Dead   = 1 << 3,
     Error  = 1 << 4,
     Running = 1 << 5,
-    Computed = Effect | Lazy,
+    Computed = Rule | Lazy,
 }
 
 type Subscription = {
@@ -239,7 +239,7 @@ function delsub(sub: Subscription) {
 
 /** @internal */
 export class Cell {
-    value: any = undefined // the value, or, for an effect, the scheduler
+    value: any = undefined // the value, or, for a rule, the scheduler
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source (0 = Infinity)
@@ -286,7 +286,7 @@ export class Cell {
     }
 
     setValue(val: any) {
-        const cell = current.cell || currentEffect;
+        const cell = current.cell || currentRule;
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
@@ -355,7 +355,7 @@ export class Cell {
                     this.lastChanged = timestamp;
                 } catch (e) {
                     flow.end();
-                    this.disposeEffect();
+                    this.disposeRule();
                     throw e;
                 }
             }
@@ -372,11 +372,11 @@ export class Cell {
                 sub = pS;
             }
             this.sources = head;
-            if (this.flags & Is.Dead) this.disposeEffect();
+            if (this.flags & Is.Dead) this.disposeRule();
         }
     }
 
-    disposeEffect() {
+    disposeRule() {
         this.flags |= Is.Dead;
         (this.value as RunQueue<Cell>).delete(this);
         if (current !== this.ctx) {
@@ -424,19 +424,19 @@ export class Cell {
         return cell.getValue.bind(cell);
     }
 
-    static mkEffect(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
+    static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
         var unlink = release(stop);
         var cell = new Cell, f = makeFlow();
         cell.value = q;
         cell.compute = fn.bind(null, stop);
         cell.ctx = makeCtx(f, cell);
-        cell.flags = Is.Effect;
+        cell.flags = Is.Rule;
         q.add(cell);
         return stop;
         function stop() {
             unlink();
             if (cell) {
-                cell.disposeEffect();
+                cell.disposeRule();
                 cell = undefined;
             }
         }

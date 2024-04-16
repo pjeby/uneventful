@@ -1,7 +1,7 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runEffects, isError, FlowResult, isValue } from "../src/mod.ts";
+import { connect, value, runRules, isError, FlowResult, isValue } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { Connector, pause, resume } from "../src/streams.ts";
 import {
@@ -305,11 +305,11 @@ describe("Sources", () => {
             const v = value(42), s = fromSignal(v);
             // When it's subscribed
             connect(s, log.emit);
-            // Then it should output the current value once effects+pulls run
-            see(); runEffects(); runPulls(); see("42");
+            // Then it should output the current value once rules+pulls run
+            see(); runRules(); runPulls(); see("42");
             // And output the latest current value on subsequent runs
             v.set(43); runPulls(); v.set(44);
-            see(); runEffects(); runPulls(); see("44");
+            see(); runRules(); runPulls(); see("44");
         });
         it("should not emit duplicate values", () => {
             // Given a fromSignal(func())
@@ -317,14 +317,14 @@ describe("Sources", () => {
             const f = () => v1() * v2(), s = fromSignal(f);
             // When it's subscribed
             connect(s, log.emit);
-            // Then it should output the current value once effects+pulls run
-            see(); runEffects(); runPulls(); see("0");
+            // Then it should output the current value once rules+pulls run
+            see(); runRules(); runPulls(); see("0");
             // And should not output duplicates even if dependencies change
             v1.set(43); v1.set(44);
-            see(); runEffects(); runPulls(); see();
+            see(); runRules(); runPulls(); see();
             // But should still output changes to the result
             v2.set(1);
-            see(); runEffects(); runPulls(); see("44");
+            see(); runRules(); runPulls(); see("44");
         });
     });
     describe("fromSubscribe()", () => {

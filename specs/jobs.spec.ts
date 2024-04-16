@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
     start, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runEffects, isError, backpressure, sleep
+    IsStream, value, cached, runRules, isError, backpressure, sleep
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
@@ -613,8 +613,8 @@ describe("Async Ops", () => {
                 // Given a falsy value and an until() suspended on it
                 const v = value(0);
                 suspendOn(until(v)); clock.runAll(); see();
-                // When the value becomes true and effects run
-                v.set(55); see(); runEffects();
+                // When the value becomes true and rules run
+                v.set(55); see(); runRules();
                 // Then the until should resume with the new value
                 see("55");
             });
@@ -629,7 +629,7 @@ describe("Async Ops", () => {
                 const v = value(0), c = cached(() => { if (v()) throw "boom!";});
                 suspendOn(until(c)); clock.runAll(); see();
                 // When the signal recomputes as an error
-                v.set(55); see(); runEffects();
+                v.set(55); see(); runRules();
                 // Then the until should reject with the error
                 see("err: boom!");
             });

@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot } from "./dev_deps.ts";
-import { runEffects, value, cached, effect, noDeps, WriteConflict, Signal, Writable } from "../mod.ts";
+import { runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable } from "../mod.ts";
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {
@@ -31,27 +31,27 @@ describe("Signal Constructors/Interfaces", () => {
             const val = value();
             verifyMulti(v => { val.value = v; return val as Signal<typeof v>; })
         });
-        function aValueDependedOnByAnEffect<T>(val: T) {
+        function aValueDependedOnByARule<T>(val: T) {
             const v = value(val);
-            effect(() => { log(v()); });
-            runEffects(); see(`${val}`);
+            rule(() => { log(v()); });
+            runRules(); see(`${val}`);
             return v;
         }
         it("ignores set() of the same value", () => {
-            // Given a value that's depended on by an effect
-            const v = aValueDependedOnByAnEffect(42);
+            // Given a value that's depended on by a rule
+            const v = aValueDependedOnByARule(42);
             // When the value is set to the same value
             v.set(42);
-            // Then the effect should not run a second time
-            runEffects(); see();
+            // Then the rule should not run a second time
+            runRules(); see();
         });
         it("ignores .value set to the same value", () => {
-            // Given a value that's depended on by an effect
-            const v = aValueDependedOnByAnEffect(42);
+            // Given a value that's depended on by a rule
+            const v = aValueDependedOnByARule(42);
             // When the value is set to the same value
             v.value = 42;
-            // Then the effect should not run a second time
-            runEffects(); see();
+            // Then the rule should not run a second time
+            runRules(); see();
         });
         it(".readonly() returns a readonly signal", () => {
             // Given a value() and its .readonly() signal
@@ -124,7 +124,7 @@ describe("Dependency tracking", () => {
                 // Given a cached that peeks at a value via noDeps
                 const v = value(42), c = cached(() => noDeps(v));
                 // And has a subscriber (so it will only recompute if a dependency changes)
-                effect(() => { c() }); runEffects();
+                rule(() => { c() }); runRules();
                 expect(c()).to.equal(42);
                 // And a value that has changed after it was peeked
                 v.set(43);
@@ -133,12 +133,12 @@ describe("Dependency tracking", () => {
                 expect(c()).to.equal(42);
             });
             it("doesn't prevent cycle detection on assignment", () => {
-                // Given an effect that reads and writes a value with noDeps
+                // Given a rule that reads and writes a value with noDeps
                 const v = value(42);
-                effect(() => { noDeps(() => { v.set(v()+1); }); })
-                // When the effect is run,
+                rule(() => { noDeps(() => { v.set(v()+1); }); })
+                // When the rule is run,
                 // Then it should still throw a write conflict
-                expect(runEffects).to.throw(WriteConflict);
+                expect(runRules).to.throw(WriteConflict);
             });
         })
     });
@@ -147,14 +147,14 @@ describe("Dependency tracking", () => {
 describe("Signal invariants", () => {
     useRoot();
 
-    it("Updates are immediate outside of effects", () => {
+    it("Updates are immediate outside of rules", () => {
         // Given a value
         const v = value(42); // Given a value
         // And a cached() of that value
         const c1 = cached(() => v() * 2); // And a cached() of that value
         // And a cached() depending on that cached()
         const c2 = cached(() => c1() * 2);
-        // When the value is set outside an effect
+        // When the value is set outside a rule
         v.set(43);
         // Then all the values should be visibly changed
         expect(v()).to.equal(43);
@@ -162,27 +162,27 @@ describe("Signal invariants", () => {
         expect(c2()).to.equal(172);
     });
 
-    it("Inter-effect updates appear immediate while effects are executing", () => {
+    it("Inter-rule updates appear immediate while rules are executing", () => {
         // Given a value
         const v = value(42);
         // And a cached() of that value
         const c1 = cached(() => v() * 2);
         // And a cached() depending on that cached()
         const c2 = cached(() => c1() * 2);
-        // When the value is set inside an effect
+        // When the value is set inside a rule
         const v2 = value(43);
-        effect(() => { v.set(v2()); });
-        effect(() => { log(`${v()}, ${c1()}, ${c2()}`); });
-        // Then other effects should see only the modified values
-        runEffects();
+        rule(() => { v.set(v2()); });
+        rule(() => { log(`${v()}, ${c1()}, ${c2()}`); });
+        // Then other rules should see only the modified values
+        runRules();
         see("43, 86, 172");
         // Even if repeated
         v2.set(44);
-        runEffects();
+        runRules();
         see("44, 88, 176");
     });
 
     describe("Updates run only when needed (once per batch max)", () => {});
-    describe("Effects are asynchronous", () => {});
+    describe("Rules are asynchronous", () => {});
     describe("Cycles result in errors", () => {});
 });

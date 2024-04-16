@@ -1,8 +1,8 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { PlainFunction } from "./types.ts";
-import { Cell, effect } from "./cells.ts";
+import { Cell, rule } from "./cells.ts";
 import { UntilMethod, Yielding, reject, resolve } from "./async.ts";
-export { EffectScheduler, effect } from "./cells.ts";
+export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
 
 export interface Signal<T> {
     /** A signal object can be called to get its current value */
@@ -39,7 +39,7 @@ export class Signal<T> extends Function implements UntilMethod<T> {
         return yield (r => {
             try {
                 let res: T = this.peek();
-                if (res) resolve(r, res); else effect(() => {
+                if (res) resolve(r, res); else rule(() => {
                     try { (res = this()) && resolve(r, res); } catch(e) { reject(r,e); }
                 })
             } catch(e) {

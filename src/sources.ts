@@ -1,5 +1,5 @@
 import { defer } from "./defer.ts";
-import { EffectScheduler, cached } from "./signals.ts";
+import { RuleScheduler, cached } from "./signals.ts";
 import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
 import { must, type DisposeFn, getFlow, detached, isError, isValue, noop } from "./tracking.ts";
 
@@ -173,16 +173,16 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
  * function produces, including its current value at the time of subscription.
  * (Technically, at the time of its first post-subscription scheduling.)
  *
- * @param scheduler - An {@link EffectScheduler} that will be used to sample the
+ * @param scheduler - An {@link RuleScheduler} that will be used to sample the
  * signal.  Events will be only be emitted when the given scheduler is run.  If
  * no scheduler is given, the default (microtask-based) scheduler is used.
  *
  * @category Stream Producers
  */
-export function fromSignal<T>(s: () => T, scheduler = EffectScheduler.for(defer)): Source<T> {
+export function fromSignal<T>(s: () => T, scheduler = RuleScheduler.for(defer)): Source<T> {
     s = cached(s);
     return (sink) => {
-        scheduler.effect(() => { sink(s()); });
+        scheduler.rule(() => { sink(s()); });
         return IsStream;
     }
 }
