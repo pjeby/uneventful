@@ -6,7 +6,7 @@ import { runPulls } from "../src/scheduling.ts";
 import { Connector, pause, resume } from "../src/streams.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
-    fromValue, fromSubscribe, interval, lazy, never
+    fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource
 } from "../src/sources.ts";
 
 function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
@@ -14,6 +14,26 @@ function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err
 describe("Sources", () => {
     useRoot();
     describe("emitter()", () => {
+        testEmitterBasics(emitter);
+        it("should be ok with multiple subscribers", () => {
+            // Given an emitter
+            const e = emitter<any>();
+            // When its source is subscribed and pulled with two sinks at different times
+            const c1 = connect(e.source, log.emit); runPulls();
+            e(42); see("42");
+            let emits = 0;
+            const c2 = connect(e.source, v => (emits++, true)); runPulls();
+            // Then it should emit to the currently-subscribed sinks
+            e(43); see("43"); expect(emits).to.equal(1);
+            // Until their connections close
+            c1.end();
+            e(44); see(); expect(emits).to.equal(2);
+            c2.end();
+            e(45); see(); expect(emits).to.equal(2);
+        });
+    });
+
+    function testEmitterBasics(emitter: <T>() => Emitter<T>) {
         it("should emit/close the source when called", () => {
             // Given an emitter
             const e = emitter<any>();
@@ -37,22 +57,6 @@ describe("Sources", () => {
             // Then calling it should do nothing
             e(42);
         });
-        it("should be ok with multiple subscribers", () => {
-            // Given an emitter
-            const e = emitter<any>();
-            // When its source is subscribed and pulled with two sinks at different times
-            const c1 = connect(e.source, log.emit); runPulls();
-            e(42); see("42");
-            let emits = 0;
-            const c2 = connect(e.source, v => (emits++, true)); runPulls();
-            // Then it should emit to the currently-subscribed sinks
-            e(43); see("43"); expect(emits).to.equal(1);
-            // Until their connections close
-            c1.end();
-            e(44); see(); expect(emits).to.equal(2);
-            c2.end();
-            e(45); see(); expect(emits).to.equal(2);
-        });
         it("should throw to its subscriber(s)", () => {
             // Given an emitter
             const e = emitter<any>();
@@ -75,7 +79,8 @@ describe("Sources", () => {
             // Then the connection should be closed
             see("closed");
         });
-    });
+    }
+
     describe("empty()", () => {
         it("immediately closes", () => {
             // Given an empty stream
@@ -394,6 +399,23 @@ describe("Sources", () => {
             expect(factory).to.have.been.calledOnceWithExactly()
             // And pass the connection and sink to the result
             expect(src).to.have.been.calledOnceWithExactly(log.emit, c);
+        });
+    });
+    describe("mock()", () => {
+        testEmitterBasics(mockSource);
+        it("should have working backpressure", () => {
+            // Given a subscribed mock emitter
+            const e = mockSource<any>(), c = connect(e.source, log);
+            // Then it should be .ready()
+            e(22); see("22");
+            expect(e.ready()).to.be.true;
+            // And When paused
+            pause(c);
+            // Then its ready() should reflect that
+            expect(e.ready()).to.be.false;
+            // And a ready() callback should run when resumed
+            e.ready(()=>log("resumed"));
+            resume(c); runPulls(); see("resumed")
         });
     });
     describe("never()", () => {

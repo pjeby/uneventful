@@ -31,15 +31,8 @@ export interface Emitter<T> {
  * @category Stream Producers
  */
 export function emitter<T>(): Emitter<T> {
-    let write: Sink<T>, outlet: Connection;
-    function emit(val: T) { if (write) write(val); };
-    emit.source = share<T>((sink, conn) => {
-        write = sink; outlet = conn;
-        must(() => write = outlet = undefined);
-        return IsStream;
-    });
-    emit.end = () => outlet?.return();
-    emit.throw = (e: any) => outlet?.throw(e);
+    const emit = mockSource<T>();
+    emit.source = share(emit.source);
     return emit;
 }
 
@@ -244,6 +237,37 @@ export function interval(ms: number): Source<number> {
  */
 export function lazy<T>(factory: () => Source<T>): Source<T> {
     return (sink, conn) => factory()(sink, conn)
+}
+
+/**
+ * An {@link Emitter} with a ready() method, that only supports a single active
+ * subscriber.  (Useful for testing stream operators and sinks.)
+ *
+ * @category Types and Interfaces
+ */
+export interface MockSource<T> extends Emitter<T> {
+    ready: Backpressure
+}
+
+/**
+ * Like {@link emitter}, but with a ready() backpressure method.  It also only
+ * supports a single active subscriber.  (Useful for testing stream operators
+ * and sinks.)
+ *
+ * @category Stream Producers
+ */
+export function mockSource<T>(): MockSource<T> {
+    let write: Sink<T>, outlet: Connection, ready: Backpressure;
+    function emit(val: T) { if (write) write(val); };
+    emit.source = (mockSource ? (x: Source<T>) => x : share<T>)((sink, conn) => {
+        write = sink; outlet = conn; ready = backpressure(conn);
+        must(() => write = outlet = ready = undefined);
+        return IsStream;
+    });
+    emit.end = () => outlet?.return();
+    emit.throw = (e: any) => outlet?.throw(e);
+    emit.ready = (cb?: () => any) => ready(cb);
+    return emit;
 }
 
 /**
