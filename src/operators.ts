@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
-import { Connector, IsStream, Source, Transformer, connect, pause, resume, subconnect } from "./streams.ts";
-import { isValue } from "./tracking.ts";
+import { Connector, IsStream, Sink, Source, Transformer, backpressure, connect, pause, resume, subconnect } from "./streams.ts";
+import { isValue, noop } from "./tracking.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -193,6 +193,60 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
         let idx = 0, met = false;
         return src(v => (met ||= !condition(v, idx++)) && sink(v), conn);
     };
+}
+
+/**
+ * Add flow control and buffering to a stream
+ *
+ * This lets you block events from a stream that can't be paused, or allow for
+ * some slack for a source that can sometimes get ahead of its sink.
+ *
+ * @param size The number of items to buffer when the sink is busy (i.e., the
+ * sink is running or the connection is paused).  If positive, the most recent N
+ * items are kept (a "sliding" buffer), and if negative, the oldest N item are
+ * kept (a "dropping" buffer). If zero, no items are buffered, and items are
+ * dropped if received while the sink is busy.
+ *
+ * @param dropped Optional: a callback that will receive items when they are
+ * dropped.  (Useful for testing, performance instrumentation, error logging,
+ * etc.)
+ *
+ * @category Stream Operators
+ */
+export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> {
+    const max = Math.abs(size);
+    return src => (sink, conn=connect()) => {
+        const buffer: T[] = [], ready = backpressure(conn);
+        let paused = false, draining = false;
+
+        const s = subconnect(conn, src, v => {
+            buffer.push(v);
+            if (!draining && ready()) return drain();
+            while (buffer.length > max) { dropped((size < 0) ? buffer.pop() : buffer.shift()); }
+            if (buffer.length === max) { pause(s); paused = true; }
+            if (buffer.length) ready(drain);
+        }).must(r => {
+            if (isValue(r)) conn.return();
+        });
+
+        function drain() {
+            draining = true;
+            try {
+                while(buffer.length) {
+                    sink(buffer.shift());
+                    if (paused && ready()) {
+                        paused = false; resume(s);
+                    }
+                    if (buffer.length && !ready()) {
+                        return ready(drain);
+                    }
+                }
+            } finally {
+                draining = false;
+            }
+        }
+        return IsStream;
+    }
 }
 
 /**

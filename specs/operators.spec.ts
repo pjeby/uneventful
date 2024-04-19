@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -292,6 +292,69 @@ describe("Operators", () => {
             input.end();
             see("closed");
         });
+    });
+    describe("slack()", () => {
+        function dropper(v: any) { log(`drop: ${v}`); }
+        it("drops everything when paused (w/size=0)", () => {
+            // Given a connection to a mockSource piped through slack 0
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(0, dropper)), log).must(logClose);
+            // When items are emitted, they pass through immediately
+            e(1); see("1");
+            // But when the connection is pasued, they are dropped
+            pause(c); e(2); see("drop: 2");
+            // Until the connection is resumed
+            resume(c); e(3); see("3");
+            // And it closes when the upstream does
+            e.end(); see("closed");
+        });
+        it("buffers newest items when paused (w/size > 0)", () => {
+            // Given a connection to a mockSource piped through slack 2
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(2, dropper)), log).must(logClose);
+            // When items are emitted, they pass through immediately
+            e(1); see("1");
+            // And the upstream is unpaused
+            expect(e.ready()).to.be.true;
+            // But when the connection is pasued, they are buffered
+            pause(c); e(2);
+            // Until the connection is resumed (and upstream is resumed)
+            resume(c); see("2"); e(3); see("3");
+            // And the upstream is paused when the buffer is full
+            pause(c); e(4); see(); e(5); see();
+            expect(e.ready()).to.be.false;
+            // And if the buffer overflows, older items are dropped
+            e(6); see("drop: 4");
+            // And only the newest items are seen on resume
+            // with the upstream resuming only once there's room in the buffer
+            e.ready(()=>log("resumed")); resume(c); see("5", "resumed", "6");
+            expect(e.ready()).to.be.true;
+            // And it closes when the upstream does
+            e.end(); see("closed");
+        });
+        it("buffers oldest items when paused (w/size > 0)", () => {
+            // Given a connection to a mockSource piped through slack -2
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(-2, dropper)), log).must(logClose);
+            // When items are emitted, they pass through immediately
+            e(1); see("1");
+            // And the upstream is unpaused
+            expect(e.ready()).to.be.true;
+            // But when the connection is pasued, they are buffered
+            pause(c); e(2);
+            // Until the connection is resumed
+            resume(c); see("2"); e(3); see("3");
+            // And the upstream is paused when the buffer is full
+            pause(c); e(4); see(); e(5); see();
+            expect(e.ready()).to.be.false;
+            // And if the buffer overflows, newer items are dropped
+            e(6); see("drop: 6");
+            // And only the oldest items are seen on resume,
+            // with the upstream resuming only once there's room in the buffer
+            e.ready(()=>log("resumed")); resume(c); see("4", "resumed", "5");
+            // And it closes when the upstream does
+            e.end(); see("closed");
+        });
+        // XXX these scenarios need each() in order to test them:
+        // - stops draining when sink pauses
+        // - handles re-entry if sink triggers an emission from upstream
     });
     describe("switchAll()", () => {
         it("switches to its latest input stream", () => {
