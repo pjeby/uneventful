@@ -63,14 +63,14 @@ export function rejecter(request: Request<any>): (err: any) => void { return req
 export function noop() {}
 
 /**
- * A {@link FlowResult} that indicates the flow was ended via a return() value.
+ * A {@link JobResult} that indicates the job was ended via a return() value.
  *
  * @category Types and Interfaces
  */
 export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
 
 /**
- * A {@link FlowResult} that indicates the flow was ended via a throw() or other
+ * A {@link JobResult} that indicates the job was ended via a throw() or other
  * error.
  *
  * @category Types and Interfaces
@@ -78,7 +78,7 @@ export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
 export type ErrorResult    = {op: "throw",   val: undefined, err: any};
 
 /**
- * A {@link FlowResult} that indicates the flow was canceled by its creator (via
+ * A {@link JobResult} that indicates the job was canceled by its creator (via
  * end() or restart()).
  *
  * @category Types and Interfaces
@@ -86,21 +86,21 @@ export type ErrorResult    = {op: "throw",   val: undefined, err: any};
 export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
 
 /**
- * A result passed to a flow's cleanup callbacks
+ * A result passed to a job's cleanup callbacks
  *
  * @category Types and Interfaces
  */
-export type FlowResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
+export type JobResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
 
 function mkResult<T>(op: "next", val?: T): ValueResult<T>;
 function mkResult(op: "throw", val: undefined|null, err: any): ErrorResult;
 function mkResult(op: "cancel"): CancelResult;
-function mkResult<T>(op: string, val?: T, err?: any): FlowResult<T> {
-    return {op, val, err} as FlowResult<T>
+function mkResult<T>(op: string, val?: T, err?: any): JobResult<T> {
+    return {op, val, err} as JobResult<T>
 }
 
 /**
- * The {@link FlowResult} used to indicate a canceled job.
+ * The {@link JobResult} used to indicate a canceled job.
  *
  * @category Requests and Results
  */
@@ -125,7 +125,7 @@ export function ErrorResult(err: any): ErrorResult { return mkResult("throw", un
  *
  * @category Requests and Results
  */
-export function isCancel(res: FlowResult<any> | undefined): res is CancelResult {
+export function isCancel(res: JobResult<any> | undefined): res is CancelResult {
     return res === CancelResult;
 }
 
@@ -134,7 +134,7 @@ export function isCancel(res: FlowResult<any> | undefined): res is CancelResult 
  *
  * @category Requests and Results
  */
-export function isValue<T>(res: FlowResult<T> | undefined): res is ValueResult<T> {
+export function isValue<T>(res: JobResult<T> | undefined): res is ValueResult<T> {
     return res ? res.op === "next" : false;
 }
 
@@ -143,6 +143,6 @@ export function isValue<T>(res: FlowResult<T> | undefined): res is ValueResult<T
  *
  * @category Requests and Results
  */
-export function isError(res: FlowResult<any> | undefined): res is ErrorResult {
+export function isError(res: JobResult<any> | undefined): res is ErrorResult {
     return res ? res.op === "throw" : false;
 }

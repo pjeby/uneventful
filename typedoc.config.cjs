@@ -4,7 +4,7 @@ module.exports = {
     customCss: ["./typedoc/custom.css"],
     categorizeByGroup: false,
     categoryOrder: [
-        "Flows",
+        "Jobs",
         "Resource Management",
         "Scheduling",
         "Requests and Results",

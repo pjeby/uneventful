@@ -1,14 +1,14 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
 import { Connection, Connector, backpressure, pause, resume, subconnect } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Flow, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getFlow, isError, FlowResult, noop } from "../mod.ts";
+import { type Job, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getJob, isError, JobResult, noop } from "../mod.ts";
 
 type Conn = Connector & Connection;
-function mkConn(parent: Flow = null) {
+function mkConn(parent: Job = null) {
     return (parent || detached).run(() => connect());
 }
 
-function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
+function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("connect()", () => {
     useRoot();
@@ -20,18 +20,18 @@ describe("connect()", () => {
         // Then the source should have been called with the sink and connector
         expect(src).to.have.been.calledOnceWithExactly(sink, c);
     });
-    it("is linked to the running flow", () => {
-        // Given a conduit opened by connect in the context of a flow
+    it("is linked to the running job", () => {
+        // Given a conduit opened by connect in the context of a job
         const src = spy(), sink = spy();
-        const flow = start(() => {
+        const job = start(() => {
             connect(src, sink).must(logClose);
         });
-        // When the flow is ended
-        see(); flow.end();
+        // When the job is ended
+        see(); job.end();
         // Then the conduit should be closed
         see("closed");
     });
-    it("calls the source with the conduit's flow active", () => {
+    it("calls the source with the conduit's job active", () => {
         // Given a source and a sink
         function sink() { return true; }
         function src(_sink: Sink<any>) { must(() => log("cleanup")); return IsStream; }
@@ -58,12 +58,12 @@ describe("backpressure()", () => {
         see("closed");
         expect(backpressure(c)()).to.be.false;
     });
-    it("closes(+unready) when its enclosing flow is cleaned up", () => {
-        // Given a flow and a connection it's attached to
-        detached.start(flow => {
-            const c = mkConn(getFlow()).must(logClose);
-            // When the flow ends
-            flow.end();
+    it("closes(+unready) when its enclosing job is cleaned up", () => {
+        // Given a job and a connection it's attached to
+        detached.start(job => {
+            const c = mkConn(getJob()).must(logClose);
+            // When the job ends
+            job.end();
             // Then the connection should be closed and the limiter unready
             see("closed");
             expect(backpressure(c)()).to.be.false;
@@ -194,7 +194,7 @@ describe("subconnect()", () => {
             // Then the source should be called with the new conduit and the sink
             expect(src).to.have.been.calledOnceWithExactly(sink, f);
         });
-        it("runs with the new conduit's flow", () => {
+        it("runs with the new conduit's job", () => {
             // Given a conduit, a source and a sink
             const c = mkConn();
             function sink() { return true; }

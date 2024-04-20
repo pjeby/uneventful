@@ -1,186 +1,183 @@
-# uneventful: signals plus streams, minus the seams
+## uneventful: signals plus streams, minus the seams
 
-Reactive signals (like preact-signals or maverick) and streams (like rxjs or wonka) are both great ways of simplifying event-driven programming.  But each has different strengths, and making one do the work of the other is hard.  (And neither is that great at *sequential* asynchrony, like CSP or goroutines.)
+#### The Problem
+Event-driven programming is fundamentally *garbage*.  Whether you're using raw event handlers or some kind of functional abstraction (like streams or signals or channels), the big issue with creating complex interactivity is that at some point, you have to *clean it all up*.
 
-Enter `uneventful`: a seamless, *declarative* blend of signals, streams, and CSP-like, cancelable asynchronous jobs with automatic resource management.  If a job subscribes to a stream or creates an `effect()`, it's automatically cleaned up when the job ends -- or it or any parent job is canceled.  Likewise, if an effect spawns a job based on the value of a signal, the job is automatically canceled when the effect is rerun (or canceled by the end of an enclosing job).
+Handlers need to be removed, requests need to be canceled, streams unsusbcribed or channels closed, and a whole bunch more.  And if you don't do it *just right*, you get **bugs**, hiding in your leftover garbage.
 
-The approach lets you use only the very *best* parts of all three paradigms, without needing to force something signal-like to be more streamy or vice versa, or to make either do something that's better represented as sequential steps.  Consider this contrived and somewhat silly example:
+Worse, the need to keep track of *what* garbage to get rid of and *when* to do it breaks functional composition and information hiding.  You can't just write functions that *do* things, because they need to either return disposal information or have it passed into them.
 
-```typescript
-import { effect, when, until, job, value, fromDomEvent, interval } from "uneventful";
+Sure, reactive stream and signal libraries help with this some, by giving you fewer things to dispose of, or giving you some tools to dispose of them with.  But both paradigms have their limits: when you start doing more complex interactions, you usually end up needing ever-more complex stream operators, or signal-based state machines.
 
-const buttonClick = fromDomEvent(buttonElement, "click");
-const multiplierValue = value(1);
+And so, while your code *is* a bit cleaner, the complexity and clutter hasn't really gone away: it's just moved to the mind of the person *reading* your code.  (Like you, six months later!)
 
-effect(() => {
-    const multiplier = multiplierValue();
-    when(buttonClick, () => job(function*() {
-        for (let i=1; i<=10; i++) {
-            yield *until(interval(1000));
-            outputElement.textContent = `${i*multiplier}...`;
-        }
-    }));
-});
-```
-Whenever `buttonElement` is clicked, this code will place a series of values in `outputElement`, based on the current value of the `multiplierValue` signal.  if the button is clicked again while that's happening, the previous job will be aborted, and the series will start over.  If the value of the `multiplierValue` signal changes, the event handler will be re-registered and any outstanding series canceled.
+#### The Solution
+Enter Uneventful: a seamless, *declarative*, and **composable** blend of signals, streams, and CSP-like, cancelable asynchronous jobs (aka structured concurrency) with automatic resource management.
 
-Of course, if we *didn't* want the job to be canceled when the multiplier changes, we would've just referenced `multiplierValue` in the `job()` function directly, and not in the `effect()`.  And if we didn't want clicks to cancel the job either, we could ditch the `when()` block and just write the job as an outer loop that does a`yield *until(buttonClick)` before running the inner loop, so it wouldn't be paying attention to clicks while counting.
+Uneventful does for event-driven interaction what async functions did for promises: it lets you build things out of *functions*, instead of spaghetti and garbage.  It's a system for *composable interactivity*, unifying and composing all of the current reactive paradigms in a way that hides the seams and keeps garbage collection where it belongs: hidden in utility functions, not cluttering up your code and your brain.
 
-Notice how, if we could *only* use signals or streams or CSP, this example (and most of its possible variations) would be a good bit more **complex**.  To make it work with just streams, we'd need a lot of `switchMap` operators and callbacks.  With only signals, we'd have to unravel the job part into a state machine.  With just CSP, we'd need to turn the muliplier value into a channel and have a second job.
+And it does all this by letting your program structure *reflect its interactivity*.
 
-And *all* of them would be more code, more complexity, more *glue* to set things up and shut them down, and more potential for errors.
+```ts
+import { start, forEach, fromDomEvent, must, Job } from "uneventful";
 
-In contrast, uneventful's seamless blending of different kinds of reactivity (with automatic canceling and resource cleanup) means uneventful can be *lightweight*, both conceptually and in code size.  You don't need to learn or use a hundred different stream operators, for example, when so many of them are things that can be expressed more cleanly as signal effects or sequential tasks.
+function drag(node: HTMLElement): Job<HTMLElement> {
+    return start(job => {
+        // The dragged item needs a dragging class during the operation
+        addDragClass(node);
 
-## Features and Differences
+        // The item position needs to track the mouse movement
+        trackMousePosition(node);
 
-### Flows and Resources
+        // The job ends when the mouse button goes up,
+        // returning the DOM node it happens over
+        forEach(fromDomEvent(document, "mouseup"), e => {
+            // This exits the job, removing all the listeners
+            // (and the CSS class) in the process
+            job.return(e.target);
+        });
+    });
+}
 
-The magic sauce that makes uneventful work is its concept of **flows**.  In the simplest terms, a flow is an activity that releases resources upon termination -- where "releasing resources" also means "terminating any nested flows".
+function addDragClass(node: HTMlElement) {
+    // Add a class now
+    node.classList.add("dragging");
+    // And remove it when the job is over
+    must(() => node.classList.remove("dragging"));
+}
 
-When an outer flow ends (whether by finishing normally, being canceled, or throwing an error), its inner flows are automatically ended as well.  This means that you don't have to do explicit resource management for event handlers and the like: it's all handled for you automatically.  (And as you'll see in the next section, you can also add explicit `must()` callbacks to release non-flow resources when the enclosing flow ends.)
-
-This means that flows are *composable*: you can wrap different kinds of them inside each other without limit, without restriction as to the kind of flow -- event streams, effects, jobs, or even custom flows you create!  (Since uneventful tracks the "current" flow for you, you can write functions that create flows and call them from inside any other flow, without needing to create an explicit way to release resources or "unsubscribe".)
-
-Our example above used three **flow factories**: a `job()` inside a `when()` inside an`effect()`.  The `effect` factory restarts its flow each time the values it depends on change, thus terminating any nested flows that were created in the previous run.  The `when` factory creates a flow to manage the event subscription, and also a nested flow that restarts whenever a new value/event arrives.
-
-These three factories also happen to be Uneventful's main ways of doing asynchronous work:
-
-- `effect(`*side-effect function*`)` runs a function for each update to the values of one or more [signals](#signals), with automatic resource cleanup before each update and when the effect itself is canceled.
-- `when(`*source*`, `*listener*`)` consumes rxjs-like [streams](#streams), running a listener once for each received value.  Each invocation of the listener is in a fresh or restarted flow, so whenever a new value/event arrives, the stream closes, or the `when`'s outer flow is terminated,  any resources used (or flows created) by the previous invocation of the listener are automatically released.
-- `job(`*generator-or-genfunc*`)` creates an asynchronous [job](#jobs) - a single continuous flow that will be automatically canceled if the enclosing flow is canceled or restarted.  The returned job object is promise-like, with `then`/`catch`/`finally`, and can be `await`ed by async functions. (For interop with APIs that need promises or async functions.)
-
-   Within a job function,`yield *until()` suspends the job to wait for a promise, event, another job, or a truthy signal value.  (Also, within a job function you can use try-finally or `using` as a way to manage cleanup, in addition to the standard flow factories and `must()`.)
-
-Of course, all this flow composition has to start *somewhere*, and usually that will be via one or more `detached.start()` calls.
-
-### Resource Tracking and Cleanup
-
-Under the hood, a flow keeps a collections of callbacks to run when the flow ends, to release resources, unsubscribe listeners, or do other cleanup operations.  Within your `effect()`, `when()` and `job()` functions, you can use `must(callback)` to add cleanup callbacks to the current flow.  When the enclosing flow ends or restarts, these callbacks are invoked in last-in-first-out order.
-
-For a `job()`, any added callbacks are run when the job as a whole is finished or canceled.  But for `effect()` and `when()`, they're *also* run when dependent values change, or the monitored stream produces a new value.  This lets you write code like this:
-
-```typescript
-import { value, effect, must } from "uneventful";
-this.selectedIndex = value(0);  // dynamic value
-
-effect(() => {
-    const selectedNode = this.nodes[this.selectedIndex()];
-    if (selectedNode) {
-        selectedNode.classList.add("selected");
-        must(() => { selectedNode.classList.remove("selected"); });
-    }
-});
-```
-
-This code will add `.selected` to the class of the currently selected element (which can be changed with `this.selectedIndex.set(number)`).  But, it will also automatically *remove* the class from the *previously* selected item (if any), before applying it to the new one!  (The class will also be removed if the effect is canceled, e.g. by the termination of an enclosing flow.)
-
-As a convenience, you can also return cleanup functions directly from `when()` and `effect()` handlers, without needing to wrap them with a `must()` call.
-
-Resource tracking is normally managed for you automatically, but you can also manually manage them via the `tracker()` function and its methods.  You probably won't do that very often, though, unless you're creating a custom flow or stream operator, or integrating your root-level flows with another framework's explicit resource management.
-
-For example, [Obsidian.md](https://obsidian.md/) plugins and components will usually want to `.register()` their flows in an explicit `track()` call, to ensure they're all stopped (and the resources released, events unhooked, etc.) when the plugin or component is unloaded:
-
-```typescript
-import { detached } from "uneventful";
-
-class SomeComponentOrPlugin extends obsidian.Component {
-    onload() {
-        this.register(detached.start(() => {
-            // create effect(), job() or when() flows here
-            // (They will all be stopped and resources cleaned
-            // up when the component or plugin is unloaded.)
-        }).end);
-    }
+function trackMousePosition(node: HTMLElement) {
+    forEach(fromDomEvent(document, "mousemove"), e => {
+        // ... assign node.style.x/.y from event
+    });
 }
 ```
 
-### Signals
+The example above is a sketch of a drag-and-drop operation that can be *called as a function*.  It returns a Job, which is basically a cancellable Promise.  (With a bunch of extra superpowers we'll get to later.)  Other jobs can wait for it to complete, or you can `await` it in a regular async function if you want.
 
-#### Differences from Other Signal Frameworks
+You've probably noticed that there isn't any code here that unsubscribes from anything, and that the only explicit "cleanup" code present is the `must()` call in `addDragClass()`.  That's because Uneventful keeps track of the "active" job, and has APIs like `must()` to register cleanup code that will run when that job is finished or canceled.  This lets you move the garbage collection to *precisely* where it belongs in your code: **the place where it's created**.
 
-(If you're not familiar with other signal frameworks, please skip to the [next section](#signal-objects)!  This bit is literally **just** about things that may confuse people who *are* familiar with other JavaScript-based signal frameworks.)
+If you're familiar with [statecharts](https://statecharts.dev/what-is-a-statechart.html), you might notice that this code sample can easily be translated to one, and the same is true in reverse: if you use statecharts for design and uneventful for implementation, you can pretty much *write down the chart as code*.  (A job definition function is a state, and each job instance at runtime represents one "run" of that state.)
 
-##### Terminology
+But Uneventful is actually *better* than statecharts, even for design purposes: instead of following boxes and lines, your code is a straightforward list of substates, event handlers, or even *sequential* activities:
 
-If you're coming to Uneventful from other signal frameworks, the first big thing you may notice is our terminology is a bit different.  That's because we try to use names that indicate what something is *used for*, rather than what something *is*, how it works, or what it's made of.
+```ts
+import { each } from "uneventful";
 
-So, what other frameworks usually call a `signal()`, we call a `value()`, because what you use it for is to *store a value*.  And instead of `computed()`, we have `cached()`, because you use it to intelligently cache a function's results between changes, to avoid extra work.
-
-##### No Cycles Allowed
-
-The second big thing to be aware of is that Uneventful does not allow effects to create dependency cycles, even temporarily.  It catches them much earlier than other frameworks, throwing at the first effect that closes such a cycle.
-
-Yes, other signal frameworks do detect and break dependency cycles, but they don't always show you *where* the problem is in your code.  (e.g. Preact signals throw at the point where you start or end a batch, not in the effect that actually closes the cycle.)  This is because other frameworks usually allow effects to create *temporary* cycles as long as they *eventually* terminate.
-
-Why?  Because if signals are the only thing you have in your toolbox, you'll usually need to create *state machines* in your effects, where you're using signals to determine where you are in a process and then updating them afterwards.  (This is technically a dependency cycle, because you're updating a value that you also read in the same effect/batch.)
-
-In uneventful, however, there is no need to make such state machines in your effects, because you can just use a `job()` instead!  Jobs can wait for values to change and set values if they need to, and keep their own state internally.  The code is cleaner and easier to understand/debug, because you're not writing a state machine, just a function with loops and branches.
-
-So if you're porting existing signal-based code to uneventful, you may need to refactor a few of your effects to be jobs.  (You'll know because those effects will throw `WriteConflict` or `CircularDependency` errors almost as soon as they're run.)
-
-##### Unique Batching Model
-
-The third and final big thing to be aware of is that Uneventful schedules effects differently than other frameworks.  By default, it's similar to Maverick's model, where you don't need to explicitly batch anything, and effects are re-run asynchronously unless you ask for them to be run right away.  But it's different in that 1) creating an effect *doesn't* run it right away, and 2) you can assign individual effects to custom effect schedulers, so that you can e.g. run some effects only in animation frames, or when a button gets pushed, or really any other time you like.
-
-These two differences are related: if effects ran right away, then by definition they wouldn't be running when a button was pressed or in an animation frame!  So when you create an effect, it's *scheduled* right away, but won't do its first run until its scheduler tells it to.  (The default scheduler will run it in the next microtask if you don't ask it to flush the queue before then.)
-
-#### Signal Objects
-
-A signal is an *observable value*.  Specifically, it can be monitored by `effect()`,  `when()`, or `yield *until()`, in order to perform actions when it changes in certain ways.
-
-Monitoring is automatic, in that you don't have to perform any explicit subscription operations.  Just reading the value of a signal (or calling a function that reads a signal) from within an `effect()` automatically subscribes the effect to be re-run when the signal changes.
-
-Similarly, passing a signal (or a zero-argument function that reads one or more signals) to `when()` or `yield *until()` will create a subscription to be notified as soon as the signal (or function result) produces a truthy value.
-
-All of these kinds of subscriptions will be ended when they're no longer needed (such as when the effect stops reading the signal value, or is canceled).
-
-Signals in Uneventful are created with `value(initialvalue)`, and `cached(calcFunction)`.  `value()` objects are writable via a `set()` method, while `cached()` functions are read-only functions, returning the most recent return value of their wrapped function.  Calling a cached function will always return the same result, *unless* any of the signals it read during its last run have changed since then.
-
-`cached()` functions are technically unnecessary, in that you could always just use plain signal-using functions without any wrapping.  But on a practical level, they improve efficiency by preventing unnecessary re-running of effects or redoing of expensive calculations.  A `cached()` function is guaranteed to be called no more than once per "batch" of updates to any of its dependencies, and it will not notify any of its subscribers if its result doesn't change.  (And, if it doesn't have any flows subscribed to it  (via `effect()`, `when()` `*until()`, etc.), it won't be re-run unless explicitly called.)
-
-#### Batching and Side-Effects
-
-**tl;dr version**: Uneventful keeps your "model" (values and cached functions) up-to-date immediately, while side-effects update your "views" in the following microtask.  If you don't care about more details than that, skip on to the next section!
-
-**detailed technical version:**  Underneath every functional signal framework is a [complex web of logic](https://smuglispweeny.blogspot.com/2008/02/cells-manifesto.html) designed to make sure that side effects see *every consistent* application state, with no dirty reads or lost updates.
-
-This means that if multiple side-effects depend on one signal, they must *all* be run *each* time that signal is changed (i.e. no "lost updates").  And conversely, if you change two different signals "at the same time" (like in a batch or transaction), no side-effects must ever see an intermediate state where only one of the two signals has changed.  (i.e., no "dirty reads".)
-
-Uneventful provides these same guarantees, without you needing to *do* anything about it in particular, except to bear in mind that side-effects work a bit like `async` functions: just because you *call* one now, doesn't mean it *runs* now... and you *definitely* won't get the *result* now.  And just like with async functions, the soonest you'll get the result (or side-effects in this case) is the next microtask.  So if you write something like this:
-
-```typescript
-effect(() => {
-    /* do something */
-});
-
-/* code expecting "something" to have been done */
+function supportDragDrop(node: HTMLElement) {
+    return start(function*(job) {
+        const mouseDown = fromDomEvent(node, "mousedown");
+        for (const {item: node, next} of yield *each(mouseDown)) {
+            const dropTarget = yield *drag(node);
+            // do something with the drop here
+            yield next;  // wait for next mousedown
+        });
+    });
+}
 ```
-...you're gonna have a hard time.
 
-Instead, if you need to write code that runs "after" an effect, it needs to be done asynchronously: i.e., run by a promise, event stream, or job that's been triggered by the effect.  (Just like async functions results can only be seen by other async functions, or via `then()` callbacks.)  A side-effect can't even see the results of its *own* actions! (Except via `peek()`.)
+Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so *synchronously*.  (That is, each pass of the loop starts *during* the event being responded to, not in a later microtask.)
 
-In practice, this limitation isn't a big deal because the normal use of side effects is to update your application's *views* (or other "external" systems), and while they need to see every consistent update, they usually don't need to see their own changes -- they are, after all, the ones *making* those changes!
+Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but *synchronously*, during the mouseup event that ends the `drag()` call.  (Note: this synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
 
-Other signal frameworks don't usually make this distinction between side-effects and signals, however.  Instead, they usually require you to mark out batches (explicitly or implicitly) in order to see the results of *any* changes.  Uneventful side-steps this issue by treating side-effects differently than values and cached functions: if you change values outside of a side-effect, the changes are *immediately* visible to your code, even when you call cached functions.
+And though we haven't shown any details here of what's being *done* with the drop, it's possible that we'll kick off some additional jobs to do an animation or contact a server or something of that sort, and wait for those to finish before enabling drag again.  (Unless of course we *want* them to be able to overlap with additional dragging, in which case we can spin off detached jobs.)
 
-This doesn't result in dirty reads, though, because cached functions are only run when you explicitly *call* them.  So if you set value `A`, then set value `B`, and finally call the cached function `getAPlusB()`, it will only be called *once*, with both A and B changed.  And if a later side-effect *also* calls it, it will get the cached result from the earlier call, unless A or B got changed again in the meantime.
+#### Context, Cancellation, and Cleanup
+If you look closely, you might notice that our last example is an *infinite loop*.  `fromDomEvent` returns a stream that will never end on its own, so we could in fact declare this function as returning `Job<never>` -- i.e. a promise that will never return a value.  (But it can still throw an error, or be canceled.)
 
-This approach avoids the need to explicitly manage batching and update visibility outside side-effect code.  Which is very important, because it means you can write signal-using APIs without needing the code *using* the API to know anything about signals. (That is, the downside to the approach other frameworks use, is that code that calls into a signal-using API will usually need to know about the specific frameworks' signal batching strategy and very likely its API as well!)
+So how does it *exit*?  When do the event handlers get cleaned up?
 
-In short: values and cached functions are for representing your application's *model*, and side-effects are for updating its *views*.  And if on some rare occasion you need to update the model from within a side-effect or see a downstream effect, you can still do it asynchronously.
+Well, that's up to the *caller*.  If the calling job exits, then any unfinished jobs "inside" it are automatically canceled.  (It can also explicitly cancel the job, of course.)
 
-### Streams
+For jobs implemented via a setup function (like `drag()`) this just means that all `must()` callbacks registered with that job will be invoked, in reverse order.  For a job implemented as a generator (like `supportDragDrop()`), it also means that the most recent `yield` will be resumed as if it had been a `return` instead, allowing any enclosing `try` /`finally` blocks to run.
 
-WIP
+In order for all this to work, of course, Uneventful has to keep track of the "active" job, so that `must()` callbacks and nested jobs can be linked to the correct owner.  (You can also do this linking explicitly, e.g. by directly calling a specific job's `.start()` or `.must()` methods instead of the standalone versions.)  The way it works is this:
 
-### Jobs
+- If you're in the body of a `start()` function, that job is active
+- if you're in the body of a `start()`-ed *generator* function, the same applies, but also any generator functions you `yield *` to in the generator function will still have the job active.
+- Callbacks **must** be wrapped with `restarting()` or a job's `.bind()` method (or invoked via a job's `.run()` method) in order to have a job active.
+- If you're in a function directly called from an any place where there's an active job, that job is still active.
 
-WIP
+Early versions of Uneventful also tried to automatically wrap event handlers to run in their owning jobs, but it turned out that this is fairly wasteful in practice!  Most event handlers are defined inside of jobs, and so have easy access to their job instance in a variable (as provided by `start()`).  So they can explicitly target `job.start()` or `job.must()` to create subjobs or register cleanups, etc., without needing an implicit current job.
 
-## Current Status
+(Also, as in our `supportDragDrop()` example, you can just loop over `yield *each()` and avoid callbacks entirely!)
 
-This library is still under development, but the ideas and most of the implementation are already working well as a draft version inside [@ophidian/core](https://github.com/ophidian-lib/core), for creating complex interactive Obsidian plugins.  The draft version is based on preact-signals for its signals implementation and wonka for its streams, but both will be replaced with uneventful-native implementations in this library, to drop the extra wrapping code, streamline some features, and add others.  (For example, preact-signals doesn't support nested effects and wonka doesn't support stream errors; uneventful will support both.)
+So the main place where you're likely to want to wrap an event handler is when you want events to start an operation that might be superseded by a *later* event of the same kind.  For example, if you want to make a folder open in your UI when a drag hovers over it for a certain amount of time:
 
-As of this writing, uneventful's signals framework is fully functional; work on the stream and job frameworks is still ongoing.
+```ts
+import {restarting, sleep} from "uneventful";
+
+start(job => {
+    forEach(currentlyHoveredFolder, restarting(folder => {
+        if (folder && !folder.isOpen()) start(function *(job) {
+            yield *sleep(300);
+            // ... open the folder here
+        });
+    }));
+});
+```
+
+Let's say that `currentlyHoveredFolder` is a stream that sends events as the hover state changes: either a folder object or `null` if no hovering is happening.  The `restarting()` API wraps the event handler with a "temp" job that is canceled and restarted each time the function is called.
+
+With this setup, the "open the folder here" code will only be reached if the hover time on a given folder exceeds 300ms.  Otherwise, the next change in the hovered folder will cancel the sleeping job (incidentally clearing the timer ID allocated by the `sleep()` as it does so).
+
+Now, in this simple example you *could* just directly do the debouncing by manipulating the stream.  And for a lot of simple things, that might even be the best way to do it.  Some event driven libraries might even have lots of handy built-in ways to do things like canceling your in-flight ajax requests when the user types in a search field.
+
+But the key benefit to how Uneventful works is that you're not *limited* to whatever bag of tricks the framework itself provides: you can just **write out what you want** and it's easily cancellable by *default*, without you needing to try to twist your use case to fit a specific trick or tool.
+
+#### Signals and Streams, Minus The Seams
+So far our examples haven't really used anything "fancy": we've only imported seven functions and a type!  But Uneventful also provides a collection of reactive stream operators roughly on par with Wonka.js, and a reactive signals API comparable to that of Maverick Signals.  So you can `pipe()`, `take()`, `skip()`, `map()`, `filter()` or even `switchMap()` streams to your heart's content.  (See the Stream Operators section of the docs for the full list.)
+
+Uneventful's signals and effects are named and work slightly differently from most other frameworks, though.  In particular, what other framework APIs usually call a "signal", we call a *value*.  What others call "computed", we call a *cached function*.  And what they call an "effect", we call a *rule*.  (With the respective APIs being named `value()`, `cached()`, and `rule()`.  We still call them "signals" as a category, though.)
+
+Why the differences?  Uneventful is all about *making clear what your code is doing*.  A "signal" is just an **observable value** that you can change.  A "computed" value is just a function whose value you don't *want* to recompute unless its dependencies change: that is, it's a **cached function**.  And when you write an "effect" you're really defining a **rule for synchronizing state**.
+
+(But of course, if you're migrating from another signal framework, or are just really attached to the more obscure terminology, you can still rename them in your code with `import as`!)
+
+Beyond these superficial differences, though, there are some deeper ones.  Unlike other libraries' "effects", Uneventful's rules *start asynchronously* and can be *independently scheduled*.  This means, for example, that it's easy to make rules that run only in, say, animation frames:
+
+```ts
+import { RuleScheduler } from "uneventful";
+
+/**
+ * An alternate version of rule() that runs in animation frames
+ * instead of microticks
+ */
+const animate = RuleScheduler.for(requestAnimationFrame).rule;
+
+animate(() => {
+    // Code here will not run until the next animation frame.
+    // After that, though, it'll be *rerun* any time there's a change
+    // to a `value()` or `cached()` it read in its previous run.
+    //
+    // It's also run in a `restarting()` job, allowing it to register
+    // cleanup functions that will be called on the next run, or when
+    // the enclosing job ends.  (It can also define other rules or
+    // start jobs, which will be similarly canceled and restarted if
+    // dependencies change, or if the jobs/rules/etc. containing this
+    // rule are finished, canceled, or restarted!)
+});
+```
+
+As in most of the better signal frameworks, Uneventful rules can be nested inside of other rules.  But they can *also* be nested in jobs, and vice versa: if a rule starts a job, it's contained in the rule's restarting job, and canceled/started over if any of the rule's dependencies change.
+
+Also unlike other frameworks, you can have rules that run on different schedules, and nest and combine them to your heart's content.  For example, you can use a default, microtask-based `rule()` that decides *whether* an animation rule inside it should be active, or does some of the heavier computation first so the actual animation rule has less to do during the animation frame.
+
+Schedulers also let you appropriately debounce or sample changes for some of your rules so you can avoid unnecessary updates.  Instead of requiring an immediate response to every change of an observable value, or explicit batching declarations, Uneventful just marks dependencies dirty, and queues affected rules to be run by their corresponding scheduler(s).
+
+(This means, for example, that you can have rules that update visible UI immediately, and others that update a server or database every few seconds, without needing anything more complicated than to use a different rule function to create them.)
+
+#### What's Next
+So far, we've highlighted just a handful of Uneventful's coolest and most impactful features, showing how you can:
+
+- Use the best-fit tools from every major reactive paradigm, from signals, streams, and CSP, to cancelable async processes and structured concurrency -- while still being interoperable with standard APIs like promises, async functions, and abort signals
+- Make your code's interactivity *visible* and *composable*, such that serial and parallel job flows are obvious in your code, or hidden away within functions, as required, while easily expressing interactions that would be challenging in other paradigms
+- Play well with state charts, or ignore the charts and just express interactivity directly in code!
+- Easily control the *timing* of operations, building advanced debouncing and sampling with basic async operators like `sleep()` or by defining rules tied to a scheduler
+
+And at the same time, this has actually been a pretty superficial tour: we haven't gotten into a lot of things like how to actually *use* signals or abort jobs or any other details, really.  For those, you'll currently have to dig through the API Reference, but there should be more tutorials and guides as time goes on.
+
+(Also, at some point you'll be able to use the "Calibre Connect" Obsidian plugin I'm working on as an example of how to use these things to create responsive search and tame Electron WebFrames while keeping track of whether a connection to a remote server is available, handling logins and background processes and integrating a plugin to a larger application, not to mention controlling lots of features via settings.)
+
+In the meantime, this library should shortly be available via npm.  Enjoy!
 

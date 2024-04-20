@@ -19,8 +19,8 @@
  * You may be able to reuse this script for your project if you're using a theme
  * that is either the typedoc DefaultTheme or a subclass thereof.  In my case,
  * my navigation is grouped by category, and I wrote the nav generation to merge
- * navigation nodes by name.  That means if I make a page or menu called "Flows"
- * at the top level, it merges with the "Flows" category in the nav, and so on
+ * navigation nodes by name.  That means if I make a page or menu called "Jobs"
+ * at the top level, it merges with the "Jobs" category in the nav, and so on
  * recursively, so I can add subpages (markdown) to any (generated) page in the
  * docs.  (If you don't like that approach to the nav, pages, or headings,
  * you'll have more work to do!)

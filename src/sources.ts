@@ -1,7 +1,7 @@
 import { defer } from "./defer.ts";
 import { RuleScheduler, cached } from "./signals.ts";
 import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
-import { must, type DisposeFn, getFlow, detached } from "./tracking.ts";
+import { must, type DisposeFn, getJob, detached } from "./tracking.ts";
 import { isError, isValue, noop } from "./results.ts";
 
 /**
@@ -151,10 +151,10 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  */
 export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
     return (sink, conn) => {
-        const flow = getFlow();
+        const job = getJob();
         Promise.resolve(promise).then(
-            v => void (flow.result() || (sink(v), conn?.return())),
-            e => void (flow.result() || conn?.throw(e))
+            v => void (job.result() || (sink(v), conn?.return())),
+            e => void (job.result() || conn?.throw(e))
         )
         return IsStream;
     }
@@ -196,7 +196,7 @@ export function fromSignal<T>(s: () => T, scheduler = RuleScheduler.for(defer)):
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink) => {
-        const f = getFlow().must(() => sink = noop);
+        const f = getJob().must(() => sink = noop);
         return defer(() => f.must(subscribe(v => { sink(v); }))), IsStream;
     }
 }

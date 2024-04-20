@@ -63,7 +63,7 @@ export function *to<T>(p: Promise<T> | PromiseLike<T> | T) {
 }
 
 /**
- * Suspend a job until its parent flow ends, or is ended by an explicit return()
+ * Suspend a job until its parent job ends, or is ended by an explicit return()
  * or throw() on the {@link Job} object.
  *
  * @category Scheduling
@@ -83,13 +83,13 @@ export function suspend(): Yielding<never>;
  *
  * Note: If no action is supplied (or the request is not settled), **the job
  * will be suspended until cancelled by outside forces**.  (Such as its
- * enclosing flow ending, or explicit throw()/return() calls on the Job
+ * enclosing job ending, or explicit throw()/return() calls on the Job
  * instance.)
  *
- * Also note that any subflows the Suspend creates (or cleanup callbacks it
+ * Also note that any subjobs the Suspend creates (or cleanup callbacks it
  * registers) **will not be disposed/called until the *calling* job ends**.  So
  * any resources that won't be needed once the job is resumed should be
- * explicitly disposed of (e.g. by wrapping them in a flow whose stop you call)
+ * explicitly disposed of (e.g. by wrapping them in a job whose stop you call)
  * before settling the request.  (Or just use {@link wait}(), which handles this
  * for you.)
  */
@@ -105,7 +105,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
  * {@link resolve} or {@link reject} the request.  It can optionally return a
  * cleanup function.
  *
- * The function is executed in a nested flow that will be cleaned up before the
+ * The function is executed in a nested job that will be cleaned up before the
  * Request is settled, thereby releasing any resources used by the function
  * or its callees.
  *
@@ -132,7 +132,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
 export function *wait<T>(action: (request: Request<T>) => OptionalCleanup): Yielding<T> {
     return yield outer => {
         let called = false;
-        start(flow => action((o, v, e) => called || (called=true, flow.end(), outer(o, v, e))));
+        start(job => action((o, v, e) => called || (called=true, job.end(), outer(o, v, e))));
     }
 }
 

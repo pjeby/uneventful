@@ -196,7 +196,7 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
 }
 
 /**
- * Add flow control and buffering to a stream
+ * Add job control and buffering to a stream
  *
  * This lets you block events from a stream that can't be paused, or allow for
  * some slack for a source that can sometimes get ahead of its sink.

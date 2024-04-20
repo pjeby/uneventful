@@ -1,7 +1,7 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runRules, isError, FlowResult, isValue } from "../src/mod.ts";
+import { connect, value, runRules, isError, JobResult, isValue } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { Connector, pause, resume } from "../src/streams.ts";
 import {
@@ -9,7 +9,7 @@ import {
     fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource
 } from "../src/sources.ts";
 
-function logClose(e: FlowResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
+function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("Sources", () => {
     useRoot();

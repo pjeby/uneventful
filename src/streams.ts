@@ -1,6 +1,6 @@
 import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { pulls } from "./scheduling.ts";
-import { CleanupFn, type Flow, getFlow, start } from "./tracking.ts";
+import { CleanupFn, type Job, getJob, start } from "./tracking.ts";
 import { isError } from "./results.ts";
 
 type ThrottleExt = ExtType<"uneventful/throttle", _Throttle>;
@@ -44,10 +44,10 @@ export type Backpressure = (cb?: Producer) => boolean
  * @category Stream Producers
  */
 export function backpressure(conn: Connector): Backpressure {
-    const flow = getFlow(), t = throttle(conn);
+    const job = getJob(), t = throttle(conn);
     return (cb?: Producer) => {
-        if (!flow.result() && t.isOpen()) {
-            if (cb) t.onReady(cb, flow);
+        if (!job.result() && t.isOpen()) {
+            if (cb) t.onReady(cb, job);
             return t.isReady();
         }
         return false;
@@ -66,12 +66,12 @@ export interface Throttle {
 /**
  * @category Stream Producers
  */
-export type Connection = Flow<void>;
+export type Connection = Job<void>;
 
 /**
  * @category Stream Consumers
  */
-export type Connector = Flow<void> & MaybeThrottled;
+export type Connector = Job<void> & MaybeThrottled;
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -116,14 +116,14 @@ type Producer = () => any
 
 
 /**
- * Subscribe a sink to a source, returning a nested flow.
+ * Subscribe a sink to a source, returning a nested job.
  *
  * @category Stream Consumers
  */
 export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
-    return <Connector> start((flow) => {
-        setThrottle(flow as Connector, (throttle(to as Connector) || new _Throttle(flow)));
-        if (src && sink) src(sink, flow);
+    return <Connector> start((job) => {
+        setThrottle(job as Connector, (throttle(to as Connector) || new _Throttle(job)));
+        if (src && sink) src(sink, job);
     });
 }
 
@@ -132,9 +132,9 @@ export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Co
  */
 export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>, to?: Connection): Connector {
     return parent.run(() => {
-        const flow = getFlow();
-        if (flow.result()) throw new Error("Can't fork or link a closed conduit");
-        return connect(src, sink, to).must(res => { if (isError(res)) flow.throw(res.err); });
+        const job = getJob();
+        if (job.result()) throw new Error("Can't fork or link a closed conduit");
+        return connect(src, sink, to).must(res => { if (isError(res)) job.throw(res.err); });
     })
 }
 
@@ -143,9 +143,9 @@ class _Throttle {
     protected _callbacks: Map<Producer, CleanupFn> = undefined;
 
     /** @internal */
-    constructor(protected _flow: Flow<void>) {}
+    constructor(protected _job: Job<void>) {}
 
-    isOpen(): boolean { return !this._flow.result(); }
+    isOpen(): boolean { return !this._job.result(); }
 
     /** Is the conduit currently ready to receive data? */
     isReady(): boolean { return this.isOpen() && this._isReady; }
@@ -153,10 +153,10 @@ class _Throttle {
     _isReady = true;
     _isPulling = false;
 
-    onReady(cb: Producer, flow: Flow) {
+    onReady(cb: Producer, job: Job) {
         if (!this.isOpen()) return this;
         const _callbacks = (this._callbacks ||= new Map);
-        const unlink = flow.release(() => _callbacks.delete(cb));
+        const unlink = job.release(() => _callbacks.delete(cb));
         if (this.isReady() && this && !_callbacks.size) {
             pulls.add(this);
         }

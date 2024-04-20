@@ -1,21 +1,21 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Flow, start, isFlowActive, must, release, detached, makeFlow, getFlow, isCancel, isError, isValue, restarting } from "../mod.ts";
+import { CleanupFn, Job, start, isJobActive, must, release, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
-describe("makeFlow()", () => {
-    it("returns new standalone flows", () => {
-        const flow1 = makeFlow(), flow2 = makeFlow();
-        expect(flow1.end).to.be.a("function");
-        expect(flow2.end).to.be.a("function");
-        expect(flow1).to.not.equal(flow2);
+describe("makeJob()", () => {
+    it("returns new standalone jobs", () => {
+        const job1 = makeJob(), job2 = makeJob();
+        expect(job1.end).to.be.a("function");
+        expect(job2.end).to.be.a("function");
+        expect(job1).to.not.equal(job2);
     });
     describe(".restart() ", () => {
         useClock();
-        it("doesn't permanently terminate the flow", () => {
-            // Given a restarted flow
-            const f = makeFlow(); f.restart();
-            // When new cleanups are added to the flow
+        it("doesn't permanently terminate the job", () => {
+            // Given a restarted job
+            const f = makeJob(); f.restart();
+            // When new cleanups are added to the job
             f.must(() => log("must()"));
             f.release(() => log("release()"));
             // Then they don't run until the next restart
@@ -28,46 +28,46 @@ describe("makeFlow()", () => {
             f.end(); see("must()2", "release()2");
         });
         it("passes CancelResult to cleanups", () => {
-            const f = makeFlow();
+            const f = makeJob();
             f.must(r => log(isCancel(r)));
             f.restart();
             see("true");
         });
-        describe("won't revive an ended flow", () => {
+        describe("won't revive an ended job", () => {
             it("after the end()", () => {
-                // Given an ended flow
-                const r = makeFlow(); r.end();
+                // Given an ended job
+                const r = makeJob(); r.end();
                 // When restart is called
                 // Then it should throw
-                expect(() => r.restart()).to.throw("Flow already ended")
+                expect(() => r.restart()).to.throw("Job already ended")
             });
             it("during the end()", () => {
-                // Given a flow with a callback that runs restart
-                const f = makeFlow();
+                // Given a job with a callback that runs restart
+                const f = makeJob();
                 f.must(() => {
                     try { f.restart(); } catch(e) { log(e); }
                 })
-                // When the flow is ended
+                // When the job is ended
                 f.end();
                 // Then the restart attempt should throw
-                see("Error: Flow already ended");
+                see("Error: Job already ended");
             });
         });
     });
     describe(".end() makes future cleanups run async+asap", () => {
         useClock();
         it("makes future must() + un-canceled release() run async+asap", () => {
-            // Given an ended flow with some cleanups
-            const f = makeFlow(); f.end();
-            // When new cleanups are added to the flow
+            // Given an ended job with some cleanups
+            const f = makeJob(); f.end();
+            // When new cleanups are added to the job
             f.must(() => log("must()"));
             f.release(() => log("release()"));
             // Then they run asynchronously
             clock.tick(0); see("release()", "must()");
         });
         it("doesn't run canceled release()", () => {
-            // Given an ended flow with a cleanup
-            const f = makeFlow(); f.end();
+            // Given an ended job with a cleanup
+            const f = makeJob(); f.end();
             f.must(() => log("this should still run"));
             // When a release() is added and canceled
             f.release(() => log("this won't"))();
@@ -76,24 +76,24 @@ describe("makeFlow()", () => {
             clock.tick(0); see("this should still run");
         });
     });
-    describe("creates nested flows,", () => {
-        var f: Flow, cb = spy();
-        beforeEach(() => { cb = spy(); f = makeFlow(); });
+    describe("creates nested jobs,", () => {
+        var f: Job, cb = spy();
+        beforeEach(() => { cb = spy(); f = makeJob(); });
         it("calling the stop function if outer is cleaned up", () => {
-            makeFlow(f, cb);
+            makeJob(f, cb);
             expect(cb).to.not.have.been.called;
             f.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("not calling the stop function if inner is cleaned up", () => {
-            const inner = makeFlow(f, cb);
+            const inner = makeJob(f, cb);
             expect(cb).to.not.have.been.called;
             inner.end();
             f.end();
             expect(cb).to.not.have.been.called;
         });
         it("cleaning up the inner as the default stop action", () => {
-            const inner = makeFlow(f);
+            const inner = makeJob(f);
             inner.must(cb);
             expect(cb).to.not.have.been.called;
             f.end();
@@ -103,33 +103,33 @@ describe("makeFlow()", () => {
 });
 
 describe("start(action)", () => {
-    it("doesn't run without an enclosing flow", () => {
-        expect(() => start(()=>{})).to.throw("No flow is currently active");
+    it("doesn't run without an enclosing job", () => {
+        expect(() => start(()=>{})).to.throw("No job is currently active");
     });
-    it("links to the enclosing flow", () => {
-        // Given a flow created within a standalone flow
-        const flow = detached.start(() => {
+    it("links to the enclosing job", () => {
+        // Given a job created within a standalone job
+        const job = detached.start(() => {
             start(() => () => log("cleanup"))
         });
         see();
-        // When the outer flow is disposed
-        flow.end();
-        // Then the inner flow should be cleaned up
+        // When the outer job is disposed
+        job.end();
+        // Then the inner job should be cleaned up
         see("cleanup");
     });
-    describe("with an enclosing flow", () => {
+    describe("with an enclosing job", () => {
         useRoot();
-        it("runs with a new flow active, passing in the flow", () => {
-            const flow = start((flow) => {
-                log(flow === getFlow()); must(() => log("destroy"))
+        it("runs with a new job active, passing in the job", () => {
+            const job = start((job) => {
+                log(job === getJob()); must(() => log("destroy"))
             });
-            see("true"); flow.end(); see("destroy");
+            see("true"); job.end(); see("destroy");
         });
         it("adds the return value if it's a function", () => {
             const cb = spy();
-            const flow = start(() => cb as CleanupFn);
+            const job = start(() => cb as CleanupFn);
             expect(cb).to.not.have.been.called;
-            flow.end();
+            job.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("cleans up on throw", () => {
@@ -145,17 +145,17 @@ describe("start(action)", () => {
 });
 
 describe("detached.start(action)", () => {
-    it("runs with a new flow active, passing in the flow", () => {
-        const flow = detached.start((flow) => {
-            log(flow === getFlow()); must(() => log("destroy"))
+    it("runs with a new job active, passing in the job", () => {
+        const job = detached.start((job) => {
+            log(job === getJob()); must(() => log("destroy"))
         });
-        see("true"); flow.end(); see("destroy");
+        see("true"); job.end(); see("destroy");
     });
     it("adds the return value if it's a function", () => {
         const cb = spy();
-        const flow = detached.start(() => cb as CleanupFn);
+        const job = detached.start(() => cb as CleanupFn);
         expect(cb).to.not.have.been.called;
-        flow.end();
+        job.end();
         expect(cb).to.have.been.calledOnce;
     });
     it("cleans up on throw", () => {
@@ -171,41 +171,41 @@ describe("detached.start(action)", () => {
 
 describe("detached.bind(factory)", () => {
     it("throws in response to must()", () => {
-        // Given a detached flow factory that uses must()
+        // Given a detached job factory that uses must()
         const d = detached.bind(() => {
             must(() => log("cleanup"));
         })
         // When it's invoked Then it should throw an error
-        expect(d).to.throw("Can't add cleanups to the detached flow");
+        expect(d).to.throw("Can't add cleanups to the detached job");
     });
-    it("allows creating 'nested' flows", () => {
-        // Given a detached flow factory that creates a flow
-        const flow = detached.bind(() => start(() => {
+    it("allows creating 'nested' jobs", () => {
+        // Given a detached job factory that creates a job
+        const job = detached.bind(() => start(() => {
             must(() => log("cleanup"));
         }))();
         see();
-        // When the flow's cleanup is called
-        flow.end();
-        // Then cleanups registered in the flow should run
+        // When the job's cleanup is called
+        job.end();
+        // Then cleanups registered in the job should run
         see("cleanup");
     });
 });
 
-describe("Flow API", () => {
-    it("isFlowActive() is true during run()", () => {
+describe("Job API", () => {
+    it("isJobActive() is true during run()", () => {
         var tested: boolean;
-        expect(isFlowActive(), "Shouldn't be active before run()").to.be.false;
-        makeFlow().run(()=> {
-            expect(isFlowActive(), "Should be active during run()").to.be.true;
+        expect(isJobActive(), "Shouldn't be active before run()").to.be.false;
+        makeJob().run(()=> {
+            expect(isJobActive(), "Should be active during run()").to.be.true;
             tested = true;
         })
         expect(tested, "Should have called the run function").to.be.true;
-        expect(isFlowActive(), "Shouldn't be active after run()").to.be.false;
+        expect(isJobActive(), "Shouldn't be active after run()").to.be.false;
     });
-    describe("calls methods on the active flow", () => {
-        var t1: Flow, cb = spy();
-        beforeEach(() => { t1 = makeFlow(); cb = spy(); current.flow = t1; });
-        afterEach(() => { current.flow = undefined; });
+    describe("calls methods on the active job", () => {
+        var t1: Job, cb = spy();
+        beforeEach(() => { t1 = makeJob(); cb = spy(); current.job = t1; });
+        afterEach(() => { current.job = undefined; });
         it("must()", () => {
             const m = spy(t1, "must");
             expect(must(cb)).to.equal(t1);
@@ -218,18 +218,18 @@ describe("Flow API", () => {
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(unlink);
         });
     });
-    describe("throws when there's no active flow", () => {
-        const msg = "No flow is currently active";
-        it("getFlow()", () => { expect(getFlow).to.throw(msg); });
+    describe("throws when there's no active job", () => {
+        const msg = "No job is currently active";
+        it("getJob()", () => { expect(getJob).to.throw(msg); });
         it("must()", () => { expect(() => must(() => {})).to.throw(msg); });
         it("release()", () => { expect(() => release(() => {})).to.throw(msg); });
     });
 });
 
-describe("Flow instances", () => {
-    // Given a flow
-    var f: Flow;
-    beforeEach(() => { f = makeFlow(); });
+describe("Job instances", () => {
+    // Given a job
+    var f: Job;
+    beforeEach(() => { f = makeJob(); });
     describe(".must()", () => {
         it("can be called without a callback", () => {
             f.must(); f.end();
@@ -245,7 +245,7 @@ describe("Flow instances", () => {
     describe("run .must() callbacks asynchronously in LIFO order", () => {
         useClock();
         it("when already end()ed", () => {
-            // Given an ended flow
+            // Given an ended job
             f.end();
             // When must() is called with two new callbacks
             f.must(() => log("first")).must(() => log("last"))
@@ -256,7 +256,7 @@ describe("Flow instances", () => {
             see("last", "first");
         });
         it("when already throw()n", () => {
-            // Given a thrown flow
+            // Given a thrown job
             f.throw(new Error);
             // When must() is called with two new callbacks
             f.must(() => log("first")).must(() => log("last"))
@@ -267,11 +267,11 @@ describe("Flow instances", () => {
             see("last", "first");
         });
         it("while other .must callbacks are running", () => {
-            // Given a flow with two must callbacks, one of which calls a third
+            // Given a job with two must callbacks, one of which calls a third
             f
                 .must(() => log("first"))
                 .must(() => f.must(() => log("last")));
-            // When the flow is ended
+            // When the job is ended
             f.end();
             // Then the newly-added callback should run immediately
             see("last", "first");
@@ -286,12 +286,12 @@ describe("Flow instances", () => {
             expect(c2).to.have.been.calledImmediatelyBefore(c1);
             expect(c1).to.have.been.calledOnce
         });
-        it("runs callbacks without an active flow or cell", () => {
-            let hasFlowOrCell: boolean = undefined;
-            f.must(() => hasFlowOrCell = !!(current.flow || current.cell));
+        it("runs callbacks without an active job or cell", () => {
+            let hasJobOrCell: boolean = undefined;
+            f.must(() => hasJobOrCell = !!(current.job || current.cell));
             const old = swapCtx(makeCtx(f, {} as Cell));
             try { f.end(); } finally { freeCtx(swapCtx(old)); }
-            expect(hasFlowOrCell).to.equal(false);
+            expect(hasJobOrCell).to.equal(false);
         });
         it("converts errors to unhandled rejections", async () => {
             const cb1 = spy(), cb2 = spy();
@@ -315,13 +315,13 @@ describe("Flow instances", () => {
         });
     })
     describe(".throw()", () => {
-        it("Fails on an already ended flow", () => {
+        it("Fails on an already ended job", () => {
             f.end();
-            expect(() => f.throw("boom")).to.throw("Flow already ended");
-            f = makeFlow(); f.return(99);
-            expect(() => f.throw("boom")).to.throw("Flow already ended");
-            f = makeFlow(); f.throw("blah");
-            expect(() => f.throw("boom")).to.throw("Flow already ended");
+            expect(() => f.throw("boom")).to.throw("Job already ended");
+            f = makeJob(); f.return(99);
+            expect(() => f.throw("boom")).to.throw("Job already ended");
+            f = makeJob(); f.throw("blah");
+            expect(() => f.throw("boom")).to.throw("Job already ended");
         });
         it("passes an ErrorResult to callbacks", () => {
             f.must(r => log(isError(r) && r.err));
@@ -330,13 +330,13 @@ describe("Flow instances", () => {
         });
     });
     describe(".return()", () => {
-        it("Fails on an already ended flow", () => {
+        it("Fails on an already ended job", () => {
             f.end();
-            expect(() => f.return(42)).to.throw("Flow already ended");
-            f = makeFlow(); f.return(99);
-            expect(() => f.return(42)).to.throw("Flow already ended");
-            f = makeFlow(); f.throw("blah");
-            expect(() => f.return(42)).to.throw("Flow already ended");
+            expect(() => f.return(42)).to.throw("Job already ended");
+            f = makeJob(); f.return(99);
+            expect(() => f.return(42)).to.throw("Job already ended");
+            f = makeJob(); f.throw("blah");
+            expect(() => f.return(42)).to.throw("Job already ended");
         });
         it("passes a ValueResult to callbacks", () => {
             f.must(r => log(isValue(r) && r.val));
@@ -362,26 +362,26 @@ describe("Flow instances", () => {
         });
     });
     describe(".run()", () => {
-        it("makes the flow active", () => {
-            var active: Flow;
-            expect(isFlowActive()).to.be.false;
-            f.run(() => { active = getFlow(); });
+        it("makes the job active", () => {
+            var active: Job;
+            expect(isJobActive()).to.be.false;
+            f.run(() => { active = getJob(); });
             expect(active).to.equal(f);
-            expect(isFlowActive()).to.be.false;
+            expect(isJobActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
-            const f1 = makeFlow();
-            expect(isFlowActive()).to.be.false;
+            const f1 = makeJob();
+            expect(isJobActive()).to.be.false;
             f.run(() => {
-                expect(getFlow()).to.equal(f);
-                f1.run(() => expect(getFlow()).to.equal(f1));
+                expect(getJob()).to.equal(f);
+                f1.run(() => expect(getJob()).to.equal(f1));
                 try {
                     f1.run(() => { throw new Error; });
                 } catch (e) {
-                    expect(getFlow()).to.equal(f);
+                    expect(getJob()).to.equal(f);
                 }
             });
-            expect(isFlowActive()).to.be.false;
+            expect(isJobActive()).to.be.false;
         });
         it("passes through arguments and returns the result", () => {
             // When run is called with a function and arguments
@@ -393,26 +393,26 @@ describe("Flow instances", () => {
         });
     });
     describe(".bind() returns a function that", () => {
-        it("makes the flow active", () => {
-            var active: Flow;
-            expect(isFlowActive()).to.be.false;
-            f.bind(() => { active = getFlow(); })();
+        it("makes the job active", () => {
+            var active: Job;
+            expect(isJobActive()).to.be.false;
+            f.bind(() => { active = getJob(); })();
             expect(active).to.equal(f);
-            expect(isFlowActive()).to.be.false;
+            expect(isJobActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
-            const f1 = makeFlow();
-            expect(isFlowActive()).to.be.false;
+            const f1 = makeJob();
+            expect(isJobActive()).to.be.false;
             f.bind(() => {
-                expect(getFlow()).to.equal(f);
-                f1.bind(() => expect(getFlow()).to.equal(f1))();
+                expect(getJob()).to.equal(f);
+                f1.bind(() => expect(getJob()).to.equal(f1))();
                 try {
                     f1.bind(() => { throw new Error; })();
                 } catch (e) {
-                    expect(getFlow()).to.equal(f);
+                    expect(getJob()).to.equal(f);
                 }
             })();
-            expect(isFlowActive()).to.be.false;
+            expect(isJobActive()).to.be.false;
         });
         it("passes through arguments and `this`", () => {
             // Given an object to use as `this`
@@ -429,35 +429,35 @@ describe("Flow instances", () => {
 });
 
 describe("restarting()", () => {
-    it("runs functions in call-specific, restarting flows, until enclosing flow ends", () => {
-        // Given a restarting wrapper created in an outer flow
-        const outer = makeFlow(), w = outer.bind(restarting)();
-        let f1: Flow, f2: Flow;
+    it("runs functions in call-specific, restarting jobs, until enclosing job ends", () => {
+        // Given a restarting wrapper created in an outer job
+        const outer = makeJob(), w = outer.bind(restarting)();
+        let f1: Job, f2: Job;
         // When it's called with a function
-        w(() => { f1 = getFlow(); log("called"); must(() => log("undo")); });
-        // Then the function should run in a distinct flow
+        w(() => { f1 = getJob(); log("called"); must(() => log("undo")); });
+        // Then the function should run in a distinct job
         see("called");
         expect(f1).to.be.instanceOf(outer.constructor);
         expect(f1).to.not.equal(outer);
         // And when it's called with another function
-        w(() => { f2 = getFlow(); log("another"); return () => log("undo 2"); });
-        // Then it should run in the same flow after restarting
+        w(() => { f2 = getJob(); log("another"); return () => log("undo 2"); });
+        // Then it should run in the same job after restarting
         expect(f1).to.equal(f2);
         see("undo", "another");
-        // And if the outer flow ends, so should the inner
+        // And if the outer job ends, so should the inner
         outer.end();
         see("undo 2");
         // Following which, it should throw an error if called again:
-        expect(() => w(() => log("this won't do"))).to.throw("Flow already ended")
+        expect(() => w(() => log("this won't do"))).to.throw("Job already ended")
     });
-    it("uses a different flow for each wrapper", () => {
-        // Given two restarting wrappers created in an outer flow
-        const outer = makeFlow(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
-        let f1: Flow, f2: Flow;
+    it("uses a different job for each wrapper", () => {
+        // Given two restarting wrappers created in an outer job
+        const outer = makeJob(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
+        let f1: Job, f2: Job;
         // When they are called
-        w1(() => { f1 = getFlow(); });
-        w2(() => { f2 = getFlow(); });
-        // Then the functions should run in two different flows
+        w1(() => { f1 = getJob(); });
+        w2(() => { f2 = getJob(); });
+        // Then the functions should run in two different jobs
         expect(f1).to.be.instanceOf(outer.constructor);
         expect(f2).to.be.instanceOf(outer.constructor);
         expect(f1).to.not.equal(outer);
@@ -465,7 +465,7 @@ describe("restarting()", () => {
     });
     it("when given a function, matches its signature", () => {
         // Given a restarting wrapper around a function
-        const outer = makeFlow(), w = outer.bind(restarting)((a,b,c) => { log(a); log(b); log(c); return 42; });
+        const outer = makeJob(), w = outer.bind(restarting)((a,b,c) => { log(a); log(b); log(c); return 42; });
         // When it is called
         const res = w("a", 22, 54);
         // Then it should receive any arguments
@@ -475,17 +475,17 @@ describe("restarting()", () => {
     });
     it("rolls back when an error is thrown", () => {
         // Given a restarting wrapper around a function that throws
-        const outer = makeFlow(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
+        const outer = makeJob(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
         // When the function is called, it should throw
         expect(w).to.throw("whoops");
-        // And Then it should end the flow
+        // And Then it should end the job
         see("undo");
-        expect(isFlowActive()).to.be.false;
-        expect(w).to.throw("Flow already ended");
+        expect(isJobActive()).to.be.false;
+        expect(w).to.throw("Job already ended");
     });
     it("can be used as a method", () => {
         // Given a restarting-wrapped method
-        const w = {m: makeFlow().bind(restarting)(function () { log(this === w); })};
+        const w = {m: makeJob().bind(restarting)(function () { log(this === w); })};
         // When called as a method
         w.m();
         // Then its `this` should be the object

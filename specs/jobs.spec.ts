@@ -232,7 +232,7 @@ describe("Job instances", () => {
                 const j = start(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n
-                expect(() => j.throw("boom")).to.throw("Flow already ended");
+                expect(() => j.throw("boom")).to.throw("Job already ended");
                 // Then the result is unaffected
                 start(function*() { log(yield * j); }); clock.tick(0);
                 see("42");
@@ -297,15 +297,15 @@ describe("Job instances", () => {
                 const j = start(function*() { return 42; });
                 clock.tick(0);
                 // When return()ed
-                expect(() => j.return(99)).to.throw("Flow already ended");
+                expect(() => j.return(99)).to.throw("Job already ended");
                 // Then the result is unaffected
                 start(function*(){ log(yield * j); }); clock.tick(0);
                 see("42");
             });
         });
     });
-    describe("as flows", () => {
-        it("runs its contents in a flow", () => {
+    describe("as jobs", () => {
+        it("runs its contents in a job", () => {
             // Given a job with a cleanup function
             start(function*() { must(() => log("end")); });
             // When the job finishes
@@ -473,7 +473,7 @@ describe("Async Ops", () => {
             // Given a suspended sleep
             const i = sleep(10)[Symbol.iterator]();
             (i.next().value as Suspend<void>)(()=> log("called"));
-            // If the iterator is returned (flow is canceled)
+            // If the iterator is returned (job is canceled)
             i.return()
             // Then the callback should not be invoked
             clock.tick(10);
@@ -531,8 +531,8 @@ describe("Async Ops", () => {
             see("wut");
         });
     });
-    describe("wait() runs its action in a flow", () => {
-        it("that ends before the job resumes", () => {
+    describe("wait() runs its action in a job", () => {
+        it("that ends before the parent job resumes", () => {
             // Given a job suspended on a wait() callback
             suspendOn(wait(r => {
                 must(() => log("end"));

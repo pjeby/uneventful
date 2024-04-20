@@ -1,7 +1,7 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup, makeFlow, release } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, makeJob, release } from "./tracking.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
@@ -122,25 +122,25 @@ const defaultQueue = RuleScheduler.for(defer);
  * after there are changes in any of the values or cached functions it read
  * during its previous run.
  *
- * The created subscription is tied to the currently-active flow.  So when that
- * flow is ended or restarted, the rule will be terminated automatically.  You
- * can also terminate it early by calling the "stop" function that is both
- * passed to the rule function and returned by `rule()`.
+ * The created subscription is tied to the currently-active job (which may be
+ * another rule).  So when that job is ended or restarted, the rule will be
+ * terminated automatically.  You can also terminate it early by calling the
+ * "stop" function that is both passed to the rule function and returned by
+ * `rule()`.
  *
- * Note: this function will throw an error if called without an active flow. If
- * you need a standalone rule, use {@link root} or {@link detached} to wrap
- * the call to rule.
+ * Note: this function will throw an error if called without an active job. If
+ * you need a standalone rule, use {@link root} or {@link detached} to wrap the
+ * call to rule.
  *
  * @param fn The function that will be run each time its dependencies change.
- * The function will be run in a fresh flow each time, with any resources used
- * by the previous run being cleaned up.  The function is passed a single
- * argument: a function that can be called to terminate the rule.   The
- * function should return a cleanup function or void.
+ * The function will be run in a restarted job each time, with any resources
+ * used by the previous run being cleaned up.  The function is passed a single
+ * argument: a function that can be called to terminate the rule.   The function
+ * should return a cleanup function or void.
  *
  * @returns A function that can be called to terminate the rule.
  *
  * @category Signals
- * @category Flows
  */
 export const rule = defaultQueue.rule;
 
@@ -348,13 +348,13 @@ export class Cell {
                     this.lastChanged = timestamp;
                 }
             } else {
-                const {flow} = this.ctx;
-                flow.restart();
+                const {job} = this.ctx;
+                job.restart();
                 try {
-                    flow.must(this.compute());
+                    job.must(this.compute());
                     this.lastChanged = timestamp;
                 } catch (e) {
-                    flow.end();
+                    job.end();
                     this.disposeRule();
                     throw e;
                 }
@@ -382,7 +382,7 @@ export class Cell {
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
-            this.ctx.flow.end();
+            this.ctx.job.end();
         }
     }
 
@@ -426,7 +426,7 @@ export class Cell {
 
     static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
         var unlink = release(stop);
-        var cell = new Cell, f = makeFlow();
+        var cell = new Cell, f = makeJob();
         cell.value = q;
         cell.compute = fn.bind(null, stop);
         cell.ctx = makeCtx(f, cell);

@@ -108,7 +108,7 @@ export function cached<T>(compute: () => T): Signal<T> {
  */
 export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     if (!current.cell) return fn(...args);
-    const old = swapCtx(makeCtx(current.flow));
+    const old = swapCtx(makeCtx(current.job));
     try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
 }
 
