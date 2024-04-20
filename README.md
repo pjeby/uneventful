@@ -1,7 +1,7 @@
 ## uneventful: signals plus streams, minus the seams
 
 #### The Problem
-Event-driven programming is fundamentally *garbage*.  Whether you're using raw event handlers or some kind of functional abstraction (like streams or signals or channels), the big issue with creating complex interactivity is that at some point, you have to *clean it all up*.
+Event-driven programming creates a lot of *garbage*.  Whether you're using raw event handlers or some kind of functional abstraction (like streams or signals or channels), the big issue with creating complex interactivity is that at some point, you have to *clean it all up*.
 
 Handlers need to be removed, requests need to be canceled, streams unsusbcribed or channels closed, and a whole bunch more.  And if you don't do it *just right*, you get **bugs**, hiding in your leftover garbage.
 
@@ -57,9 +57,9 @@ The example above is a sketch of a drag-and-drop operation that can be *called a
 
 You've probably noticed that there isn't any code here that unsubscribes from anything, and that the only explicit "cleanup" code present is the `must()` call in `addDragClass()`.  That's because Uneventful keeps track of the "active" job, and has APIs like `must()` to register cleanup code that will run when that job is finished or canceled.  This lets you move the garbage collection to *precisely* where it belongs in your code: **the place where it's created**.
 
-If you're familiar with [statecharts](https://statecharts.dev/what-is-a-statechart.html), you might notice that this code sample can easily be translated to one, and the same is true in reverse: if you use statecharts for design and uneventful for implementation, you can pretty much *write down the chart as code*.  (A job definition function is a state, and each job instance at runtime represents one "run" of that state.)
+If you're familiar with [statecharts](https://statecharts.dev/what-is-a-statechart.html), you might notice that this code sample can easily be translated to one, and the same is true in reverse: if you use statecharts for design and uneventful for implementation, you can pretty much *write down the chart as code*.  (A job definition function is a state, and each job instance at runtime represents one "run" of that state, from entry to exit.  And of course job definitions can nest like states, and be named and abstracted away like states.)
 
-But Uneventful is actually *better* than statecharts, even for design purposes: instead of following boxes and lines, your code is a straightforward list of substates, event handlers, or even *sequential* activities:
+But Uneventful is actually *better* than statecharts, even for design purposes: instead of following boxes and lines, your code is a straightforward list of substates, event handlers, or even *sequential activities*:
 
 ```ts
 import { each } from "uneventful";
@@ -76,7 +76,7 @@ function supportDragDrop(node: HTMLElement) {
 }
 ```
 
-Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so *synchronously*.  (That is, each pass of the loop starts *during* the event being responded to, not in a later microtask.)
+Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so semi-synchronously.  (Specifically, each pass of the loop starts *during* the event being responded to, not in a later microtask!)
 
 Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but *synchronously*, during the mouseup event that ends the `drag()` call.  (Note: this synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
 
@@ -147,11 +147,12 @@ const animate = RuleScheduler.for(requestAnimationFrame).rule;
 
 animate(() => {
     // Code here will not run until the next animation frame.
-    // After that, though, it'll be *rerun* any time there's a change
-    // to a `value()` or `cached()` it read in its previous run.
+    // After that, though, it'll be *rerun* in another animation frame,
+    // any time there's a change to a `value()` or `cached()` it read
+    // in its previous run.
     //
     // It's also run in a `restarting()` job, allowing it to register
-    // cleanup functions that will be called on the next run, or when
+    // must() functions that will be called on the next run, or when
     // the enclosing job ends.  (It can also define other rules or
     // start jobs, which will be similarly canceled and restarted if
     // dependencies change, or if the jobs/rules/etc. containing this
@@ -165,7 +166,7 @@ Also unlike other frameworks, you can have rules that run on different schedules
 
 Schedulers also let you appropriately debounce or sample changes for some of your rules so you can avoid unnecessary updates.  Instead of requiring an immediate response to every change of an observable value, or explicit batching declarations, Uneventful just marks dependencies dirty, and queues affected rules to be run by their corresponding scheduler(s).
 
-(This means, for example, that you can have rules that update visible UI immediately, and others that update a server or database every few seconds, without needing anything more complicated than to use a different rule function to create them.)
+(This means, for example, that you can have rules that update data models immediately, other rules that update visible UI in the next animation frame, and still others that update a server or database every few seconds, without needing anything more complicated than using rule functions tied to different schedulers when creating them.)
 
 #### What's Next
 So far, we've highlighted just a handful of Uneventful's coolest and most impactful features, showing how you can:
