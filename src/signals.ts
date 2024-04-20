@@ -1,7 +1,9 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { PlainFunction } from "./types.ts";
 import { Cell, rule } from "./cells.ts";
-import { UntilMethod, Yielding, reject, resolve } from "./async.ts";
+import { Yielding } from "./async.ts";
+import { reject, resolve } from "./results.ts";
+import { UntilMethod } from "./sinks.ts";
 export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
 
 export interface Signal<T> {

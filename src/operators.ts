@@ -1,6 +1,6 @@
 import { fromIterable } from "./sources.ts";
 import { Connector, IsStream, Sink, Source, Transformer, backpressure, connect, pause, resume, subconnect } from "./streams.ts";
-import { isValue, noop } from "./tracking.ts";
+import { isValue, noop } from "./results.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream

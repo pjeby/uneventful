@@ -1,6 +1,7 @@
 import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { pulls } from "./scheduling.ts";
-import { CleanupFn, type Flow, isError, getFlow, start } from "./tracking.ts";
+import { CleanupFn, type Flow, getFlow, start } from "./tracking.ts";
+import { isError } from "./results.ts";
 
 type ThrottleExt = ExtType<"uneventful/throttle", _Throttle>;
 type MaybeThrottled = MaybeHas<ThrottleExt>;

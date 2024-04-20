@@ -1,7 +1,8 @@
 import { defer } from "./defer.ts";
 import { RuleScheduler, cached } from "./signals.ts";
 import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
-import { must, type DisposeFn, getFlow, detached, isError, isValue, noop } from "./tracking.ts";
+import { must, type DisposeFn, getFlow, detached } from "./tracking.ts";
+import { isError, isValue, noop } from "./results.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from

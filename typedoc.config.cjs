@@ -6,7 +6,8 @@ module.exports = {
     categoryOrder: [
         "Flows",
         "Resource Management",
-        "Jobs and Scheduling",
+        "Scheduling",
+        "Requests and Results",
         "Signals",
         "Stream Consumers",
         "Stream Producers",

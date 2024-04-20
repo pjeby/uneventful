@@ -179,9 +179,10 @@ export interface Flow<T=any> extends Yielding<T>, Promise<T> {
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { AnyFunction, Nothing, PlainFunction } from "./types.ts";
 import { defer } from "./defer.ts";
-import type { Request, Yielding } from "./async.ts";
+import type { Yielding, Suspend } from "./async.ts";
+import { FlowResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
+import { resolve, type Request, reject } from "./results.ts";
 import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
-import { runGen } from "./jobs.ts";
 
 /**
  * Return the currently-active Flow, or throw an error if none is active.
@@ -238,10 +239,13 @@ class _Flow<T> implements Flow<T> {
         onfulfilled?: (value: T) => T1 | PromiseLike<T1>,
         onrejected?: (reason: any) => T2 | PromiseLike<T2>
     ): Promise<T1 | T2> {
-        var p = new Promise<T>((res, rej) => this.must(r => {
-            // XXX mark error handled
-            if (isError(r)) rej(r.err); else if (isValue(r)) res(r.val); else rej(r);
-        }))
+        var p = new Promise<T>((res, rej) => {
+            if (this._done) toPromise(this._done); else this.must(toPromise);
+            function toPromise(r: FlowResult<T>) {
+                // XXX mark error handled
+                if (isError(r)) rej(r.err); else if (isValue(r)) res(r.val); else rej(r);
+            }
+        })
         return (onfulfilled || onrejected) ? p.then(onfulfilled, onrejected) : p as any;
     }
 
@@ -434,80 +438,6 @@ export function release(cleanup: CleanupFn): DisposeFn {
 export const makeFlow: <T,R=unknown>(parent?: Flow<R>, stop?: CleanupFn<R>) => Flow<T> = _Flow.create;
 
 /**
- * A function that does nothing and returns void.
- */
-export function noop() {}
-
-/**
- * A {@link FlowResult} that indicates the flow was ended via a return() value.
- *
- * @category Types and Interfaces
- */
-export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
-
-/**
- * A {@link FlowResult} that indicates the flow was ended via a throw() or other
- * error.
- *
- * @category Types and Interfaces
- */
-export type ErrorResult    = {op: "throw",   val: undefined, err: any};
-
-/**
- * A {@link FlowResult} that indicates the flow was canceled by its creator (via
- * end() or restart()).
- *
- * @category Types and Interfaces
- */
-export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
-
-/**
- * A result passed to a flow's cleanup callbacks
- *
- * @category Types and Interfaces
- */
-export type FlowResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
-
-function mkResult<T>(op: "next", val?: T): ValueResult<T>;
-function mkResult(op: "throw", val: undefined|null, err: any): ErrorResult;
-function mkResult(op: "cancel"): CancelResult;
-function mkResult<T>(op: string, val?: T, err?: any): FlowResult<T> {
-    return {op, val, err} as FlowResult<T>
-}
-
-const CancelResult = mkResult("cancel");
-
-function ValueResult<T>(val: T): ValueResult<T> { return mkResult("next", val); }
-function ErrorResult(err: any): ErrorResult { return mkResult("throw", undefined, err); }
-
-/**
- * Returns true if the given result is a {@link CancelResult}.
- *
- * @category Flows
- */
-export function isCancel(res: FlowResult<any> | undefined): res is CancelResult {
-    return res === CancelResult;
-}
-
-/**
- * Returns true if the given result is a {@link ValueResult}.
- *
- * @category Flows
- */
-export function isValue<T>(res: FlowResult<T> | undefined): res is ValueResult<T> {
-    return res ? res.op === "next" : false;
-}
-
-/**
- * Returns true if the given result is a {@link ErrorResult}.
- *
- * @category Flows
- */
-export function isError(res: FlowResult<any> | undefined): res is ErrorResult {
-    return res ? res.op === "throw" : false;
-}
-
-/**
  * A special {@link Flow} with no parents, that can be used to create standalone
  * flows.  detached.start() returns a new detached flow, detached.run() can be used
  * to run code that expects to create a child flow, and detached.bind() can wrap
@@ -563,4 +493,64 @@ export function restarting<F extends AnyFunction>(task?: F): F {
         catch(e) { inner.throw(e); throw e; }
         finally { freeCtx(swapCtx(old)); }
     };
+}
+
+
+function runGen<R>(g: Yielding<R>, req?: Request<R>) {
+    let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getFlow()), ct = 0;
+    let done = release(() => {
+        req = undefined;
+        ++ct; // disable any outstanding request(s)
+        // XXX this should be deferred to cleanup phase, or must() instead of release
+        // (release only makes sense here if you can run more than one generator in a job)
+        step("return", undefined);
+    });
+    // Start asynchronously
+    defer(() => { running = false; step("next", undefined); });
+
+    function step(method: "next" | "throw" | "return", arg: any): void {
+        if (!it) return;
+        // Don't resume a job while it's running
+        if (running) {
+            return defer(step.bind(null, method, arg));
+        }
+        const old = swapCtx(ctx);
+        try {
+            running = true;
+            try {
+                for(;;) {
+                    ++ct;
+                    const {done, value} = it[method](arg);
+                    if (done) {
+                        req && resolve(req, value);
+                        req = undefined;
+                        break;
+                    } else if (typeof value !== "function") {
+                        method = "throw";
+                        arg = new TypeError("Jobs must yield functions (or yield* Yielding<T>s)");
+                        continue;
+                    } else {
+                        let called = false, returned = false, count = ct;
+                        (value as Suspend<any>)((op, val, err) => {
+                            if (called) return; else called = true;
+                            method = op; arg = op === "next" ? val : err;
+                            if (returned && count === ct) step(op, arg);
+                        });
+                        returned = true;
+                        if (!called) return;
+                    }
+                }
+            } catch(e) {
+                req ? reject(req, e) : Promise.reject(e);
+                req = undefined;
+            }
+            // Iteration is finished; disconnect from flow
+            it = undefined;
+            done?.();
+            done = undefined;
+        } finally {
+            swapCtx(old);
+            running = false;
+        }
+    }
 }
