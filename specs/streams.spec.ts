@@ -24,7 +24,7 @@ describe("connect()", () => {
         // Given a conduit opened by connect in the context of a job
         const src = spy(), sink = spy();
         const job = start(() => {
-            connect(src, sink).must(logClose);
+            connect(src, sink).do(logClose);
         });
         // When the job is ended
         see(); job.end();
@@ -52,7 +52,7 @@ describe("backpressure()", () => {
     });
     it("is unready when connection is ended", () => {
         // Given an ended connection
-        const c = mkConn().must(logClose); c.end();
+        const c = mkConn().do(logClose); c.end();
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
@@ -165,14 +165,14 @@ describe("subconnect()", () => {
     function testChildConduit(mkChild: <T>(c: Connection, src?: Source<T>, sink?: Sink<T>) => Connector) {
         it("is open", () => {
             // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).do(logClose);
             // Then the link should be open and not equal the conduit
             see();
             expect(f).to.not.equal(c);
         });
         it("closes when the parent closes", () => {
             // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).do(logClose);
             // When the conduit is closed
             c.end();
             // Then the link should also be closed
@@ -180,7 +180,7 @@ describe("subconnect()", () => {
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).must(logClose);
+            const c = mkConn(), f = mkChild(c).do(logClose);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error

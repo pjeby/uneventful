@@ -38,7 +38,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            connect(e.source, log.emit).must(logClose); runPulls();
+            connect(e.source, log.emit).do(logClose); runPulls();
             // Then calling the emitter should emit values
             e(42); see("42");
             e(43); see("43");
@@ -61,7 +61,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit).must(r => {
+            const c = connect(e.source, log.emit).do(r => {
                 if (isError(r)) log(`err: ${r.err}`);
             }); runPulls();
             // And the emitter throws
@@ -73,7 +73,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            connect(e.source, log.emit).must(logClose); runPulls();
+            connect(e.source, log.emit).do(logClose); runPulls();
             // And the emitter is ended
             e.end();
             // Then the connection should be closed
@@ -119,7 +119,7 @@ describe("Sources", () => {
             // and a fromAsyncIterable based on it
             const s = fromAsyncIterable(iterable);
             // When it's subscribed
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             // Then it should asynchronously output it values after the next tick
             // And close the connection
             see();
@@ -133,7 +133,7 @@ describe("Sources", () => {
             // and a fromAsyncIterable based on it
             const s = fromAsyncIterable(iterable);
             // When it's subscribed and pulled with a pausing sink
-            const c = connect(s, v => (log(v), v !== 3)).must(logClose);
+            const c = connect(s, v => (log(v), v !== 3)).do(logClose);
             see(); runPulls();
             // Then it should output the values up to the pause after the next tick
             // And the connection should still be open
@@ -158,7 +158,7 @@ describe("Sources", () => {
             // and a fromAsyncIterable based on it
             const s = fromAsyncIterable(iterable);
             // When it's subscribed and pulled with a pausing sink
-            const c = connect(s, v => (log(v), v !== 3)).must(logClose);
+            const c = connect(s, v => (log(v), v !== 3)).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             runPulls();
@@ -178,7 +178,7 @@ describe("Sources", () => {
             // and a fromAsyncIterable based on it
             const s = fromAsyncIterable(iterable);
             // When it's subscribed
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             // Then it should output the values up to the error (asynchronously)
             // And then throw
             see();
@@ -190,7 +190,7 @@ describe("Sources", () => {
             // Given a fromIterable() stream
             const s = fromIterable([1,2,3,"a","b","c"]);
             // When it's subscribed
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             // Then it should output all the values once pulled
             // And close the connection
             see();
@@ -201,7 +201,7 @@ describe("Sources", () => {
             // Given a fromIterable() stream
             const s = fromIterable([1,2,3,"a","b","c"]);
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => (log(v), v === 3 && pause(c))).must(logClose);
+            const c = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see(); runPulls(); see("1", "2", "3");
@@ -223,7 +223,7 @@ describe("Sources", () => {
             // and a fromIterable based on it
             const s = fromIterable(iterable);
             // When it's subscribed and pulled with a pausing sink
-            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).must(logClose);
+            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see();
@@ -232,7 +232,7 @@ describe("Sources", () => {
             // And When the connection is closed
             c.end();
             // Then the iterator should be return()ed
-            see("closed", "return");
+            see("return", "closed");
         });
         it("should throw if the iterator does", () => {
             // Given an iterable that throws
@@ -243,7 +243,7 @@ describe("Sources", () => {
             // and a fromIterable based on it
             const s = fromIterable(iterable);
             // When it's subscribed and pulled
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             // Then it should output the values up to the error
             // And then throw
             see();
@@ -257,7 +257,7 @@ describe("Sources", () => {
             // Given a fromPromise() of a resolved native promise
             const s = fromPromise(Promise.resolve(42));
             // When the stream is connected
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // Then it should emit the resolved value asynchronously
             // And the stream should be closed
             see(); await Promise.resolve(); see("42", "closed");
@@ -266,7 +266,7 @@ describe("Sources", () => {
             // Given a fromPromise() of a rejected native promise
             const s = fromPromise(Promise.reject("some reason"));
             // When the stream is connected
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             // Then it should throw the connection asynchronously
             see(); await Promise.resolve(); see("closed", "err: some reason");
         });
@@ -276,7 +276,7 @@ describe("Sources", () => {
                 setTimeout(() => resolve(99), 50);
             }));
             // When the stream is connected
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // Then it should do nothing
             see(); await Promise.resolve(); see();
             // Until the promise is resolved
@@ -289,7 +289,7 @@ describe("Sources", () => {
             // Given a fromPromise() of a plain value
             const s = fromPromise(42);
             // When the stream is connected
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // Then it should emit the resolved value asynchronously
             // And the stream should be closed
             see(); await Promise.resolve(); see("42", "closed");
@@ -298,7 +298,7 @@ describe("Sources", () => {
             // Given a fromPromise() of a "thenable"
             const s = fromPromise({then(onV) { onV(42); }});
             // When the stream is connected
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // Then it should emit the resolved value asynchronously
             // And the stream should be closed
             see(); await Promise.resolve(); await Promise.resolve(); see("42", "closed");
@@ -362,7 +362,7 @@ describe("Sources", () => {
             // Given a fromValue() stream
             const s = fromValue(42);
             // When it's subscribed
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // Then it should only output the value on the next tick
             // And close the connection
             see();
@@ -424,7 +424,7 @@ describe("Sources", () => {
             // Given a never() stream
             const s = never();
             // When subscribed
-            const c = connect(s, log.emit).must(logClose);
+            const c = connect(s, log.emit).do(logClose);
             clock.tick(100);
             // Then nothing happens and the connection stays open
             see();

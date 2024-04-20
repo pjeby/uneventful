@@ -318,7 +318,7 @@ export function share<T>(source: Source<T>): Source<T> {
                     if (s(v), ready()) resumed = true; else ready(produce);
                 }
                 resumed || pause(uplink);
-            }).must(r => {
+            }).do(r => {
                 uplink = undefined;
                 links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
                     isValue(r) ? c.return() : c.end()

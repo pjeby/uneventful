@@ -46,7 +46,7 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
         if (!waiter || conn.result()) return;
         result.value.item = v;
         resolve(waiter, waiter = void 0);
-    }).must(() => {
+    }).do(() => {
         if (waiter) { defer(next.bind(null, waiter)); waiter = undefined; }
     });
 
@@ -120,7 +120,7 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     }
     if (typeof source === "function") {
         return wait(r => {
-            connect(source, resolver(r)).must(res => {
+            connect(source, resolver(r)).do(res => {
                 if (!isCancel(res)) reject(r, isError(res) ? res.err : new Error("Stream ended"));
             });
         })

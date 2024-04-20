@@ -84,8 +84,9 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
 
     /**
      * Add a cleanup callback to be run when the job is ended or restarted.
-     * (Non-function values are ignored.)  If the job has already ended,
-     * the callback will be invoked asynchronously in the next microtask.
+     * (Non-function values are ignored.)  If the job has already ended, the
+     * callback will be invoked asynchronously in the next microtask. Cleanup
+     * functions are run in LIFO order, before {@link Job.do}() functions.
      */
     must(cleanup?: OptionalCleanup<T>): this;
 
@@ -151,6 +152,13 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
     readonly end: () => void;
 
     /**
+     * Invoke a callback with the result of a job.  Similar to {@link Job.must}(),
+     * except that `do` callbacks run in FIFO order after all must()
+     * callbacks are done.
+     */
+    do(action: (res?: JobResult<T>) => unknown): this;
+
+    /**
      * Restart this job - works just like {@link Job.end}, except that the job
      * isn't ended, so cleanup callbacks can be added again and won't be invoked
      * until the next restart or the job is ended.
@@ -182,7 +190,7 @@ import { defer } from "./defer.ts";
 import type { Yielding, Suspend } from "./async.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
 import { resolve, type Request, reject } from "./results.ts";
-import { chain, isEmpty, pop, push, pushCB } from "./chains.ts";
+import { chain, isEmpty, pop, push, pushCB, unshift } from "./chains.ts";
 
 /**
  * Return the currently-active Job, or throw an error if none is active.
@@ -210,6 +218,11 @@ class _Job<T> implements Job<T> {
     }
 
     "uneventful/ext": {} = undefined
+
+    do(cleanup: CleanupFn<T>): this {
+        unshift(this._chain(), cleanup);
+        return this;
+    }
 
     result() { return this._done; }
 
@@ -240,7 +253,7 @@ class _Job<T> implements Job<T> {
         onrejected?: (reason: any) => T2 | PromiseLike<T2>
     ): Promise<T1 | T2> {
         var p = new Promise<T>((res, rej) => {
-            if (this._done) toPromise(this._done); else this.must(toPromise);
+            if (this._done) toPromise(this._done); else this.do(toPromise);
             function toPromise(r: JobResult<T>) {
                 // XXX mark error handled
                 if (isError(r)) rej(r.err); else if (isValue(r)) res(r.val); else rej(r);
@@ -265,7 +278,7 @@ class _Job<T> implements Job<T> {
             // XXX should this be a release(), so if the waiter dies we
             // don't bother? The downside is that it'd have to be mutual and
             // the resume is a no-op anyway in that case.
-            this.must(res => {
+            this.do(res => {
                 if (isCancel(res)) req("throw", undefined, res); else req(res.op, res.val, res.err);
             });
         }

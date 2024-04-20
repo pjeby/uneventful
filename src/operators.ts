@@ -38,12 +38,12 @@ export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
         const inputs: Source<T>[] = [];
         let outer = subconnect(conn, sources, s => {
             inputs.push(s); startNext(); pause(outer);
-        }).must(r => {
+        }).do(r => {
             outer = undefined
             inputs.length || inner || !isValue(r) || conn.return();
         });
         function startNext() {
-            inner ||= subconnect(conn, inputs.shift(), sink, conn).must(r => {
+            inner ||= subconnect(conn, inputs.shift(), sink, conn).do(r => {
                 inner = undefined;
                 inputs.length ? startNext() : (outer ? resume(outer) : !isValue(r) || conn.return());
             });
@@ -127,12 +127,12 @@ export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
     return (sink, conn=connect()) => {
         const uplinks: Set<Connector> = new Set;
         let outer = subconnect(conn, sources, (s) => {
-            const c = subconnect(conn, s, sink, conn).must(r => {
+            const c = subconnect(conn, s, sink, conn).do(r => {
                 uplinks.delete(c);
                 uplinks.size || outer || !isValue(r) || conn.return();
             });
             uplinks.add(c);
-        }).must(r => {
+        }).do(r => {
             outer = undefined;
             uplinks.size || !isValue(r) || conn.return();
         });
@@ -225,7 +225,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
             while (buffer.length > max) { dropped((size < 0) ? buffer.pop() : buffer.shift()); }
             if (buffer.length === max) { pause(s); paused = true; }
             if (buffer.length) ready(drain);
-        }).must(r => {
+        }).do(r => {
             if (isValue(r)) conn.return();
         });
 
@@ -268,11 +268,11 @@ export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
         let inner: Connector;
         let outer = subconnect(conn, sources, s => {
             inner?.end();
-            inner = subconnect(conn, s, sink, conn).must(r => {
+            inner = subconnect(conn, s, sink, conn).do(r => {
                 inner = undefined;
                 outer || !isValue(r) || conn.return();
             });
-        }).must(r => {
+        }).do(r => {
             outer = undefined;
             inner || !isValue(r) || conn.return();
         });

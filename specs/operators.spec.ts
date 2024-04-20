@@ -15,7 +15,7 @@ describe("Operators", () => {
             // Given a concat of multiple streams
             const s = concat([fromIterable([1,2]), fromIterable([5, 6])])
             // When it's connected and pulls run
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should emit the values
             // And close
             see("1", "2", "5", "6", "closed");
@@ -24,7 +24,7 @@ describe("Operators", () => {
             // Given an empty concat
             const s = concat([]);
             // When it's connected and pulls run
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should be closed with no output
             see("closed");
         });
@@ -32,7 +32,7 @@ describe("Operators", () => {
             // Given a concat of multiple streams
             const s = concat([fromIterable([1, 2, 3]), fromIterable([5, 6, 7])])
             // When it's connected with a sink that pauses, and pulls run
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).must(logClose); runPulls()
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).do(logClose); runPulls()
             // Then it should emit the values up to the first pause
             see("1", "2", "3");
             // Then continue when resumed
@@ -46,7 +46,7 @@ describe("Operators", () => {
             // Given a concatAll() of an emitter source
             const e = emitter<Source<number>>(), s = concatAll(e.source);
             // When it's connected to a sink
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
             e(fromIterable([1, 2])); e(fromIterable([3, 4]));
             // Then it should see all the output
@@ -62,7 +62,7 @@ describe("Operators", () => {
             // Given a concatAll() of an emitter source
             const e = emitter<Source<number>>(), s = concatAll(e.source);
             // When it's connected to a paused sink
-            const c = connect(s, log.emit).must(logClose); pause(c);
+            const c = connect(s, log.emit).do(logClose); pause(c);
             // And a source is pushed followed by a close and a resume of the sink
             e(fromIterable([1, 2])); e.end(); resume(c);
             // Then it should see all the output before closing
@@ -74,7 +74,7 @@ describe("Operators", () => {
             // Given a concatAll() of an emitter source
             const e = emitter<number>(), s = concatMap((n: number) => fromIterable([n, n*2]))(e.source);
             // When it's connected to a sink
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
             e(1); e(2);
             // Then it should see all the output
@@ -94,7 +94,7 @@ describe("Operators", () => {
                 filter(v => !!(v % 2))
             );
             // When subscribed and pulls run
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should output the matching values
             see("1", "3", "5", "closed");
         });
@@ -105,7 +105,7 @@ describe("Operators", () => {
                 filter((_,i) => !!(i % 2))
             );
             // When subscribed and pulls run
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should output the matching values
             see("b", "d", "closed");
         });
@@ -118,7 +118,7 @@ describe("Operators", () => {
                 map(v => v * 2)
             );
             // When subscribed and pulled
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should output the matching values
             see("2", "4", "6", "closed");
         });
@@ -129,7 +129,7 @@ describe("Operators", () => {
                 map((v,i) => v*i)
             );
             // When subscribed and pulled
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should output the matching values
             see("0", "2", "6", "closed");
         });
@@ -151,7 +151,7 @@ describe("Operators", () => {
             // Given a merge of two values
             const s = merge([fromValue(1), fromValue(2)]);
             // When it's connected and they both start
-            connect(s, log.emit).must(logClose); runPulls(); clock.tick(0);
+            connect(s, log.emit).do(logClose); runPulls(); clock.tick(0);
             // Then it should emit values from both
             // And then close
             see("1", "2", "closed");
@@ -160,7 +160,7 @@ describe("Operators", () => {
             // Given a merge of multiple streams
             const s = merge([fromIterable([2, 3, 4]), fromIterable([6, 7, 8])])
             // When it's connected with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c); }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c); }).do(logClose);
             // Then it should emit values and pause accordingly, resuming on request
             runPulls(); see("2", "3");
             resume(c); see("6");
@@ -173,7 +173,7 @@ describe("Operators", () => {
             // Given a mergeAll() of an emitter
             const e = emitter<Source<number>>(), s = mergeAll(e.source);
             // When it's connected to a sink
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
             e(fromIterable([1, 2])); e(fromIterable([3, 4]));
             // Then it should see all the output
@@ -193,7 +193,7 @@ describe("Operators", () => {
                 (n: number) => fromIterable([n, n*2])
             )(e.source);
             // When it's connected to a sink
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
             e(1); e(2);
             // Then it should see all the output
@@ -234,12 +234,12 @@ describe("Operators", () => {
             // Given a shared synchronous source
             const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
             // When it's connected and pulled with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).do(logClose);
             see(); runPulls();
             // Then it should emit values until the pause
             see("1", "2", "3");
             // But if another connection is added and pulled (w/non-pausing sink)
-            connect(s, log.emit).must(logClose); see(); runPulls();
+            connect(s, log.emit).do(logClose); see(); runPulls();
             // Then both connections see all the remaining values without pausing
             // And they should both close
             see("4", "4", "5", "5", "6", "6", "7", "7", "closed", "closed");
@@ -250,7 +250,7 @@ describe("Operators", () => {
             // Given a skip of a source
             const s = skip(3)(fromIterable([65,9,23,42,51,67]));
             // When it's connected and pulled
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should emit the remaining values
             // And then close
             see("42", "51", "67", "closed");
@@ -278,7 +278,7 @@ describe("Operators", () => {
             // Given a subscribed skipWhile()
             const cond = spy(v => !!(v % 3)), input = emitter();
             const s = pipe(input.source, skipWhile(cond));
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // When items are emitted
             // Then they are skipped
             input(44); see();
@@ -298,7 +298,7 @@ describe("Operators", () => {
         function dropper(v: any) { log(`drop: ${v}`); }
         it("drops everything when paused (w/size=0)", () => {
             // Given a connection to a mockSource piped through slack 0
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(0, dropper)), log).must(logClose);
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(0, dropper)), log).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // But when the connection is pasued, they are dropped
@@ -310,7 +310,7 @@ describe("Operators", () => {
         });
         it("buffers newest items when paused (w/size > 0)", () => {
             // Given a connection to a mockSource piped through slack 2
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(2, dropper)), log).must(logClose);
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(2, dropper)), log).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // And the upstream is unpaused
@@ -333,7 +333,7 @@ describe("Operators", () => {
         });
         it("buffers oldest items when paused (w/size > 0)", () => {
             // Given a connection to a mockSource piped through slack -2
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(-2, dropper)), log).must(logClose);
+            const e=mockSource<number>(), c = connect(pipe(e.source, slack(-2, dropper)), log).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // And the upstream is unpaused
@@ -391,7 +391,7 @@ describe("Operators", () => {
             // Given a subscribed switchAll of an emitter
             const input = emitter<Source<number>>();
             const s = switchAll(input.source);
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // When a source is pushed
             input(fromIterable([1, 2, 3]))
             // Then its output should be seen
@@ -415,7 +415,7 @@ describe("Operators", () => {
             // Given a subscribed switchAll()
             const input = emitter<number>();
             const s = switchAll(fromIterable([input.source]));
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // When the last inner source ends
             input(42); see("42"); input.end();
             // Then the output should be ended as well
@@ -427,7 +427,7 @@ describe("Operators", () => {
                 fromIterable([1,2,3,4,5,6,7])
             ]));
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => { log(v); !!(v%3)|| pause(c); }).must(logClose);
+            const c = connect(s, v => { log(v); !!(v%3)|| pause(c); }).do(logClose);
             // Then output should pause
             runPulls(); see("1", "2", "3");
             // And resume on demand
@@ -441,7 +441,7 @@ describe("Operators", () => {
             // Given a subscribed switchMap of an emitter source
             const input = emitter<number>();
             const s = switchMap((n: number) => fromIterable([n, n*2]))(input.source);
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // When a value is input
             input(17); runPulls();
             // Then it's mapped to a stream on the output
@@ -456,7 +456,7 @@ describe("Operators", () => {
             // Given a take of a source
             const s = take(3)(fromIterable([65,9,23,42,51,67]));
             // When it's connected and pulled
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // Then it should emit the remaining values
             // And then close
             see("65", "9", "23", "closed");
@@ -467,7 +467,7 @@ describe("Operators", () => {
             // Given a subscribed takeUntil
             const input = emitter(), notify = emitter();
             const s = pipe(input.source, takeUntil(notify.source));
-            connect(s, log.emit).must(logClose);
+            connect(s, log.emit).do(logClose);
             // When the input emits
             input(42); input(27); input(59);
             // Then the values should be seen
@@ -483,7 +483,7 @@ describe("Operators", () => {
             // Given a subscribed takeWhile()
             const cond = spy(v => !!(v % 3)), input = emitter();
             const s = pipe(input.source, takeWhile(cond));
-            connect(s, log.emit).must(logClose); runPulls();
+            connect(s, log.emit).do(logClose); runPulls();
             // When items are emitted
             // Then they are taken
             input(44); see("44");

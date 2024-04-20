@@ -199,7 +199,7 @@ describe("Job instances", () => {
                 // Given a suspended job
                 const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
-                }).must(r => isError(r) && log(`err: ${r.err}`));
+                }).do(r => isError(r) && log(`err: ${r.err}`));
                 clock.tick(0); // get to suspend
                 // When it's throw()n
                 j.throw("boom")
@@ -211,7 +211,7 @@ describe("Job instances", () => {
                 const j = start(function*() {
                     j.throw("headshot");
                     yield r => setTimeout(resolver(r), 50);
-                }).must(r => isError(r) && log(`err: ${r.err}`));
+                }).do(r => isError(r) && log(`err: ${r.err}`));
                 // When it next suspends
                 clock.tick(1);
                 // Then it should receive the error at the suspend point
@@ -221,7 +221,7 @@ describe("Job instances", () => {
                 // Given a job
                 const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
-                }).must(r => isError(r) && log(`err: ${r.err}`));
+                }).do(r => isError(r) && log(`err: ${r.err}`));
                 // When it'ts thrown before starting
                 j.throw("headshot"); clock.tick(0);
                 // Then it should receive the error at the first suspend point
@@ -327,7 +327,7 @@ describe("Job instances", () => {
                 // Given an empty completed job
                 const j = start(noop); clock.tick(0); see();
                 // When a cleanup is registered
-                j.must(() => log("end")); see();
+                j.do(() => log("end")); see();
                 // Then the cleanup should run async
                 clock.tick(0); see("end");
             });
@@ -485,7 +485,7 @@ describe("Async Ops", () => {
         describe("with no arguments", () => {
             it("suspends the job until returned or thrown", () => {
                 // Given a job, When suspended on a suspend()
-                const j = suspendOn(suspend()).must(r => isError(r) && log(`err: ${r.err}`));
+                const j = suspendOn(suspend()).do(r => isError(r) && log(`err: ${r.err}`));
                 clock.runAll(); see();
                 // Then it should not do anything until thrown or returned
                 j.throw(42);

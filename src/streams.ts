@@ -131,11 +131,10 @@ export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Co
  * @category Stream Producers
  */
 export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>, to?: Connection): Connector {
-    return parent.run(() => {
-        const job = getJob();
-        if (job.result()) throw new Error("Can't fork or link a closed conduit");
-        return connect(src, sink, to).must(res => { if (isError(res)) job.throw(res.err); });
-    })
+    if (parent.result()) throw new Error("Can't fork or link a closed conduit");
+    return parent.run(() => connect(src, sink, to)).do(res => {
+        if (isError(res)) parent.throw(res.err);
+    });
 }
 
 class _Throttle {
