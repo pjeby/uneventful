@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource, each, sleep, start, isValue } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -294,6 +294,7 @@ describe("Operators", () => {
         });
     });
     describe("slack()", () => {
+        useClock()
         function dropper(v: any) { log(`drop: ${v}`); }
         it("drops everything when paused (w/size=0)", () => {
             // Given a connection to a mockSource piped through slack 0
@@ -352,9 +353,38 @@ describe("Operators", () => {
             // And it closes when the upstream does
             e.end(); see("closed");
         });
-        // XXX these scenarios need each() in order to test them:
-        // - stops draining when sink pauses
-        // - handles re-entry if sink triggers an emission from upstream
+        it("stops draining when sink pauses", () => {
+            // Given a source and a job iterating over it w/each (which pauses on received items)
+            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), job = start(function*(){
+                for(const {item, next} of yield *each(s)) {
+                    yield *sleep(1); log(item); yield next;
+                }
+                log("done");
+            });
+            // When items are emitted during the loop body
+            clock.tick(1); e(1); e(2); e(3); e(4);
+            // Then only the most recent N should be kept
+            see("drop: 2"); clock.tick(3); see("1", "3", "4");
+            e.end(); clock.tick(1); see("done");
+            expect(isValue(job.result())).to.be.true;
+        });
+        it("buffers items received while sink is running", () => {
+            // Given a source and a job iterating over it w/each and a fake side-effect event
+            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), job = start(function*(){
+                for(const {item, next} of yield *each(s)) {
+                    if (item === 42) e(99);  // release Zalgo!  (fake side-effect event)
+                    yield *sleep(1); log(item); yield next;
+                }
+                log("done");
+            });
+            clock.tick(1); e(1); e(2); clock.tick(1); see("1");
+            // When the side-effect is triggered (causing items to be received while sink is running)
+            clock.tick(1); e(42); e(3); see("2");
+            // Then the extra item is buffered in order
+            clock.tick(3); see("42", "99", "3");
+            e.end(); clock.tick(1); see("done");
+            expect(isValue(job.result())).to.be.true;
+        });
     });
     describe("switchAll()", () => {
         it("switches to its latest input stream", () => {
