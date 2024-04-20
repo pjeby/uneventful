@@ -173,8 +173,8 @@ class _Throttle {
         this._isPulling = true;
         try {
             for(let [cb, unlink] of _callbacks) {
-                unlink()
                 if (!this.isReady()) break;  // we're done
+                unlink()
                 _callbacks.delete(cb);
                 cb() // XXX error handling?
             }
