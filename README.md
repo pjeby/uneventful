@@ -16,10 +16,10 @@ Enter Uneventful: a seamless, *declarative*, and **composable** blend of signals
 
 Uneventful does for event-driven interaction what async functions did for promises: it lets you build things out of *functions*, instead of spaghetti and garbage.  It's a system for *composable interactivity*, unifying and composing all of the current reactive paradigms in a way that hides the seams and keeps garbage collection where it belongs: hidden in utility functions, not cluttering up your code and your brain.
 
-And it does all this by letting your program structure *reflect its interactivity*.
+And it does all this by letting your program structure *reflect its interactivity:*
 
 ```ts
-import { start, forEach, fromDomEvent, must, Job } from "uneventful";
+import { start, pipe, into, fromDomEvent, must, Job } from "uneventful";
 
 function drag(node: HTMLElement): Job<HTMLElement> {
     return start(job => {
@@ -31,25 +31,22 @@ function drag(node: HTMLElement): Job<HTMLElement> {
 
         // The job ends when the mouse button goes up,
         // returning the DOM node it happens over
-        forEach(fromDomEvent(document, "mouseup"), e => {
-            // This exits the job, removing all the listeners
-            // (and the CSS class) in the process
+        pipe(fromDomEvent(document, "mouseup"), into(e => {
+            // Exit the job, removing all the listeners (and the .dragging class)
             job.return(e.target);
-        });
+        }));
     });
 }
 
 function addDragClass(node: HTMlElement) {
-    // Add a class now
-    node.classList.add("dragging");
-    // And remove it when the job is over
-    must(() => node.classList.remove("dragging"));
+    node.classList.add("dragging");  // Add a class now
+    must(() => node.classList.remove("dragging"));  // Remove it when the job is over
 }
 
 function trackMousePosition(node: HTMLElement) {
-    forEach(fromDomEvent(document, "mousemove"), e => {
+    pipe(fromDomEvent(document, "mousemove"), into(e => {
         // ... assign node.style.x/.y from event
-    });
+    }));
 }
 ```
 
@@ -78,7 +75,7 @@ function supportDragDrop(node: HTMLElement) {
 
 Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so semi-synchronously.  (Specifically, each pass of the loop starts *during* the event being responded to, not in a later microtask!)
 
-Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but *synchronously*, during the mouseup event that ends the `drag()` call.  (Note: this synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
+Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but again, semi-synchronously, during the mouseup event that ends the `drag()` call.  (Note: this synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
 
 And though we haven't shown any details here of what's being *done* with the drop, it's possible that we'll kick off some additional jobs to do an animation or contact a server or something of that sort, and wait for those to finish before enabling drag again.  (Unless of course we *want* them to be able to overlap with additional dragging, in which case we can spin off detached jobs.)
 
@@ -108,12 +105,12 @@ So the main place where you're likely to want to wrap an event handler is when y
 import {restarting, sleep} from "uneventful";
 
 start(job => {
-    forEach(currentlyHoveredFolder, restarting(folder => {
+    pipe(currentlyHoveredFolder, into(restarting(folder => {
         if (folder && !folder.isOpen()) start(function *(job) {
             yield *sleep(300);
             // ... open the folder here
         });
-    }));
+    })));
 });
 ```
 
@@ -126,7 +123,7 @@ Now, in this simple example you *could* just directly do the debouncing by manip
 But the key benefit to how Uneventful works is that you're not *limited* to whatever bag of tricks the framework itself provides: you can just **write out what you want** and it's easily cancellable by *default*, without you needing to try to twist your use case to fit a specific trick or tool.
 
 #### Signals and Streams, Minus The Seams
-So far our examples haven't really used anything "fancy": we've only imported seven functions and a type!  But Uneventful also provides a collection of reactive stream operators roughly on par with Wonka.js, and a reactive signals API comparable to that of Maverick Signals.  So you can `pipe()`, `take()`, `skip()`, `map()`, `filter()` or even `switchMap()` streams to your heart's content.  (See the Stream Operators section of the docs for the full list.)
+So far our examples haven't really used anything "fancy": we've only imported eight functions and a type!  But Uneventful also provides a collection of reactive stream operators roughly on par with Wonka.js, and a reactive signals API comparable to that of Maverick Signals.  So you can `pipe()`, `take()`, `skip()`, `map()`, `filter()` or even `switchMap()` streams to your heart's content.  (See the Stream Operators section of the docs for the full list.)
 
 Uneventful's signals and effects are named and work slightly differently from most other frameworks, though.  In particular, what other framework APIs usually call a "signal", we call a *value*.  What others call "computed", we call a *cached function*.  And what they call an "effect", we call a *rule*.  (With the respective APIs being named `value()`, `cached()`, and `rule()`.  We still call them "signals" as a category, though.)
 

@@ -283,3 +283,24 @@ type Chain6<A,R,B,C,D,E,F>       = [...Chain1<A,B>, ...Chain5<B,R,C,D,E,F>];
 type Chain7<A,R,B,C,D,E,F,G>     = [...Chain1<A,B>, ...Chain6<B,R,C,D,E,F,G>];
 type Chain8<A,R,B,C,D,E,F,G,H>   = [...Chain1<A,B>, ...Chain7<B,R,C,D,E,F,G,H>];
 type Chain9<A,R,B,C,D,E,F,G,H,I> = [...Chain1<A,B>, ...Chain8<B,R,C,D,E,F,G,H,I>];
+
+/**
+ * Pass subscriber into a stream (or any arguments into any other function).
+ *
+ * This utility is mainly here for uses like:
+ *
+ * - `pipe(src, into(sink))`,
+ * - `pipe(src, into(sink, conn))`,
+ * - `pipe(src, into(restarting(sink)))`, etc.
+ *
+ * but can also be used for argument currying generally.
+ *
+ * @param args The arguments to pass to the stream (or other function)
+ *
+ * @returns a function that takes another function and calls it with the given args.
+ *
+ * @category Stream Consumers
+ */
+export function into<In extends any[], Out>(...args: In): (src: (...args: In) => Out) => Out {
+    return src => src(...args);
+}
