@@ -74,7 +74,7 @@ export function suspend(): Yielding<never>;
  * Suspend a job until a request is settled
  *
  * @returns A {@link Yielding} of the return type, suitable for calling via
- * `yield *` inside a {@link Job}, or converting to a job via the {@link job}()
+ * `yield *` inside a {@link Job}, or converting to a job via the {@link start}()
  * function.
  *
  * @param action A function that will be passed a {@link Request}. It should
@@ -110,7 +110,7 @@ export function *suspend<T>(action: (request: Request<T>) => unknown = noop): Yi
  * or its callees.
  *
  * @returns A {@link Yielding} of appropriate type, suitable for calling via
- * `yield *` inside a {@link Job}, or converting to a job via the {@link job}()
+ * `yield *` inside a {@link Job}, or converting to a job via the {@link start}()
  * function.
  *
  * @example

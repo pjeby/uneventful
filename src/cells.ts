@@ -129,7 +129,7 @@ const defaultQueue = RuleScheduler.for(defer);
  * `rule()`.
  *
  * Note: this function will throw an error if called without an active job. If
- * you need a standalone rule, use {@link root} or {@link detached} to wrap the
+ * you need a standalone rule, use {@link detached}.run to wrap the
  * call to rule.
  *
  * @param fn The function that will be run each time its dependencies change.

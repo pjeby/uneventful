@@ -55,7 +55,7 @@ export type Start<T,C=void> = AsyncStart<T,C> | SyncStart<T,C>
  * A cancellable asynchronous operation with automatic resource cleanup.
  *
  * You can add cleanup callbacks to a job via {@link must}() or its
- * {@link .must}() method.  When the job is ended or canceled, the callbacks
+ * .{@link must}() method.  When the job is ended or canceled, the callbacks
  * are (synchronously) run in reverse order -- a bit like a delayed and
  * distributed collection of `finally` blocks.
  *
