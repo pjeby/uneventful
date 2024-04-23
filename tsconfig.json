@@ -19,6 +19,7 @@
 
         // Don't document internals
         "stripInternal": true,
+        "newLine": "lf"
     },
     "include": [
         "src/*.ts", "mod.ts"

@@ -3,5 +3,6 @@
     "deno.lint": false,
     "deno.unstable": true,
     "deno.config": "deno.jsonc",
-    "deno.cacheOnSave": true
+    "deno.cacheOnSave": true,
+    "typescript.tsdk": "node_modules\\typescript\\lib"
 }

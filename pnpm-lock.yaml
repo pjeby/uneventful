@@ -18,12 +18,12 @@ specifiers:
   sinon-chai: ^3.7.0
   ts-node: ^10.9.1
   tsx: ^4.1.3
-  typedoc: ^0.25.4
-  typescript: ^5.2.2
+  typedoc: ^0.25.13
+  typescript: ^5.4.5
 
 devDependencies:
-  '@knodes/typedoc-plugin-pages': 0.23.4_typedoc@0.25.4
-  '@knodes/typedoc-pluginutils': 0.23.4_typedoc@0.25.4
+  '@knodes/typedoc-plugin-pages': 0.23.4_typedoc@0.25.13
+  '@knodes/typedoc-pluginutils': 0.23.4_typedoc@0.25.13
   '@types/chai': 4.3.10
   '@types/mocha': 10.0.4
   '@types/node': 16.18.61
@@ -34,13 +34,13 @@ devDependencies:
   mocha: 10.2.0
   monkey-around: 2.3.0
   onchange: 7.1.0
-  pkgroll: 2.0.1_typescript@5.2.2
+  pkgroll: 2.0.1_typescript@5.4.5
   sinon: 17.0.1
   sinon-chai: 3.7.0_chai@4.3.10+sinon@17.0.1
-  ts-node: 10.9.1_fi7e5l2t3y3cqpbjrnkvckzzgu
+  ts-node: 10.9.1_26myjxnguasdza5zoqavtckj3y
   tsx: 4.1.3
-  typedoc: 0.25.4_typescript@5.2.2
-  typescript: 5.2.2
+  typedoc: 0.25.13_typescript@5.4.5
+  typescript: 5.4.5
 
 packages:
 
@@ -289,18 +289,18 @@ packages:
       '@jridgewell/sourcemap-codec': 1.4.15
     dev: true
 
-  /@knodes/typedoc-plugin-pages/0.23.4_typedoc@0.25.4:
+  /@knodes/typedoc-plugin-pages/0.23.4_typedoc@0.25.13:
     resolution: {integrity: sha512-3LMS2TDV/lH/BKfxNEjCEhAwSCxOuQRF742EoYoP63/AQmIM/EZKDwShn1AYu4CtVAHvJpixuKF0VeFDLjgrbQ==}
     peerDependencies:
       lunr: ^2.3.0
       typedoc: ^0.23.0
     dependencies:
-      '@knodes/typedoc-pluginutils': 0.23.4_typedoc@0.25.4
+      '@knodes/typedoc-pluginutils': 0.23.4_typedoc@0.25.13
       lodash: 4.17.21
-      typedoc: 0.25.4_typescript@5.2.2
+      typedoc: 0.25.13_typescript@5.4.5
     dev: true
 
-  /@knodes/typedoc-pluginutils/0.23.4_typedoc@0.25.4:
+  /@knodes/typedoc-pluginutils/0.23.4_typedoc@0.25.13:
     resolution: {integrity: sha512-uO7t9XxYW1DMjVFTgmRs2p431+AsmvnX4CrrB/zkauo8mZSLS3CppMKHBVE/Lk1cFO73vgfyJReRK98X/8BzUA==}
     peerDependencies:
       typedoc: ^0.23.0
@@ -309,7 +309,7 @@ packages:
       lodash: 4.17.21
       pkg-up: 3.1.0
       semver: 7.5.4
-      typedoc: 0.25.4_typescript@5.2.2
+      typedoc: 0.25.13_typescript@5.4.5
     dev: true
 
   /@rollup/plugin-alias/5.0.1_rollup@3.29.4:
@@ -1312,7 +1312,7 @@ packages:
       find-up: 3.0.0
     dev: true
 
-  /pkgroll/2.0.1_typescript@5.2.2:
+  /pkgroll/2.0.1_typescript@5.4.5:
     resolution: {integrity: sha512-sAik3umDeElVxQeRj4GpK21mBSi75TnqaKlP+f2/f5WwKEXXtmrrCs0stYG94JfPEyT9mTD8jHk7CODO1dpWmA==}
     engines: {node: '>=18'}
     hasBin: true
@@ -1332,7 +1332,7 @@ packages:
       esbuild: 0.18.20
       magic-string: 0.30.5
       rollup: 3.29.4
-      typescript: 5.2.2
+      typescript: 5.4.5
     dev: true
 
   /randombytes/2.1.0:
@@ -1411,8 +1411,8 @@ packages:
     engines: {node: '>=8'}
     dev: true
 
-  /shiki/0.14.5:
-    resolution: {integrity: sha512-1gCAYOcmCFONmErGTrS1fjzJLA7MGZmKzrBNX7apqSwhyITJg2O102uFzXUeBxNnEkDA9vHIKLyeKq0V083vIw==}
+  /shiki/0.14.7:
+    resolution: {integrity: sha512-dNPAPrxSc87ua2sKJ3H5dQ/6ZaY8RNnaAqK+t0eG7p0Soi2ydiqbGOTaZCqaYvA/uZYfS1LJnemt3Q+mSfcPCg==}
     dependencies:
       ansi-sequence-parser: 1.1.1
       jsonc-parser: 3.2.0
@@ -1523,7 +1523,7 @@ packages:
     hasBin: true
     dev: true
 
-  /ts-node/10.9.1_fi7e5l2t3y3cqpbjrnkvckzzgu:
+  /ts-node/10.9.1_26myjxnguasdza5zoqavtckj3y:
     resolution: {integrity: sha512-NtVysVPkxxrwFGUUxGYhfux8k78pQB3JqYBXlLRZgdGUqTO5wU/UyHop5p70iEbGhB7q5KmiZiU0Y3KlJrScEw==}
     hasBin: true
     peerDependencies:
@@ -1549,7 +1549,7 @@ packages:
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 5.2.2
+      typescript: 5.4.5
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
     dev: true
@@ -1571,22 +1571,22 @@ packages:
     engines: {node: '>=4'}
     dev: true
 
-  /typedoc/0.25.4_typescript@5.2.2:
-    resolution: {integrity: sha512-Du9ImmpBCw54bX275yJrxPVnjdIyJO/84co0/L9mwe0R3G4FSR6rQ09AlXVRvZEGMUg09+z/usc8mgygQ1aidA==}
+  /typedoc/0.25.13_typescript@5.4.5:
+    resolution: {integrity: sha512-pQqiwiJ+Z4pigfOnnysObszLiU3mVLWAExSPf+Mu06G/qsc3wzbuM56SZQvONhHLncLUhYzOVkjFFpFfL5AzhQ==}
     engines: {node: '>= 16'}
     hasBin: true
     peerDependencies:
-      typescript: 4.6.x || 4.7.x || 4.8.x || 4.9.x || 5.0.x || 5.1.x || 5.2.x || 5.3.x
+      typescript: 4.6.x || 4.7.x || 4.8.x || 4.9.x || 5.0.x || 5.1.x || 5.2.x || 5.3.x || 5.4.x
     dependencies:
       lunr: 2.3.9
       marked: 4.3.0
       minimatch: 9.0.3
-      shiki: 0.14.5
-      typescript: 5.2.2
+      shiki: 0.14.7
+      typescript: 5.4.5
     dev: true
 
-  /typescript/5.2.2:
-    resolution: {integrity: sha512-mI4WrpHsbCIcwT9cF4FZvr80QUeKvsUsUvKDoR+X/7XHQH98xYD8YHZg7ANtz2GtZt/CBq2QJ0thkGJMHfqc1w==}
+  /typescript/5.4.5:
+    resolution: {integrity: sha512-vcI4UpRgg81oIRUFwR0WSIHKt11nJ7SAVlYNIu+QpqeyXP+gpQJy/Z4+F0aGxSE4MqwjyXvW/TzgkLAx2AGHwQ==}
     engines: {node: '>=14.17'}
     hasBin: true
     dev: true
