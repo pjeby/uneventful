@@ -34,3 +34,9 @@ module.exports = {
         "alphabetical"
     ],
 };
+
+// Set source links to vscode unless running on GitHub Actions
+const {CI, GITHUB_RUN_ID} = process.env;
+if (CI === undefined || GITHUB_RUN_ID === undefined) {
+    module.exports.sourceLinkTemplate = `vscode://file/${__dirname}/{path}:{line}`;
+}
