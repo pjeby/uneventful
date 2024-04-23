@@ -50,7 +50,7 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { makeJob } from "../src/mod.ts";
+import { isCancel, makeJob } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
@@ -72,4 +72,22 @@ export function useClock() {
 export function noClock() {
     after(() => { clock = sinon.useFakeTimers(new Date); setDefer(f => setTimeout(f, 0)); });
     before(() => { clock.restore(); clock = undefined; setDefer(queueMicrotask); });
+}
+
+chai.use(function ({Assertion}, {flag, addProperty}) {
+    addProperty(Assertion.prototype, 'canceled', function () {
+        this.assert(
+            isCancel(this._obj.result())
+          , 'expected #{this} to be canceled'
+          , 'expected #{this} to not be canceled'
+        );
+      })
+});
+
+declare global {
+    namespace Chai {
+        interface Assertion {
+            canceled: Assertion
+        }
+    }
 }

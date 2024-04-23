@@ -7,3 +7,4 @@ export * from "./streams.ts"
 export * from "./sources.ts";
 export * from "./sinks.ts";
 export * from "./operators.ts";
+export * from "./jobutils.ts";
