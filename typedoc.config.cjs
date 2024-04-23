@@ -1,3 +1,7 @@
+// Ensure we use Windows Git when possibly running under Cygwin
+const {TYPEDOC_GIT_DIR, PATH, OS} = process.env;
+if (OS==="Windows_NT" && TYPEDOC_GIT_DIR !== undefined) process.env.PATH=`${TYPEDOC_GIT_DIR};${PATH}`;
+
 /** @type {import('typedoc').TypeDocOptions} */
 module.exports = {
     entryPoints: ["./src/mod.ts"],
