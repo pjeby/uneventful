@@ -23,7 +23,15 @@ import { Request, rejecter, resolve, resolver } from "./results.ts"
  *
  * @category Types and Interfaces
  */
-export type Yielding<T> = {[Symbol.iterator](): JobIterator<T>}
+export type Yielding<T> = {
+    /**
+     * An iterator suitable for use with `yield *` (in a job generator) to
+     * obtain a result.
+     *
+     * @category Obtaining Results
+     */
+    [Symbol.iterator](): JobIterator<T>
+}
 
 /**
  * An iterator yielding {@link Suspend} callbacks.  (An implementation detail of
@@ -44,11 +52,11 @@ export type JobIterator<T> = Generator<Suspend<any>, T, any>
  * cancelled by outside forces**.  (Such as its enclosing job ending, or
  * explicit throw()/return() calls on the job instance.)
  *
- * Also note that any subjobs the Suspend function creates (or cleanup callbacks it
- * registers) **will not be disposed/called until the *calling* job ends**.  So
- * any resources that won't be needed once the job is resumed should be
- * explicitly disposed of -- in which case you should probably just `yield *` to
- * a {@link start}(), instead of yielding a Suspend!
+ * Also note that any subjobs the Suspend function creates (or cleanup callbacks
+ * it registers) **will not be called until the *calling* job ends**.  So any
+ * resources that won't be needed once the job is resumed should be explicitly
+ * disposed of -- in which case you should probably just `yield *` to a
+ * {@link start}(), instead of yielding a Suspend!
  *
  * @category Types and Interfaces
  */

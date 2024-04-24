@@ -79,6 +79,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
     /**
      * The result of the job (canceled, returned value, or error), or
      * undefined if the job isn't finished.
+     *
+     * @category Obtaining Results
      */
     result(): JobResult<T> | undefined;
 
@@ -93,6 +95,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * Generally speaking, this method is used within a job to arrange for used
      * resources to be cleaned up or to undo other state that was only supposed
      * to be active while the job was running.
+     *
+     * @category Resource Tracking
      */
     must(cleanup?: OptionalCleanup<T>): this;
 
@@ -138,6 +142,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * @returns A callback that should be used to remove the passed-in cleanup
      * callback from the job, if the resource is disposed of before the job
      * ends.
+     *
+     * @category Resource Tracking
      */
     release(cleanup: CleanupFn<T>): DisposeFn;
 
@@ -146,6 +152,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * {@link start}, but using a specific job as the parent, rather than
      * whatever job is active.  Zero, one, and two arguments are supported,
      * just as with start().)
+     *
+     * @category Execution Control
      */
     start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
     start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
@@ -159,6 +167,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * @param fn The function to call
      * @param args The arguments to call it with, if any
      * @returns The result of calling fn(...args)
+     *
+     * @category Execution Control
      */
     run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
 
@@ -177,6 +187,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * to copy the exact type (as TypeScript has no way to generically say,
      * "this a function with all the same overloads, but none of the
      * properties").
+     *
+     * @category Execution Control
      */
     bind<F extends (...args: any[]) => any>(fn: F): F
 
@@ -196,6 +208,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * Note: this method is a bound function, so you can pass it as a callback
      * to another job, event source, etc.
+     *
+     * @category Execution Control
      */
     readonly end: () => void;
 
@@ -211,6 +225,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * resources used by the job itself, and {@link Job.release}() callbacks are
      * used to notify other activities (such as child jobs) that they are being
      * canceled.)
+     *
+     * @category Obtaining Results
      */
     do(action: (res?: JobResult<T>) => unknown): this;
 
@@ -229,6 +245,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @see The {@link restarting} wrapper can be used to make a function that
      * runs over and over in the same job, restarting each time.
+     *
+     * @category Execution Control
      */
     restart(): this;
 
@@ -237,6 +255,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * cleanup callbacks.  (Throws an error if the job is already ended or is
      * currently restarting.)  Provides the same execution and ordering
      * guarantees as .{@link Job.end end}().
+     *
+     * @category Producing Results
      */
     throw(err: any): this;
 
@@ -245,6 +265,8 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * cleanup callbacks.  (Throws an error if the job is already ended or is
      * currently restarting.)  Provides the same execution and ordering
      * guarantees as .{@link Job.end end}().
+     *
+     * @category Producing Results
      */
     return(val: T) : this;
 
