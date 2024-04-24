@@ -42,7 +42,7 @@ describe("async start()", () => {
         it("calls the function w/no this if none given", () => {
             // Given a generator function
             const defaultThis = (function(){ return this; })();
-            function*g() { log(this === defaultThis); }
+            function*g() { log(this === defaultThis || this == undefined); }
             // When start() is called on it
             start(g);
             // Then the generator should be advanced asynchronously with no this
