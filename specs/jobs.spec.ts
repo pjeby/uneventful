@@ -1,6 +1,6 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
-    start, Suspend, Request, suspend, to, wait, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
+    start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
     IsStream, value, cached, runRules, isError, backpressure, sleep
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
@@ -481,27 +481,6 @@ describe("Async Ops", () => {
         });
     });
 
-    describe("suspend()", () => {
-        describe("with no arguments", () => {
-            it("suspends the job until returned or thrown", () => {
-                // Given a job, When suspended on a suspend()
-                const j = suspendOn(suspend()).do(r => isError(r) && log(`err: ${r.err}`));
-                clock.runAll(); see();
-                // Then it should not do anything until thrown or returned
-                j.throw(42);
-                see("err: 42");
-            });
-        });
-        describe("with a Suspend<T> argument", () => {
-            it("suspends the job on that operation", () => {
-                // Given a job, When suspended on a suspend(operator)
-                // Then it should invoke the operator w/a request to resume the job
-                const op: Suspend<any> = r => resolve(r, 42);
-                const j = suspendOn(suspend(op)); clock.runAll(); see("42");
-            });
-        });
-    });
-
     function checkAsyncResume(to: <T>(p: Promise<T>|PromiseLike<T>) => Yielding<T>) {
         it("resolved promises", async () => {
             // Given a job suspended on to() a resolved promise
@@ -531,44 +510,7 @@ describe("Async Ops", () => {
             see("wut");
         });
     });
-    describe("wait() runs its action in a job", () => {
-        it("that ends before the parent job resumes", () => {
-            // Given a job suspended on a wait() callback
-            suspendOn(wait(r => {
-                must(() => log("end"));
-                setTimeout(() => resolve(r, 42), 5);
-            }));
-            // When the job resumes
-            clock.runAll();
-            // Then the cleanup callback should run first
-            see("end", "42");
-        });
-        it("that ends if the job ends first", () => {
-            // Given a job suspended on a wait() callback
-            const j = suspendOn(wait(r => {
-                must(() => log("end"));
-                setTimeout(() => resolve(r, 42), 5);
-            }));
-            clock.tick(0); // let it suspend
-            // When the job is aborted
-            j.return(99);
-            // Then the cleanup callback should be run
-            see("end");
-        });
-        it("with re-entrance prevention if cleanups settle", () => {
-            // Given a job suspended on a wait() callback, with a cleanup that
-            // rejects it and a main that resolves it
-            suspendOn(wait(r => {
-                must(() => { log("cleanup"); reject(r, "end"); } );
-                setTimeout(() => resolve(r, 42), 5);
-            }));
-            // When the job resumes
-            clock.runAll();
-            // Then the cleanup callback should run first, but the wait
-            // should resolve and not reject
-            see("cleanup", "42");
-        });
-    });
+
     describe("until()", () => {
         it("calls `uneventful.until` methods and returns their value", () => {
             // Given an object with an uneventful.until method

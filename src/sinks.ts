@@ -1,7 +1,8 @@
-import { Suspend, Yielding,  to, wait } from "./async.ts";
+import { Suspend, Yielding,  to } from "./async.ts";
 import { defer } from "./defer.ts";
 import { Source, pause, resume, connect } from "./streams.ts";
-import { Request, reject, resolve, resolver, isCancel, isError } from "./results.ts";
+import { Request, reject, resolve, isCancel, isError } from "./results.ts";
+import { start } from "./tracking.ts";
 
 type EachResult<T> = {
     item: T;
@@ -119,9 +120,9 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
         return to(source as PromiseLike<T>);
     }
     if (typeof source === "function") {
-        return wait(r => {
-            connect(source, resolver(r)).do(res => {
-                if (!isCancel(res)) reject(r, isError(res) ? res.err : new Error("Stream ended"));
+        return start(job => {
+            connect(source, e => job.return(e)).do(res => {
+                if (!isCancel(res) && !job.result()) job.throw(isError(res) ? res.err : new Error("Stream ended"));
             });
         })
     }
