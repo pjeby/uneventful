@@ -4,6 +4,7 @@ import { defer } from "./defer.ts";
 import { Source, pause, resume, connect } from "./streams.ts";
 import { reject, resolve, isCancel, isError } from "./results.ts";
 import { start } from "./jobutils.ts";
+import { isFunction } from "./tracking.ts";
 
 export type EachResult<T> = {
     item: T;
@@ -114,13 +115,13 @@ export interface UntilMethod<T> {
  * @category Scheduling
  */
 export function until<T>(source: Waitable<T>): Yielding<T> {
-    if (typeof (source as UntilMethod<T>)["uneventful.until"] === "function") {
+    if (isFunction((source as UntilMethod<T>)["uneventful.until"])) {
         return (source as UntilMethod<T>)["uneventful.until"]();
     }
-    if (typeof source["then"] === "function") {
+    if (isFunction(source["then"])) {
         return to(source as PromiseLike<T>);
     }
-    if (typeof source === "function") {
+    if (isFunction(source)) {
         return start(job => {
             connect(source, e => job.return(e)).do(res => {
                 if (!isCancel(res) && !job.result()) job.throw(isError(res) ? res.err : new Error("Stream ended"));

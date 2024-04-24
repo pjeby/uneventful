@@ -6,6 +6,15 @@ import { resolve, reject } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 
 /**
+ * Is the given value a function?
+ *
+ * @category Types and Interfaces
+ */
+export function isFunction(f: any): f is Function {
+    return typeof f === "function";
+}
+
+/**
  * Return the currently-active Job, or throw an error if none is active.
  *
  * (You can check if a job is active first using {@link isJobActive}().)
@@ -146,13 +155,13 @@ class _Job<T> implements Job<T> {
     start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
         if (!fnOrCtx) return makeJob(this);
         let init: Start<T,C>;
-        if (typeof fn === "function") {
+        if (isFunction(fn)) {
             init = fn.bind(fnOrCtx as C);
-        } else if (typeof fnOrCtx === "function") {
+        } else if (isFunction(fnOrCtx)) {
             init = fnOrCtx as Start<T,C>;
         } else if (fnOrCtx instanceof _Job) {
             return fnOrCtx;
-        } else if (typeof fnOrCtx[Symbol.iterator] === "function") {
+        } else if (isFunction(fnOrCtx[Symbol.iterator])) {
             init = () => fnOrCtx as Yielding<T>;
         } else {
             // XXX handle promises or other things here?
@@ -161,8 +170,8 @@ class _Job<T> implements Job<T> {
         const job = makeJob<T>(this);
         try {
             const result = job.run(init as Start<T>, job);
-            if (typeof result === "function") return job.must(result);
-            if (result && typeof result[Symbol.iterator] === "function") {
+            if (isFunction(result)) return job.must(result);
+            if (result && isFunction(result[Symbol.iterator])) {
                 job.run(runGen, result, <Request<T>>((m, v, e) => {
                     if (job.result()) return;
                     if (m==="next") job.return(v); else job.throw(e);
@@ -191,7 +200,7 @@ class _Job<T> implements Job<T> {
     }
 
     must(cleanup?: OptionalCleanup<T>) {
-        if (typeof cleanup === "function") push(this._chain(), cleanup);
+        if (isFunction(cleanup)) push(this._chain(), cleanup);
         return this;
     }
 
@@ -275,7 +284,7 @@ function runGen<R>(g: Yielding<R>, req?: Request<R>) {
                         req && resolve(req, value);
                         req = undefined;
                         break;
-                    } else if (typeof value !== "function") {
+                    } else if (!isFunction(value)) {
                         method = "throw";
                         arg = new TypeError("Jobs must yield functions (or yield* Yielding<T>s)");
                         continue;
