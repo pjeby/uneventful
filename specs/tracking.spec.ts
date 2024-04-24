@@ -485,3 +485,66 @@ describe("restarting()", () => {
         see("true")
     });
 });
+
+function msg(val: any) { return () => log(val); }
+
+describe("Cleanup order", () => {
+    function setupJobs() {
+        const jobs = [] as Job<any>[];
+        jobs.unshift(detached.start(j => {
+            log("starting @ root");
+            must(msg("must @ root"));
+            j.release(msg("release @ root"));
+            for (const i of [1, 2, 3]) jobs.push(start(j => {
+                log(`starting @ sub ${i}`);
+                must(msg(`must @ sub ${i}`));
+                j.release(msg(`release @ sub ${i}`));
+            }).do(msg(`do @ sub ${i}`)));
+        }).do(msg("do @ root")));
+        see("starting @ root", "starting @ sub 1", "starting @ sub 2", "starting @ sub 3");
+        return jobs;
+    }
+
+    it("runs all child release()s before *any* must()s or do()s", () => {
+        // Given some nested jobs
+        const [j] = setupJobs();
+        // When the root job is ended
+        j.end();
+        // Then the release()s should run breadth-first, followed by depth-first
+        // LIFO for must()s + FIFO for do()s
+        see(
+            "release @ sub 3", "release @ sub 2", "release @ sub 1", "release @ root",
+            "must @ sub 3", "do @ sub 3",
+            "must @ sub 2", "do @ sub 2",
+            "must @ sub 1", "do @ sub 1",
+            "must @ root",  "do @ root"
+        )
+    });
+
+    it("runs restart() cleanups to completion before resuming other cleanups", () => {
+        // Given some nested jobs, with a job that's restarted by one of them in a cleanup
+        const [j, _j1, j2, _j3] = setupJobs();
+        const toRestart = detached.start(() => {
+            must(msg("must @ restart"));
+            start(() => msg("must @ restart sub"));
+        })
+        j2.must(() => { log("restart begins"); toRestart.restart(); log("restart done"); })
+        // When the root is ended
+        j.end()
+        // Then the restart should run its own full cleanup tree
+        // before resuming the enclosing one
+        see(
+            "release @ sub 3", "release @ sub 2", "release @ sub 1", "release @ root",
+            "must @ sub 3", "do @ sub 3",
+
+            "restart begins",
+            "must @ restart sub",
+            "must @ restart",
+            "restart done",
+
+            "must @ sub 2", "do @ sub 2",
+            "must @ sub 1", "do @ sub 1",
+            "must @ root",  "do @ root"
+        )
+    });
+});
