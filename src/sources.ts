@@ -9,6 +9,8 @@ import { isError, isValue, noop } from "./results.ts";
 /**
  * A function that emits events, with a .source they're emitted from
  *
+ * Created using {@link emitter}.
+ *
  * @category Types and Interfaces
  */
 export interface Emitter<T> {
@@ -245,6 +247,8 @@ export function lazy<T>(factory: () => Source<T>): Source<T> {
 /**
  * An {@link Emitter} with a ready() method, that only supports a single active
  * subscriber.  (Useful for testing stream operators and sinks.)
+ *
+ * Created using {@link mockSource}().
  *
  * @category Types and Interfaces
  */

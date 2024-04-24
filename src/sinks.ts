@@ -6,11 +6,28 @@ import { reject, resolve, isCancel, isError } from "./results.ts";
 import { start } from "./jobutils.ts";
 import { isFunction } from "./tracking.ts";
 
+/**
+ * The result type returned from calls to {@link Each}.next()
+ *
+ * @category Types and Interfaces
+ */
 export type EachResult<T> = {
+    /** The value provided by the source being iterated */
     item: T;
+
+    /**
+     * A suspend callback that must be `yield`-ed before the next call to the
+     * iterator's .next() method. (That is, you must `yield next` it exactly once
+     * per loop pass.  See {@link each}() for more details.)
+     */
     next: Suspend<void>;
 }
 
+/**
+ * The iterable returned by `yield *` {@link each}()
+ *
+ * @category Types and Interfaces
+ */
 export type Each<T> = IterableIterator<EachResult<T>>
 
 /**

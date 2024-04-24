@@ -1,7 +1,24 @@
 import { JobResult } from "./results.ts";
 
+/**
+ * An undefined or null value
+ *
+ * @category Types and Interfaces
+ */
 export type Nothing = undefined | null | void;
+
+/**
+ * A function without a `this`
+ *
+ * @category Types and Interfaces
+ */
 export type PlainFunction = (this: void, ...args: any[]) => any;
+
+/**
+ * Any function
+ *
+ * @category Types and Interfaces
+ */
 export type AnyFunction = (...args: any[]) => any;
 
 /**
