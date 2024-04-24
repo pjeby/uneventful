@@ -1,5 +1,5 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { AnyFunction, CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup } from "./types.ts";
+import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
 import { resolve, reject } from "./results.ts";
@@ -26,7 +26,7 @@ function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
     return undefined;
 }
 
-/** The set of jobs whose callbacks  */
+// The set of jobs whose callbacks need running during an end() sweep
 var inProcess = new Set<_Job<any>>;
 
 class _Job<T> implements Job<T> {
@@ -214,77 +214,6 @@ class _Job<T> implements Job<T> {
 }
 
 /**
- * Add a cleanup function to the active job. Non-function values are ignored.
- * Equivalent to {@link getJob}().{@link Job.must must}() -- see
- * {@link Job.must}() for more details.
- *
- * @category Jobs
- */
-export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
-    return (getJob() as Job<T>).must(cleanup);
-}
-
-/**
- * Start a nested job within the currently-active job.  (Shorthand for
- * {@link getJob}().{@link Job.start start}(...).)
- *
- * This function can be called with zero, one, or two arguments:
- *
- * - When called with zero arguments, the new job is returned without any other
- *   initialization.
- *
- * - When called with one argument that's a {@link Yielding} iterator (such as a
- *   generator or an existing job): it's attached to the new job and executed
- *   asynchronously. (Starting in the next available microtask.)
- *
- * - When called with one argument that's a function (either a {@link SyncStart}
- *   or {@link AsyncStart}): the function is run inside the new job and
- *   receives it as an argument.  It can return a {@link Yielding} iterator
- *   (such as a generator), a cleanup callback ({@link CleanupFn}), or void.  A
- *   returned Yielding will be treated as if the method was called with that to
- *   begin with; a cleanup callback will be added to the job as a `must()`.
- *
- * - When called with two arguments -- a "this" object and a function -- it
- *   works the same as one argument that's a function, except the function is
- *   bound to the supplied "this" before being called.
- *
- *   This last signature is needed because you can't make generator arrows in JS
- *   yet: if you want to start() a generator function bound to the current
- *   `this`, you'll want to use `.start(this, function*() { ...whatever  })`.
- *
- *   (Note, however, that TypeScript and/or VSCode may require that you give
- *   such a function an explicit `this` parameter (e.g. `.start(this, function
- *   *(this) {...}));`) in order to correctly infer types inside a generator
- *   function.)
- *
- * In any of the above cases, if a supplied function throws an error, the new
- * job will be ended, and the error re-thrown.
- *
- * @returns the created {@link Job}
- *
- * @category Jobs
- */
-export function start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
-
-/**
- * The two-argument variant of start() allows you to pass a "this" object that
- * will be bound to the initialization function.  (It's mostly useful for
- * generator functions, since generator arrows aren't a thing yet.)
- */
-export function start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
-export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
-    return getJob().start(fnOrCtx, fn);
-}
-
-/**
- * Is there a currently active job? (i.e., can you safely use {@link must}(),
- * or {@link getJob}() right now?)
- *
- * @category Jobs
- */
-export function isJobActive() { return !!current.job; }
-
-/**
  * Return a new {@link Job}.  If *either* a parent parameter or stop function
  * are given, the new job is linked to the parent.
  *
@@ -316,46 +245,6 @@ export const makeJob: <T,R=unknown>(parent?: Job<R>, stop?: CleanupFn<R>) => Job
  */
 export const detached = makeJob();
 (detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
-
-/**
- * Wrap a function in a {@link Job} that restarts each time the resulting
- * function is called, thereby canceling any nested jobs and cleaning up any
- * resources used by previous calls. (This can be useful for such things as
- * canceling an in-progress search when the user types more text in a field.)
- *
- * The restarting job will be ended when the job that invoked `restarting()`
- * is finished, canceled, or restarted.  Calling the wrapped function after its
- * job has ended will result in an error.  You can wrap any function any number
- * of times: each call to `restarting()` creates a new, distinct "restarting
- * job" and function wrapper to go with it.
- *
- * @param task (Optional) The function to be wrapped. This can be any function:
- * the returned wrapper function will match its call signature exactly, including
- * overloads.  (So for example you could wrap the {@link start} API via
- * `restarting(start)`, to create a function you can pass job-start functions to.
- * When called, the function would cancel any outstanding job from a previous
- * call, and start the new one in its place.)
- *
- * @returns A function of identical type to the input function.  If no input
- * function was given, the returned function will just take one argument (a
- * zero-argument function optionally returning a {@link CleanupFn}).
- *
- * @category Jobs
- */
-export function restarting(): (task: () => OptionalCleanup<never>) => void
-export function restarting<F extends AnyFunction>(task: F): F
-export function restarting<F extends AnyFunction>(task?: F): F {
-    const outer = getJob(), inner = makeJob<never>(), {end} = inner;
-    task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
-    return <F>function() {
-        inner.restart().must(outer.release(end));
-        const old = swapCtx(makeCtx(inner));
-        try { return task.apply(this, arguments as any); }
-        catch(e) { inner.throw(e); throw e; }
-        finally { freeCtx(swapCtx(old)); }
-    };
-}
-
 
 function runGen<R>(g: Yielding<R>, req?: Request<R>) {
     let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getJob()), ct = 0;
