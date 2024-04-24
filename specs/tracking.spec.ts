@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Job, start, isJobActive, must, release, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
+import { CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
@@ -211,18 +211,11 @@ describe("Job API", () => {
             expect(must(cb)).to.equal(t1);
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(t1);
         })
-        it("release()", () => {
-            const m = spy(t1, "release");
-            const unlink = release(cb);
-            expect(unlink).to.be.a("function");
-            expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(unlink);
-        });
     });
     describe("throws when there's no active job", () => {
         const msg = "No job is currently active";
         it("getJob()", () => { expect(getJob).to.throw(msg); });
         it("must()", () => { expect(() => must(() => {})).to.throw(msg); });
-        it("release()", () => { expect(() => release(() => {})).to.throw(msg); });
     });
 });
 

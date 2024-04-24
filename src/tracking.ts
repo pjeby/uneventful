@@ -429,23 +429,11 @@ export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
 
 /**
  * Is there a currently active job? (i.e., can you safely use {@link must}(),
- * {@link release}() or {@link getJob}() right now?)
+ * or {@link getJob}() right now?)
  *
  * @category Jobs
  */
 export function isJobActive() { return !!current.job; }
-
-/**
- * Like {@link must}(), except a function is returned that will *remove*
- * the cleanup function from the job, if it's still present. (Also, the cleanup
- * function isn't optional.)
- *
- * @category Jobs
- */
-export function release(cleanup: CleanupFn): DisposeFn {
-    return getJob().release(cleanup);
-}
-
 
 /**
  * Return a new {@link Job}.  If *either* a parent parameter or stop function
@@ -527,7 +515,7 @@ export function restarting<F extends AnyFunction>(task?: F): F {
 
 function runGen<R>(g: Yielding<R>, req?: Request<R>) {
     let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getJob()), ct = 0;
-    let done = release(() => {
+    let done = ctx.job.release(() => {
         req = undefined;
         ++ct; // disable any outstanding request(s)
         // XXX this should be deferred to cleanup phase, or must() instead of release

@@ -1,7 +1,7 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup, makeJob, release } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, getJob, makeJob } from "./tracking.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
@@ -425,7 +425,7 @@ export class Cell {
     }
 
     static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
-        var unlink = release(stop);
+        var unlink = getJob().release(stop);
         var cell = new Cell, f = makeJob();
         cell.value = q;
         cell.compute = fn.bind(null, stop);
