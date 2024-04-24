@@ -190,7 +190,7 @@ import { defer } from "./defer.ts";
 import type { Yielding, Suspend } from "./async.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
 import { resolve, type Request, reject } from "./results.ts";
-import { chain, isEmpty, pop, push, pushCB, unshift } from "./chains.ts";
+import { Chain, chain, isEmpty, pop, push, pushCB, recycle, unshift } from "./chains.ts";
 
 /**
  * Return the currently-active Job, or throw an error if none is active.
@@ -206,6 +206,16 @@ export function getJob() {
 }
 
 const nullCtx = makeCtx();
+
+function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
+    if (cbs) {
+        const old = swapCtx(nullCtx);
+        while (!isEmpty(cbs)) try { pop(cbs)(res); } catch (e) { Promise.reject(e); }
+        swapCtx(old);
+        recycle(cbs);
+    }
+    return undefined;
+}
 
 class _Job<T> implements Job<T> {
     /** @internal */
@@ -229,9 +239,11 @@ class _Job<T> implements Job<T> {
     get [Symbol.toStringTag]() { return "Job"; }
 
     end = () => {
-        const res = (this._done ||= CancelResult), cbs = this._cbs, old = swapCtx(nullCtx);
-        while (!isEmpty(cbs)) try { pop(cbs)(res); } catch (e) { Promise.reject(e); }
-        swapCtx(old);
+        const res = (this._done ||= CancelResult), cbs = this._cbs;
+        if (cbs) {
+            if (cbs.u) cbs.u = runChain(res, cbs.u);
+            this._cbs = runChain(res, cbs);
+        }
     }
 
     restart() {
@@ -339,14 +351,18 @@ class _Job<T> implements Job<T> {
     }
 
     release(cleanup: CleanupFn<T>): () => void {
-        return pushCB(this._chain(), cleanup);
+        let cbs = this._chain();
+        if (!this._done || cbs.u) cbs = cbs.u ||= chain();
+        return pushCB(cbs, cleanup);
     }
 
     protected _done: JobResult<T> = undefined;
-    protected _cbs = chain<CleanupFn<T>>();
+
+    // Chain whose .u stores a second chain for `release()` callbacks
+    protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined;
     protected _chain() {
         if (this._done && isEmpty(this._cbs)) defer(this.end);
-        return this._cbs;
+        return this._cbs ||= chain();
     }
 }
 

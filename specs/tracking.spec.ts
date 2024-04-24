@@ -25,7 +25,7 @@ describe("makeJob()", () => {
             f.release(() => log("release()2"));
             f.must(() => log("must()2"));
             clock.runAll(); see();
-            f.end(); see("must()2", "release()2");
+            f.end(); see("release()2", "must()2");
         });
         it("passes CancelResult to cleanups", () => {
             const f = makeJob();

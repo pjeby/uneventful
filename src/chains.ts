@@ -1,3 +1,4 @@
+import { DisposeFn } from "./tracking.ts";
 
 /**
  * A counted, double-ended queue with the ability to undo insertions (even out
@@ -5,22 +6,30 @@
  *
  * @category Chains
  */
-export type Chain<T> = Node<T, number>;
+export type Chain<T, U=any> = Node<T, number, U>;
 
 /**
  * Create a new Chain
  *
  * @category Chains
  */
-export function chain<T>(): Chain<T> { return new Node<T, number>; }
+export function chain<T, U=DisposeFn>(): Chain<T, U> { return link<number, U>(0, undefined, undefined); }
 
+/**
+ * Recycle a chain entirely - only safe if no references to it remain anywhere!
+ */
+export function recycle(c: Chain<any>) {
+    while (c.v) unlink(c, c.n);
+    c.u = undefined;
+    unlink(c, c);
+}
 
 /**
  * Unshift a value onto the front of the chain
  *
  * @category Chains
  */
-export function unshift<T>(c: Chain<T>, v: T)   { ++c.v; link(c.n, c, v); }
+export function unshift<T>(c: Chain<T>, v: T)   { ++c.v; link(v, c.n, c); }
 
 /**
  * Unshift a value onto the front of the chain, returning an undo callback.  The
@@ -30,14 +39,14 @@ export function unshift<T>(c: Chain<T>, v: T)   { ++c.v; link(c.n, c, v); }
  *
  * @category Chains
  */
-export function unshiftCB<T>(c: Chain<T>, v: T) { ++c.v; return unlinker(c, link(c.n, c, v)); }
+export function unshiftCB<T>(c: Chain<T>, v: T) { ++c.v; return unlinker(c, link(v, c.n, c)); }
 
 /**
  * Push a value onto the end of the chain
  *
  * @category Chains
  */
-export function push<T>(c: Chain<T>, v: T) { ++c.v; link(c, c.p, v); }
+export function push<T>(c: Chain<T>, v: T) { ++c.v; link(v, c, c.p); }
 
 /**
  * Push a value onto the end of the chain, returning an undo callback.  The
@@ -47,7 +56,7 @@ export function push<T>(c: Chain<T>, v: T) { ++c.v; link(c, c.p, v); }
  *
  * @category Chains
  */
-export function pushCB<T>(c: Chain<T>, v: T) { ++c.v; return unlinker(c, link(c, c.p, v)); }
+export function pushCB<T>(c: Chain<T>, v: T) { ++c.v; return unlinker(c, link(v, c, c.p)); }
 
 /**
  * Return true if the chain is empty, or is null/undefined
@@ -78,7 +87,7 @@ export function pop<T>(c: Chain<T>) { if (qlen(c)) return unlink(c, c.p); }
 export function shift<T>(c: Chain<T>) { if (qlen(c)) return unlink(c, c.n); }
 
 /** A node in a chain */
-class Node<T, V=T> {
+class Node<T, V=T, U=DisposeFn> {
     /** The next node (or the start node if this is a chain head) */
     n: Node<T> = this as Node<T, any>;
     /** The previous node (or the end node if this is a chain head) */
@@ -86,21 +95,21 @@ class Node<T, V=T> {
     /** The value held by the node (or the chain length if this is a chain head) */
     v: V = 0 as any;
     /** The most recently created undo callback for this node */
-    u: () => void = undefined;
+    u: U = undefined;
 }
 
 /** Recycling list for chain nodes, to reduce constructor/alloc overhead */
-var free: Node<any>;
+var free: Node<any,any,any>;
 
 /** Create (or reuse) a node with a given value, inserting it between two nodes in a chain */
-function link<T>(n: Node<T, any>, p: Node<T, any>, v: T): Node<T> {
-    let node: Node<T> = free;
+function link<T,U=DisposeFn>(v: T, n: Node<T, any, any>, p: Node<T, any, any>): Node<T,T,U> {
+    let node: Node<T, T, any> = free;
     if (node) {
         free = node.n;
         node.n = n || node;
         node.p = p || node;
     } else {
-        node = new Node<T>;
+        node = new Node<T, T, U>;
         if (n) node.n = n;
         if (p) node.p = p;
     }
