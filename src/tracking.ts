@@ -372,7 +372,7 @@ class _Job<T> implements Job<T> {
 
     _end(res: JobResult<T>) {
         if (this._done) throw new Error("Job already ended");
-        this._done = res;
+        if (this !== detached) this._done = res;
         this.end();
         return this;
     }
@@ -471,6 +471,7 @@ class _Job<T> implements Job<T> {
     }
 
     release(cleanup: CleanupFn<T>): () => void {
+        if (this === detached) return noop;
         let cbs = this._chain();
         if (!this._done || cbs.u) cbs = cbs.u ||= chain();
         return pushCB(cbs, cleanup);
@@ -481,6 +482,7 @@ class _Job<T> implements Job<T> {
     // Chain whose .u stores a second chain for `release()` callbacks
     protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined;
     protected _chain() {
+        if (this === detached) this.end()
         if (this._done && isEmpty(this._cbs)) defer(this.end);
         return this._cbs ||= chain();
     }
@@ -587,13 +589,8 @@ export const makeJob: <T,R=unknown>(parent?: Job<R>, stop?: CleanupFn<R>) => Job
  *
  * @category Jobs
  */
-export const detached = (() => {
-    const detached = makeJob();
-    detached.end();
-    detached.must = () => { throw new Error("Can't add cleanups to the detached job"); }
-    detached.release = () => noop;
-    return detached;
-})();
+export const detached = makeJob();
+(detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
 
 /**
  * Wrap a function in a {@link Job} that restarts each time the resulting

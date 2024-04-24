@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
+import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
@@ -144,40 +144,24 @@ describe("start(action)", () => {
     });
 });
 
-describe("detached.start(action)", () => {
-    it("runs with a new job active, passing in the job", () => {
-        const job = detached.start((job) => {
-            log(job === getJob()); must(() => log("destroy"))
-        });
-        see("true"); job.end(); see("destroy");
+describe("detached", () => {
+    function cantDoThat(fn: () => any) {
+        expect(fn).to.throw("Can't do that with the detached job");
+    }
+    it("doesn't allow must(), do(), and other callback-based operations", () => {
+        cantDoThat(() => detached.must(noop));
+        cantDoThat(() => detached.do(noop));
     });
-    it("adds the return value if it's a function", () => {
-        const cb = spy();
-        const job = detached.start(() => cb as CleanupFn);
-        expect(cb).to.not.have.been.called;
-        job.end();
-        expect(cb).to.have.been.calledOnce;
+    it("refuses to end(), restart(), return(), throw(), etc.", () => {
+        cantDoThat(detached.end);
+        cantDoThat(() => detached.restart());
+        cantDoThat(() => detached.return(42));
+        cantDoThat(() => detached.throw("boom"));
     });
-    it("cleans up on throw", () => {
-        var cb = spy();
-        expect(() => detached.start(() => {
-            must(cb);
-            expect(cb).to.not.have.been.called;
-            throw new Error("dang");
-        })).to.throw("dang");
-        expect(cb).to.have.been.calledOnce;
+    it("returns noop from .release()", () => {
+        expect(detached.release(() => log("whatever"))).to.equal(noop);
     });
-});
 
-describe("detached.bind(factory)", () => {
-    it("throws in response to must()", () => {
-        // Given a detached job factory that uses must()
-        const d = detached.bind(() => {
-            must(() => log("cleanup"));
-        })
-        // When it's invoked Then it should throw an error
-        expect(d).to.throw("Can't add cleanups to the detached job");
-    });
     it("allows creating 'nested' jobs", () => {
         // Given a detached job factory that creates a job
         const job = detached.bind(() => start(() => {
