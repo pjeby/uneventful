@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { Job } from "./tracking.ts";
+import type { Job } from "./types.ts";
 import type { Cell } from "./cells.ts";
 
 type Opt<X> = X | undefined | null;

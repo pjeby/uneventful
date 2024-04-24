@@ -1,7 +1,8 @@
 import { defer } from "./defer.ts";
 import { RuleScheduler, cached } from "./signals.ts";
 import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
-import { must, type DisposeFn, getJob, detached } from "./tracking.ts";
+import { must, getJob, detached } from "./tracking.ts";
+import { DisposeFn } from "./types.ts";
 import { isError, isValue, noop } from "./results.ts";
 
 /**

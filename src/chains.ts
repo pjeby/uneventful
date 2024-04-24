@@ -1,4 +1,4 @@
-import { DisposeFn } from "./tracking.ts";
+import { DisposeFn } from "./types.ts";
 
 /**
  * A counted, double-ended queue with the ability to undo insertions (even out

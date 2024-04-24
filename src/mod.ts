@@ -1,4 +1,5 @@
 export { defer } from "./defer.ts";
+export * from "./types.ts";
 export * from "./results.ts";
 export * from "./tracking.ts";
 export * from "./async.ts";

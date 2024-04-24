@@ -1,7 +1,8 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup, getJob, makeJob } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup } from "./types.ts"
+import { getJob, makeJob } from "./tracking.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly

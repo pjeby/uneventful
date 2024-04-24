@@ -1,5 +1,6 @@
 import { ExtType, MaybeHas, extension } from "./ext.ts";
-import { Job, getJob } from "./tracking.ts";
+import { getJob } from "./tracking.ts";
+import { Job } from "./types.ts";
 
 type TimeoutExt = ExtType<
     "uneventful/timeout",

@@ -1,26 +1,4 @@
-/**
- * A request for a value (or error) to be returned asynchronously.
- *
- * A request is like the inverse of a Promise: instead of waiting for it to
- * settle, you settle it by passing it to {@link resolve}() or {@link reject}().
- * Like a promise, it can only be settled once: resolving or rejecting it after
- * it's already resolved or rejected has no effect.
- *
- * Settling a request will cause the requesting job (or other code) to resume
- * immediately, running up to its next suspension or termination.  (Unless it's
- * settled while the requesting job is already on the call stack, in which case
- * the job will be resumed later.)
- *
- * (Note: do not call a Request directly, unless you want your code to maybe
- * break in future.  Use resolve or reject (or {@link resolver}() or
- * {@link rejecter}()), as 1) they'll shield you from future changes to this
- * protocol and 2) they have better type checking anyway.)
- *
- * @category Types and Interfaces
- */
-export interface Request<T> {
-    (op: "next" | "throw", val?: T, err?: any): void;
-}
+import { Request } from "./types.ts";
 
 /**
  * Resolve a {@link Request} with a value.

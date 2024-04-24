@@ -1,15 +1,16 @@
-import { Suspend, Yielding,  to } from "./async.ts";
+import { Request, Suspend, Yielding} from "./types.ts"
+import { to } from "./async.ts";
 import { defer } from "./defer.ts";
 import { Source, pause, resume, connect } from "./streams.ts";
-import { Request, reject, resolve, isCancel, isError } from "./results.ts";
+import { reject, resolve, isCancel, isError } from "./results.ts";
 import { start } from "./tracking.ts";
 
-type EachResult<T> = {
+export type EachResult<T> = {
     item: T;
     next: Suspend<void>;
 }
 
-type Each<T> = IterableIterator<EachResult<T>>
+export type Each<T> = IterableIterator<EachResult<T>>
 
 /**
  * Asynchronously iterate over an event source
