@@ -28,7 +28,7 @@ export type AnyFunction = (...args: any[]) => any;
  *
  * @category Types and Interfaces
  */
-export type CleanupFn<T=any> = (res?: JobResult<T>) => unknown;
+export type CleanupFn<T=any> = (res: JobResult<T>) => unknown;
 
 /**
  * A function that can be called to dispose of something or unsubscribe

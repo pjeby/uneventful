@@ -1,6 +1,6 @@
 import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { pulls } from "./scheduling.ts";
-import { CleanupFn, Job } from "./types.ts";
+import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { start } from "./jobutils.ts";
 import { isError } from "./results.ts";
@@ -141,7 +141,7 @@ export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>,
 
 class _Throttle {
     /** @internal */
-    protected _callbacks: Map<Producer, CleanupFn> = undefined;
+    protected _callbacks: Map<Producer, DisposeFn> = undefined;
 
     /** @internal */
     constructor(protected _job: Job<void>) {}
