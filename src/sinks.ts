@@ -135,7 +135,7 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     if (isFunction((source as UntilMethod<T>)["uneventful.until"])) {
         return (source as UntilMethod<T>)["uneventful.until"]();
     }
-    if (isFunction(source["then"])) {
+    if (isFunction((source as PromiseLike<T>)["then"])) {
         return to(source as PromiseLike<T>);
     }
     if (isFunction(source)) {

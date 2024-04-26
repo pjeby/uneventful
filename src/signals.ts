@@ -115,6 +115,6 @@ export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): 
 function mkSignal<T>(get: () => T): Signal<T>
 function mkSignal<T>(get: () => T, set: (v: T) => void): Writable<T>
 function mkSignal<T>(get: () => T, set?: (v: T) => void) {
-    if (set) get["set"] = set;
+    if (set) (get as Writable<T>)["set"] = set;
     return Object.setPrototypeOf(get, (set ? Writable : Signal).prototype);
 }

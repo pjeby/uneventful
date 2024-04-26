@@ -1,5 +1,5 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup } from "./types.ts";
+import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
 import { resolve, reject } from "./results.ts";
@@ -43,7 +43,7 @@ class _Job<T> implements Job<T> {
     static create<T,R>(parent?: Job<R>, stop?: CleanupFn<R>): Job<T> {
         const job = new _Job<T>;
         if (parent || stop) job.must(
-            (parent || getJob()).release(stop || job.end)
+            (parent || getJob() as Job<R>).release(stop || job.end)
         );
         return job;
     }
@@ -136,7 +136,7 @@ class _Job<T> implements Job<T> {
         return this.then().finally(onfinally);
     }
 
-    *[Symbol.iterator]() {
+    *[Symbol.iterator](): JobIterator<T> {
         if (this._done) {
             if (isValue(this._done)) return this._done.val;
             throw isError(this._done) ? this._done.err : this._done;
@@ -161,7 +161,7 @@ class _Job<T> implements Job<T> {
             init = fnOrCtx as Start<T,C>;
         } else if (fnOrCtx instanceof _Job) {
             return fnOrCtx;
-        } else if (isFunction(fnOrCtx[Symbol.iterator])) {
+        } else if (isFunction((fnOrCtx as Yielding<T>)[Symbol.iterator])) {
             init = () => fnOrCtx as Yielding<T>;
         } else {
             // XXX handle promises or other things here?
@@ -172,7 +172,7 @@ class _Job<T> implements Job<T> {
             const result = job.run(init as Start<T>, job);
             if (isFunction(result)) return job.must(result);
             if (result && isFunction(result[Symbol.iterator])) {
-                job.run(runGen, result, <Request<T>>((m, v, e) => {
+                job.run(runGen<T>, result, <Request<T>>((m, v, e) => {
                     if (job.result()) return;
                     if (m==="next") job.return(v); else job.throw(e);
                 }));
@@ -193,7 +193,7 @@ class _Job<T> implements Job<T> {
 
     bind<F extends (...args: any[]) => any>(fn: F): F {
         const job = this;
-        return <F> function () {
+        return <F> function (this: any) {
             const old = swapCtx(makeCtx(job));
             try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
         }

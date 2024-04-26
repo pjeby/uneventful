@@ -63,7 +63,7 @@ export function start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
  */
 export function start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
 export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
-    return getJob().start(fnOrCtx, fn);
+    return getJob().start(fnOrCtx as C, fn);
 }
 
 /**
@@ -179,7 +179,7 @@ export function restarting<F extends AnyFunction>(task: F): F
 export function restarting<F extends AnyFunction>(task?: F): F {
     const outer = getJob(), inner = makeJob<never>(), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
-    return <F>function() {
+    return <F>function(this: any) {
         inner.restart().must(outer.release(end));
         const old = swapCtx(makeCtx(inner));
         try { return task.apply(this, arguments as any); }

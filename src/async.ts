@@ -10,7 +10,7 @@ import { rejecter, resolve, resolver } from "./results.ts"
  *
  * @category Scheduling
  */
-export function *to<T>(p: Promise<T> | PromiseLike<T> | T) {
+export function *to<T>(p: Promise<T> | PromiseLike<T> | T): Yielding<T> {
     return yield (res: Request<T>) => Promise.resolve(p).then(resolver(res), rejecter(res));
 }
 

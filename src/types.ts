@@ -193,7 +193,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @category Execution Control
      */
-    run<F extends PlainFunction>(fn?: F, ...args: Parameters<F>): ReturnType<F>
+    run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F>
 
     /**
      * Wrap a function so this job will be active when it's called.
@@ -377,5 +377,7 @@ export type Suspend<T> = (request: Request<T>) => void;
  * @category Types and Interfaces
  */
 export interface Request<T> {
-    (op: "next" | "throw", val?: T, err?: any): void;
+    (op: "next", val: T, err?: any): void;
+    (op: "throw", val: undefined | null, err: any): void;
+    (op: "next" | "throw", val?: T | undefined | null, err?: any): void;
 }

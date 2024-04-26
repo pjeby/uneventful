@@ -1,8 +1,11 @@
 {
     "compilerOptions": {
         // Project's typechecking options
+        "noImplicitAny": true,
+        "noImplicitThis": true,
         "strict": false,
         "strictBindCallApply": true,
+        "strictFunctionTypes": true,
 
         // These options support running tsx + ts-node
         "module": "Node16",
