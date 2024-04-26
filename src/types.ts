@@ -249,9 +249,53 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * used to notify other activities (such as child jobs) that they are being
      * canceled.)
      *
+     * @remarks The .{@link Job.onError onError}(),  .{@link Job.onError onValue}(),
+     * and .{@link Job.onError onCancel}() provide shortcuts for creating `do`
+     * callbacks that only run under specific end conditions.
+     *
      * @category Obtaining Results
      */
     do(action: (res?: JobResult<T>) => unknown): this;
+
+    /**
+     * Invoke a callback if the job ends with an error.
+     *
+     * This is shorthand for a .{@link Job.do do}() callback that checks for an
+     * error and marks it handled, so it uses the same relative order and runs
+     * in the same group as other .do callbacks.
+     *
+     * @param cb A callback that will receive the error
+     *
+     * @category Obtaining Results
+     */
+    onError(cb: (err: any) => unknown): this;
+
+    /**
+     * Invoke a callback if the job ends with a return() value.
+     *
+     * This is shorthand for a .{@link Job.do do}() callback that checks for a
+     * value result, so it uses the same relative order and runs in the same
+     * group as other .do callbacks.
+     *
+     * @param cb A callback that will receive the value
+     *
+     * @category Obtaining Results
+     */
+    onValue(cb: (val: T) => unknown): this;
+
+    /**
+     * Invoke a callback if the job ends with an cancellation or
+     * .{@link Job.restart restart}().
+     *
+     * This is shorthand for a .{@link Job.do do}() callback that checks for an
+     * error and marks it handled, so it uses the same relative order and runs
+     * in the same group as other .do callbacks.
+     *
+     * @param cb A callback that will receive the error
+     *
+     * @category Obtaining Results
+     */
+    onCancel(cb: () => unknown): this;
 
     /**
      * Restart this job - works just like .{@link Job.end end}(), except that

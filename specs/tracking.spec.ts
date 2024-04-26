@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting } from "../mod.ts";
+import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting, isHandled, JobResult } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
@@ -402,6 +402,49 @@ describe("Job instances", () => {
             expect(res).to.equal(ob);
         });
 
+    });
+
+    function jobWithHandlers() {
+        return detached.start()
+            .onError(e => log(`Err: ${e}`))
+            .onValue(v => log(`Val: ${v}`))
+            .onCancel(() => log("cancel"))
+        ;
+    }
+
+    describe("onValue()", () => {
+        it("calls the callback with the value upon return", () => {
+            // Given a job with a value handler
+            const j = jobWithHandlers();
+            // When the job is return()ed
+            j.return(42);
+            // Then it should call the handler with the value
+            see("Val: 42");
+        });
+    });
+    describe("onError()", () => {
+        it("calls the callback with the error upon throw, marking the error handled", () => {
+            // Given a job with an onError-logging handler
+            const j = jobWithHandlers();
+            // That also logs the handling status before and after the onError handler
+            function logHandled(r: JobResult<any>) { log(isHandled(r) ? "handled" : "not handled yet"); }
+            j.must(logHandled).do(logHandled)  // must runs before, do runs after
+            // When the job is throw()n
+            j.throw("boo");
+            // Then it should call the handler with the error
+            // and mark the error handled
+            see("not handled yet", "Err: boo", "handled");
+        });
+    });
+    describe("onCancel()", () => {
+        it("calls the callback after canceling", () => {
+            // Given a job with a value handler
+            const j = jobWithHandlers();
+            // When the job is end()ed
+            j.end();
+            // Then it should call the handler
+            see("cancel");
+        });
     });
 });
 

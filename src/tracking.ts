@@ -1,7 +1,7 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator } from "./types.ts";
 import { defer } from "./defer.ts";
-import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop } from "./results.ts";
+import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled } from "./results.ts";
 import { resolve, reject } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 
@@ -21,9 +21,9 @@ export function isFunction(f: any): f is Function {
  *
  * @category Jobs
  */
-export function getJob() {
+export function getJob<T=unknown>() {
     const {job} = current;
-    if (job) return job;
+    if (job) return job as Job<T>;
     throw new Error("No job is currently active");
 }
 
@@ -51,6 +51,18 @@ class _Job<T> implements Job<T> {
     do(cleanup: CleanupFn<T>): this {
         unshift(this._chain(), cleanup);
         return this;
+    }
+
+    onError(cb: (err: any) => unknown): this {
+        return this.do(r => { if (isError(r)) cb(markHandled(r)); });
+    }
+
+    onValue(cb: (val: T) => unknown): this {
+        return this.do(r => { if (isValue(r)) cb(r.val); });
+    }
+
+    onCancel(cb: () => unknown): this {
+        return this.do(r => { if (isCancel(r)) cb(); });
     }
 
     result() { return this._done; }

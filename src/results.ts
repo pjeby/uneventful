@@ -53,7 +53,25 @@ export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
  *
  * @category Types and Interfaces
  */
-export type ErrorResult    = {op: "throw",   val: undefined, err: any};
+export type ErrorResult    = UnhandledError | HandledError;
+
+/**
+ * An {@link ErrorResult} that hasn't yet been "handled" (by being passed to an
+ * error-specific handler, converted to a promise, given to {@link markHandled},
+ * etc.)
+ *
+ * @category Types and Interfaces
+ */
+export type UnhandledError = {op: "throw",   val: undefined, err: any};
+
+/**
+ * An {@link ErrorResult} that has been marked "handled" (by being passed to an
+ * error-specific handler, converted to a promise, given to {@link markHandled},
+ * etc.)
+ *
+ * @category Types and Interfaces
+ */
+export type HandledError   = {op: "throw",   val: null,      err: any};
 
 /**
  * A {@link JobResult} that indicates the job was canceled by its creator (via
@@ -96,7 +114,7 @@ export function ValueResult<T>(val: T): ValueResult<T> { return mkResult("next",
  *
  * @category Requests and Results
  */
-export function ErrorResult(err: any): ErrorResult { return mkResult("throw", undefined, err); }
+export function ErrorResult(err: any): UnhandledError { return mkResult("throw", undefined, err); }
 
 /**
  * Returns true if the given result is a {@link CancelResult}.
@@ -123,4 +141,34 @@ export function isValue<T>(res: JobResult<T> | undefined): res is ValueResult<T>
  */
 export function isError(res: JobResult<any> | undefined): res is ErrorResult {
     return res ? res.op === "throw" : false;
+}
+
+/**
+ * Returns true if the given result is an {@link UnhandledError}.
+ *
+ * @category Requests and Results
+ */
+export function isUnhandled(res: JobResult<any> | undefined): res is UnhandledError {
+    return isError(res) && res.val === undefined;
+}
+
+/**
+ * Returns true if the given result is a {@link HandledError} (an
+ * {@link ErrorResult} that has been touched by {@link markHandled}).
+ *
+ * @category Requests and Results
+ */
+export function isHandled(res: JobResult<any> | undefined): res is HandledError {
+    return isError(res) && res.val === null;
+}
+
+/**
+ * Return the error of an {@link ErrorResult} and mark it as handled. The
+ * {@link ErrorResult} is mutated in-place to become a {@link HandledError}.
+ *
+ * @category Requests and Results
+ */
+export function markHandled(res: ErrorResult): any {
+    res.val = null;
+    return res.err;
 }
