@@ -1,5 +1,4 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
-import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { getJob, makeJob } from "./tracking.ts";
 import { AnyFunction, Job, OptionalCleanup, Start, Yielding } from "./types.ts";
 
@@ -75,13 +74,11 @@ export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
 export function isJobActive() { return !!current.job; }
 
 
-type TimeoutExt = ExtType<
-    "uneventful/timeout",
+const timers = new WeakMap<Job,
     ReturnType<typeof setTimeout> |  // current timeout
     undefined | // no timeout set since job was last restarted (if ever)
     null  // current timeout is 0, aka explicit no-timeout
->;
-const {get: getTimer, set: setTimer} = extension<TimeoutExt>("uneventful/timeout");
+>();
 
 /**
  * Set the cancellation timeout for a job.
@@ -104,8 +101,8 @@ const {get: getTimer, set: setTimer} = extension<TimeoutExt>("uneventful/timeout
  */
 export function timeout<T>(ms: number): Job<unknown>;
 export function timeout<T>(ms: number, job: Job<T>): Job<T>;
-export function timeout(ms = 0, job: Job & MaybeHas<TimeoutExt> = getJob()) {
-    let timer = getTimer(job);
+export function timeout(ms = 0, job: Job = getJob()) {
+    let timer = timers.get(job);
     if (timer) {
         clearTimeout(timer);
     } else if (timer === undefined && !job.result()) {
@@ -113,19 +110,18 @@ export function timeout(ms = 0, job: Job & MaybeHas<TimeoutExt> = getJob()) {
         // so we need to arrange to clear it
         job.must(timeout.bind(null, 0, job));
     }
-    setTimer(job,
-        job.result() ?
-            undefined :  // allow restarted timer to set a new must()
-            (ms ?
-                setTimeout(() => { setTimer(job, null); job.end(); }, ms) :
-                null  //   cancel timeout, but don't duplicate must() if called again
-            )
-    );
+    if (job.result()) {
+        // allow restarted timer to set a new must()
+        timers.delete(job);
+    } else if (ms) {
+        timers.set(job, setTimeout(() => { timers.set(job, null); job.end(); }, ms));
+    } else {
+        timers.set(job, null); // Zero = cancel timeout, but don't duplicate must() if called again
+    }
     return job;
 }
 
-type AbortExt = ExtType<"uneventful/abortSignal",  AbortSignal>;
-const {get: getSignal, set: setSignal} = extension<AbortExt>("uneventful/abortSignal");
+const abortSignals = new WeakMap<Job, AbortSignal>();
 
 /**
  * Get an AbortSignal that aborts when the job ends or is restarted.
@@ -137,13 +133,13 @@ const {get: getSignal, set: setSignal} = extension<AbortExt>("uneventful/abortSi
  *
  * @category Jobs
  */
-export function abortSignal(job: Job & MaybeHas<AbortExt> = getJob()) {
-    let signal = getSignal(job);
+export function abortSignal(job: Job = getJob()) {
+    let signal = abortSignals.get(job);
     if (!signal) {
         const ctrl = new AbortController;
         signal = ctrl.signal;
-        job.do(() => { setSignal(job, null); ctrl.abort(); });
-        setSignal(job, signal);
+        job.do(() => { abortSignals.set(job, null); ctrl.abort(); });
+        abortSignals.set(job, signal);
         if (job.result()) ctrl.abort();
     }
     return signal;

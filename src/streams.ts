@@ -1,19 +1,16 @@
-import { ExtType, MaybeHas, extension } from "./ext.ts";
 import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { start } from "./jobutils.ts";
 import { isError } from "./results.ts";
 
-type ThrottleExt = ExtType<"uneventful/throttle", _Throttle>;
-type MaybeThrottled = MaybeHas<ThrottleExt>;
-const {get: throttle, set: setThrottle} = extension<ThrottleExt>("uneventful/throttle");
+const throttles = new WeakMap<Job, _Throttle>();
 
 /**
  * @category Stream Consumers
  */
 export function pause(s: Connector | undefined) {
-    throttle(s)?.pause();
+    throttles.get(s)?.pause();
 }
 
 /**
@@ -23,7 +20,7 @@ export function pause(s: Connector | undefined) {
  * @category Stream Consumers
  */
 export function resume(s: Connector | undefined) {
-    throttle(s)?.resume();
+    throttles.get(s)?.resume();
 }
 
 /**
@@ -46,7 +43,7 @@ export type Backpressure = (cb?: Producer) => boolean
  * @category Stream Producers
  */
 export function backpressure(conn: Connector): Backpressure {
-    const job = getJob(), t = throttle(conn);
+    const job = getJob(), t = throttles.get(conn);
     return (cb?: Producer) => {
         if (!job.result() && t.isOpen()) {
             if (cb) t.onReady(cb, job);
@@ -73,7 +70,7 @@ export type Connection = Job<void>;
 /**
  * @category Stream Consumers
  */
-export type Connector = Job<void> & MaybeThrottled;
+export type Connector = Job<void>;
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -124,7 +121,7 @@ type Producer = () => any
  */
 export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
     return <Connector> start((job) => {
-        setThrottle(job as Connector, (throttle(to as Connector) || new _Throttle(job)));
+        throttles.set(job as Connector, (throttles.get(to) || new _Throttle(job)));
         if (src && sink) src(sink, job);
     });
 }

@@ -48,8 +48,6 @@ class _Job<T> implements Job<T> {
         return job;
     }
 
-    "uneventful/ext": {} = undefined
-
     do(cleanup: CleanupFn<T>): this {
         unshift(this._chain(), cleanup);
         return this;
