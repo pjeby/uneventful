@@ -75,11 +75,12 @@ export function noClock() {
 }
 
 chai.use(function ({Assertion}, {flag, addProperty}) {
-    addProperty(Assertion.prototype, 'canceled', function () {
+    addProperty(Assertion.prototype, 'canceled', function (this: Chai.AssertionPrototype) {
         this.assert(
             isCancel(this._obj.result())
           , 'expected #{this} to be canceled'
           , 'expected #{this} to not be canceled'
+          , true
         );
       })
 });

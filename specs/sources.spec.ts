@@ -201,7 +201,7 @@ describe("Sources", () => {
             // Given a fromIterable() stream
             const s = fromIterable([1,2,3,"a","b","c"]);
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
+            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see(); runPulls(); see("1", "2", "3");

@@ -32,7 +32,7 @@ describe("RunQueue", () => {
     describe(".isRunning()", () => {
         it("reflects whether flush() is running", () => {
             // Given a RunQueue
-            const q = new RunQueue<any>(noop, _ => log(q.isRunning()));
+            const q: RunQueue<any> = new RunQueue<any>(noop, _ => log(q.isRunning()));
             // When isRunning() is called outside of flush
             // Then it should be false
             expect(q.isRunning()).to.be.false;

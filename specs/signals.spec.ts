@@ -59,7 +59,7 @@ describe("Signal Constructors/Interfaces", () => {
             // When the value is changed, it should be reflected in the signal
             verifyMulti(v => { val.value = v; return s as Signal<typeof v>; });
             // And the signal should not have a .set() method
-            expect(s["set"]).to.be.undefined;
+            expect((s as Writable<unknown>)["set"]).to.be.undefined;
         });
         it(".withSet() returns a signal with a .set()", () => {
             // Given a value() and its .withSet() signal

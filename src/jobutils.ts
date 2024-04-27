@@ -31,7 +31,7 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
  *   receives it as an argument.  It can return a {@link Yielding} iterator
  *   (such as a generator), a cleanup callback ({@link CleanupFn}), or void.  A
  *   returned Yielding will be treated as if the method was called with that to
- *   begin with; a cleanup callback will be added to the job as a `must()`.
+ *   begin with; a returned callback will be added to the job as a `must()`.
  *
  * - When called with two arguments -- a "this" object and a function -- it
  *   works the same as one argument that's a function, except the function is

@@ -151,14 +151,14 @@ describe("cached()", () => {
     });
     it("detects direct self-reference", () => {
         // Given a cached that calls itself
-        const c = cached(() => c());
+        const c: () => any = cached(() => c());
         // When it's called
         // Then it should throw an error
         expect(c).to.throw(CircularDependency);
     });
     it("detects indirect self-reference", () => {
         // Given a cached that calls itself indirectly
-        const c1 = cached(() => c2()), c2 = cached(() => c1());
+        const c1: () => any = cached(() => c2()), c2 = cached(() => c1());
         // When it's called
         // Then it should throw an error
         expect(c1).to.throw(CircularDependency);
