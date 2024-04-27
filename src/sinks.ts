@@ -2,7 +2,7 @@ import { Request, Suspend, Yielding} from "./types.ts"
 import { to } from "./async.ts";
 import { defer } from "./defer.ts";
 import { Source, pause, resume, connect } from "./streams.ts";
-import { reject, resolve, isCancel, isError } from "./results.ts";
+import { reject, resolve, isCancel, isError, markHandled } from "./results.ts";
 import { start } from "./jobutils.ts";
 import { isFunction } from "./tracking.ts";
 
@@ -66,7 +66,10 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
         if (!waiter || conn.result()) return;
         result.value.item = v;
         resolve(waiter, waiter = void 0);
-    }).do(() => {
+    }).do(r => {
+        // Prevent unhandled throws from here - it'll be seen by the next `yield
+        // next`, or in the next microtask if `yield next` is already running.
+        if (isError(r)) markHandled(r);
         if (waiter) { defer(next.bind(null, waiter)); waiter = undefined; }
     });
 
@@ -87,6 +90,8 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
         if (conn.result()) {
             result.value = undefined;
             (result as IteratorResult<any>).done = true;
+            // We don't need to markHandled here - if it wasn't handled by the `do`,
+            // it's already too late.
             isError(conn.result()) ? reject(r, conn.result().err) : resolve(r, void 0);
         } else {
             waiter = r;
@@ -140,9 +145,9 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
     }
     if (isFunction(source)) {
         return start(job => {
-            connect(source, e => job.return(e)).do(res => {
-                if (!isCancel(res) && !job.result()) job.throw(isError(res) ? res.err : new Error("Stream ended"));
-            });
+            connect(source, e => job.return(e))
+            .onError(e => job.throw(e))
+            .onValue(() => job.throw(new Error("Stream ended")))
         })
     }
     throw new TypeError("until(): must be signal, source, or then-able");

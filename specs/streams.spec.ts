@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
 import { Connection, Connector, backpressure, pause, resume, subconnect } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Job, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getJob, isError, JobResult, noop } from "../mod.ts";
+import { type Job, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getJob, isError, JobResult, noop, isHandled } from "../mod.ts";
 
 type Conn = Connector & Connection;
 function mkConn(parent: Job = null) {
@@ -152,13 +152,15 @@ describe("subconnect()", () => {
         testChildConduit((c, src?, sink?) => subconnect(c, src, sink));
         it("throws to its parent when throw()n", () => {
             // Given a conduit and its link()ed child
-            const c = mkConn(), f = subconnect(c, () => IsStream, noop), e = new Error("x");
-            c.must(e => { log("c"); logClose(e); });
-            f.must(e => { log("f"); logClose(e); });
+            const c = mkConn().onError(noop), f = subconnect(c, () => IsStream, noop), e = new Error("x");
+            f.must(r => log(isHandled(r))).do(r=>log(isHandled(r)));
+            c.do(e => { log("c"); logClose(e); });
+            f.do(e => { log("f"); logClose(e); });
             // When the child is thrown
             f.throw(e);
             // Then it and its parent should have the same error
-            see("f", "closed", "err: Error: x", "c", "closed", "err: Error: x");
+            // (and the subconnect's error should be marked handled)
+            see("false", "true", "f", "closed", "err: Error: x",  "c", "closed", "err: Error: x");
         });
     });
 
@@ -180,7 +182,7 @@ describe("subconnect()", () => {
         });
         it("closes when the parent is thrown", () => {
             // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).do(logClose);
+            const c = mkConn().onError(noop), f = mkChild(c).do(logClose);
             // When the conduit is thrown
             c.throw(new Error);
             // Then the link should be closed without error

@@ -143,12 +143,13 @@ class _Job<T> implements Job<T> {
     *[Symbol.iterator](): JobIterator<T> {
         if (this._done) {
             if (isValue(this._done)) return this._done.val;
-            throw isError(this._done) ? this._done.err : this._done;
+            throw isError(this._done) ? markHandled(this._done) : this._done;
         } else return yield (req: Request<T>) => {
             // XXX should this be a release(), so if the waiter dies we
             // don't bother? The downside is that it'd have to be mutual and
             // the resume is a no-op anyway in that case.
             this.do(res => {
+                if (isError(res)) markHandled(res);
                 if (isCancel(res)) req("throw", undefined, res); else req(res.op, res.val, res.err);
             });
         }

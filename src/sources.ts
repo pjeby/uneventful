@@ -4,7 +4,7 @@ import { type Source, IsStream, Connection, backpressure, connect, Sink, Connect
 import { getJob, detached } from "./tracking.ts";
 import { must } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
-import { isError, isValue, noop } from "./results.ts";
+import { isError, isUnhandled, isValue, markHandled, noop } from "./results.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -326,6 +326,7 @@ export function share<T>(source: Source<T>): Source<T> {
                 resumed || pause(uplink);
             }).do(r => {
                 uplink = undefined;
+                if (isUnhandled(r)) markHandled(r);
                 links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
                     isValue(r) ? c.return() : c.end()
                 ));

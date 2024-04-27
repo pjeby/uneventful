@@ -1,7 +1,7 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runRules, isError, JobResult, isValue } from "../src/mod.ts";
+import { connect, value, runRules, isError, JobResult, isValue, markHandled } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { Connector, pause, resume } from "../src/streams.ts";
 import {
@@ -9,7 +9,7 @@ import {
     fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource
 } from "../src/sources.ts";
 
-function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
+function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${markHandled(e)}`)}
 
 describe("Sources", () => {
     useRoot();
@@ -61,9 +61,7 @@ describe("Sources", () => {
             // Given an emitter
             const e = emitter<any>();
             // When its source is subscribed and pulled
-            const c = connect(e.source, log.emit).do(r => {
-                if (isError(r)) log(`err: ${r.err}`);
-            }); runPulls();
+            const c = connect(e.source, log.emit).onError(e => log(`err: ${e}`)); runPulls();
             // And the emitter throws
             e.throw("a reason");
             // Then the connection should be thrown as well

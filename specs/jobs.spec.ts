@@ -1,11 +1,11 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runRules, isError, backpressure, sleep
+    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 
-const noop = { *[Symbol.iterator]() {} };
+const noop = () => ({ *[Symbol.iterator]() {} });
 
 describe("async start()", () => {
     useRoot();
@@ -78,7 +78,7 @@ describe("Job instances", () => {
             });
             it("for errors", async () => {
                 // Given a job that throws
-                const j = start(function*() { throw "this in particular"; });
+                const j = start(function*() { throw "this in particular"; }).onError(noop);
                 // When you await it
                 try { await j } catch (e) { log(e); }
                 // Then it should throw the error
@@ -155,7 +155,7 @@ describe("Job instances", () => {
                 });
                 it("for errors", async () => {
                     // Given a job that throws
-                    const j = start(function*() { throw "this in particular"; });
+                    const j = start(function*() { throw "this in particular"; }).onError(noop);
                     // When awaited in another job
                     await start(function*() { yield* j; }).catch(log);
                     // Then it should throw the error
@@ -182,7 +182,7 @@ describe("Job instances", () => {
                     const j1 = start(function*(): Yielding<any> { return yield r => req = r; });
                     await Promise.resolve();  // ensure j1 reaches suspend point
                     // And that's awaited in another job
-                    const j2 = start(function*() { log(yield* j1); });
+                    const j2 = start(function*() { log(yield* j1); }).onError(noop);
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with an error
                     reject(req, "an error");
@@ -199,7 +199,7 @@ describe("Job instances", () => {
                 // Given a suspended job
                 const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
-                }).do(r => isError(r) && log(`err: ${r.err}`));
+                }).onError(e => log(`err: ${e}`));
                 clock.tick(0); // get to suspend
                 // When it's throw()n
                 j.throw("boom")
@@ -211,7 +211,7 @@ describe("Job instances", () => {
                 const j = start(function*() {
                     j.throw("headshot");
                     yield r => setTimeout(resolver(r), 50);
-                }).do(r => isError(r) && log(`err: ${r.err}`));
+                }).onError(e => log(`err: ${e}`));
                 // When it next suspends
                 clock.tick(1);
                 // Then it should receive the error at the suspend point
@@ -221,15 +221,16 @@ describe("Job instances", () => {
                 // Given a job
                 const j = start(function*() {
                     yield r => setTimeout(resolver(r), 50);
-                }).do(r => isError(r) && log(`err: ${r.err}`));
+                }).onError(e => log(`err: ${e}`));
                 // When it'ts thrown before starting
                 j.throw("headshot"); clock.tick(0);
                 // Then it should receive the error at the first suspend point
                 see("err: headshot");
             });
             it("doesn't affect a completed job", () => {
-                // Given a completed job
-                const j = start(function*() { return 42; });
+                // Given a completed job (with a parent to catch the async error)
+                const parent = detached.start().onError(noop);
+                const j = parent.start(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n
                 expect(() => j.throw("boom")).to.throw("Job already ended");
@@ -531,11 +532,13 @@ describe("Async Ops", () => {
                 runPulls(); see("22");
             });
             it("throwing on throw", () => {
+                let conn: Connection;
                 // When a suspended until() on a throwing stream is run
-                suspendOn(until((_,c) => { backpressure(c)(() => c.throw("boom")); return IsStream; }));
+                suspendOn(until((_,c) => { backpressure(conn = c)(() => c.throw("boom")); return IsStream; }));
+                conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
-                // Then the job should throw once pulls run
-                runPulls(); see("err: boom");
+                // Then the job should throw once pulls run (and mark the error handled)
+                runPulls(); see("false", "true", "err: boom");
             });
             it("throwing on early end", () => {
                 // When a suspended until() on an empty stream is run

@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
-import { each, Source, start, fromIterable, sleep, isValue, emitter, mockSource } from "../mod.ts";
+import { each, Source, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled } from "../mod.ts";
 
 describe("each()", () => {
     useRoot();
@@ -38,12 +38,19 @@ describe("each()", () => {
     });
     it("throws if stream ends with error", () => {
         // Given an emitter and a job iterating over it
-        const e = mockSource<number>(), job = iterStream(e.source);
+        let conn: Connection;
+        const e = mockSource<number>(), job = iterStream(
+            // Capture the connection so we can make sure its errors
+            // are marked handled
+            (s,c) => e.source(s, conn=c)
+        );
         clock.tick(1); e(1); clock.tick(10); see("1")
+        conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
         // When the stream ends with an error
         e.throw("boom");
         // Then the waiting point should throw
-        clock.tick(1); see("err: boom");
+        // And the connection error should be marked handled
+        clock.tick(1); see("false", "true", "err: boom");
         expect(isValue(job.result())).to.be.true;
     });
     it("throws if stream starts with error", () => {

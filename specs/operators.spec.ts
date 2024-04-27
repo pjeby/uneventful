@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource, each, sleep, start, isValue } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource, each, sleep, start, isValue, Connection, isHandled } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -243,6 +243,18 @@ describe("Operators", () => {
             // Then both connections see all the remaining values without pausing
             // And they should both close
             see("4", "4", "5", "5", "6", "6", "7", "7", "closed", "closed");
+        });
+        it("should mark errors handled on the upstream", () => {
+            // Given a shared mockSource tracking the connection
+            const m = mockSource<number>();
+            let conn: Connection;
+            const s = share((s, c) => m.source(s, conn=c));
+            const c = connect(s, v => log(v)).onError(e => log("outer-error"));
+            see(); conn.must(r=>log(isHandled(r))).do(r=>log(isHandled(r)));
+            // When the underlying source throws
+            m.throw("boom");
+            // Then its connection error should be marked handled
+            see("false", "true", "outer-error");
         });
     });
     describe("skip()", () => {

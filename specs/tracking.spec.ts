@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting, isHandled, JobResult, nativePromise } from "../mod.ts";
+import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting, isHandled, JobResult, nativePromise, Suspend } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
@@ -444,6 +444,31 @@ describe("Job instances", () => {
             j.end();
             // Then it should call the handler
             see("cancel");
+        });
+    });
+    describe("[Symbol.iterator]", () => {
+        describe("marks errors handled", () => {
+            it("synchronously, after error ", () => {
+                // Given a job iterator that's next()ed during throw
+                const j = detached.start(), it = j[Symbol.iterator]();
+                j   // iterator should throw the error on next()
+                    .must(() => { try {it.next();} catch(e) { log(`Err: ${e}`)}})
+                    .must(r => log(isHandled(r))).do(r => log(isHandled(r)));
+                // When it's thrown
+                j.throw("boom");
+                // Then the error result should be marked handled
+                see("false", "Err: boom", "true");
+            });
+            it("asynchronously, before error", () => {
+                // Given a job + iterator
+                const j = detached.start(), it = j[Symbol.iterator]();
+                // When its Suspend is awaited and the job thrown
+                (it.next().value as Suspend<any>)((op, _val, err) => { log(`${op}: ${err}`)});
+                j.must(r => log(isHandled(r))).do(r => log(isHandled(r)));
+                j.throw("boom");
+                // Then the error result should be marked handled when the suspend resumes
+                see("false", "throw: boom", "true");
+            });
         });
     });
 });

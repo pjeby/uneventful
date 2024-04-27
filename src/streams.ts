@@ -2,7 +2,6 @@ import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { start } from "./jobutils.ts";
-import { isError } from "./results.ts";
 
 const throttles = new WeakMap<Job, _Throttle>();
 
@@ -131,9 +130,7 @@ export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Co
  */
 export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>, to?: Connection): Connector {
     if (parent.result()) throw new Error("Can't fork or link a closed conduit");
-    return parent.run(() => connect(src, sink, to)).do(res => {
-        if (isError(res)) parent.throw(res.err);
-    });
+    return parent.run(() => connect(src, sink, to)).onError(e => parent.throw(e));
 }
 
 class _Throttle {
