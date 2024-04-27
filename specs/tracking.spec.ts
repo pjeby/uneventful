@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting, isHandled, JobResult } from "../mod.ts";
+import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isError, isValue, restarting, isHandled, JobResult, nativePromise } from "../mod.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
@@ -395,7 +395,7 @@ describe("Job instances", () => {
             // Given an object to use as `this`
             const ob = {};
             // When a bound function is called with a this and arguments
-            const res = f.bind(function (...args) { args.map(log); return this; }).call(ob, 1, 2, 3);
+            const res = f.bind(function (this: any, ...args) { args.map(log); return this; }).call(ob, 1, 2, 3);
             // Then the function should receive the arguments
             see("1", "2", "3")
             // And return its result
@@ -505,11 +505,53 @@ describe("restarting()", () => {
     });
     it("can be used as a method", () => {
         // Given a restarting-wrapped method
-        const w = {m: makeJob().bind(restarting)(function () { log(this === w); })};
+        const w = {m: makeJob().bind(restarting)(function (this: any) { log(this === w); })};
         // When called as a method
         w.m();
         // Then its `this` should be the object
         see("true")
+    });
+});
+
+describe("nativePromise()", () => {
+    describe("returns the same promise", () => {
+        it("per job", () => {
+            // Given a job and its nativePromise
+            const j = detached.start(), p1 = nativePromise(j);
+            // When nativePromise is called again
+            const p2 = nativePromise(j);
+            // Then the promises should be equal
+            expect(p1).to.equal(p2);
+            // But be different from the nativePromise of another job
+            expect(p1).to.not.equal(nativePromise(detached.start()))
+        });
+        describe("even after", () => {
+            function shouldBeTheSame<T>(after: (j: Job<T>) => (Promise<T>|void)) {
+                const j = detached.start<T>(), p = nativePromise(j);
+                expect(after(j) || nativePromise(j)).to.equal(p);
+            }
+            it("return", () => { shouldBeTheSame(job => { job.return(42); });    });
+            it("throw",  () => { shouldBeTheSame(job => { job.throw("boom"); }); });
+            it("cancel", () => { shouldBeTheSame(job => { job.end(); });         });
+        });
+        it("except on restart()", () => {
+            // Given a job and its nativePromise
+            const j = detached.start(), p1 = nativePromise(j);
+            // When nativePromise is called again after restart
+            j.restart();
+            const p2 = nativePromise(j);
+            // Then  the promises should be different
+            expect(p1).to.not.equal(p2);
+        });
+    });
+    it("marks errors handled", () => {
+        // Given a job with a nativePromise
+        const j = detached.start(), p = nativePromise(j);
+        j.must(r => log(isHandled(r))).do(r => log(isHandled(r)))
+        // When the job is thrown
+        j.throw("boom");
+        // Then the error should be marked handled
+        see("false", "true");
     });
 });
 

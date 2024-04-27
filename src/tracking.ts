@@ -111,6 +111,7 @@ class _Job<T> implements Job<T> {
             this._end(CancelResult);
         }
         this._done = undefined;
+        promises.delete(this);  // don't reuse any now-cancelled promise!
         return this;
     }
 
@@ -128,22 +129,15 @@ class _Job<T> implements Job<T> {
         onfulfilled?: (value: T) => T1 | PromiseLike<T1>,
         onrejected?: (reason: any) => T2 | PromiseLike<T2>
     ): Promise<T1 | T2> {
-        var p = new Promise<T>((res, rej) => {
-            if (this._done) toPromise(this._done); else this.do(toPromise);
-            function toPromise(r: JobResult<T>) {
-                // XXX mark error handled
-                if (isError(r)) rej(r.err); else if (isValue(r)) res(r.val); else rej(r);
-            }
-        })
-        return (onfulfilled || onrejected) ? p.then(onfulfilled, onrejected) : p as any;
+        return nativePromise(this).then(onfulfilled, onrejected);
     }
 
     catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): Promise<T | TResult> {
-        return this.then(undefined, onrejected);
+        return nativePromise(this).catch(onrejected);
     }
 
     finally(onfinally?: () => void): Promise<T> {
-        return this.then().finally(onfinally);
+        return nativePromise(this).finally(onfinally);
     }
 
     *[Symbol.iterator](): JobIterator<T> {
@@ -230,6 +224,37 @@ class _Job<T> implements Job<T> {
         if (this._done && isEmpty(this._cbs)) defer(this.end);
         return this._cbs ||= chain();
     }
+}
+
+const promises = new WeakMap<Job<any>, Promise<any>>();
+
+/**
+ * Obtain a native promise for a job
+ *
+ * While jobs have the same interface as native promises, there are occasionally
+ * reasons to just use one directly.  (Like when Uneventful uses this function
+ * to implement jobs' promise methods!)
+ *
+ * @param job Optional: the job to get a native promise for.  If none is given,
+ * the active job is used.
+ *
+ * @returns A {@link Promise} that resolves or rejects according to whether the
+ * job returns or throws.  If the job is canceled, the promise is rejected with
+ * {@link CancelResult}.
+ *
+ * @category Jobs
+ */
+export function nativePromise<T>(job = getJob<T>()): Promise<T> {
+    if (!promises.has(job)) {
+        promises.set(job, new Promise((res, rej) => {
+            if (job.result()) toPromise(job.result()); else job.do(toPromise);
+            function toPromise(r: JobResult<T>) {
+                if (isError(r)) rej(markHandled(r)); else if (isValue(r)) res(r.val); else rej(r);
+            }
+        }));
+    }
+    return promises.get(job);
+
 }
 
 /**
