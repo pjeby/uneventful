@@ -2,7 +2,7 @@ import { Request, Suspend, Yielding} from "./types.ts"
 import { to } from "./async.ts";
 import { defer } from "./defer.ts";
 import { Source, pause, resume, connect } from "./streams.ts";
-import { reject, resolve, isCancel, isError, markHandled } from "./results.ts";
+import { reject, resolve, isError, markHandled } from "./results.ts";
 import { start } from "./jobutils.ts";
 import { isFunction } from "./tracking.ts";
 

@@ -1,7 +1,8 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logUncaught } from "./dev_deps.ts";
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob
+    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob,
+    CancelError
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
@@ -115,6 +116,15 @@ describe("Job instances", () => {
                 // Then it should call the error callback
                 see("e:this in particular");
             });
+            it("for cancels", async () => {
+                // Given a job that's canceled
+                const j = start(); j.end();
+                // When you await its .then()
+                const e = await j.then(v => log(`v:${v}`), e => { log(`${e.constructor.name}: ${e}`); return e; });
+                // Then it should call the error callback with a CancelError
+                see("CancelError: Error: Job canceled");
+                expect(e).to.be.instanceOf(CancelError);
+            });
         });
         describe(".catch()", () => {
             it("for values", async () => {
@@ -173,6 +183,15 @@ describe("Job instances", () => {
                     // Then it should throw the error
                     see("this in particular");
                 });
+                it("for cancels", async () => {
+                    // Given a job that throws
+                    const j = start(); j.end();
+                    // When awaited in another job
+                    const e = await start(function*() { yield* j; }).catch(e => { log(e); return e; });
+                    // Then it should throw a CancelError
+                    see("Error: Job canceled");
+                    expect(e).to.be.instanceOf(CancelError);
+                });
             });
             describe("when suspended", () => {
                 it("for values", async () => {
@@ -198,9 +217,24 @@ describe("Job instances", () => {
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with an error
                     reject(req, "an error");
-                    // Then it should see the error
+                    // Then the waiting job should see the error
                     await j2.catch(log);
                     see("an error");
+                });
+                it("for cancels", async () => {
+                    // Given a started, suspended job that returns its response
+                    let req: Request<any>
+                    const j1 = start(function*(): Yielding<any> { return yield r => req = r; });
+                    await Promise.resolve();  // ensure j1 reaches suspend point
+                    // And that's awaited in another job
+                    const j2 = start(function*() { log(yield* j1); }).onError(noop);
+                    await Promise.resolve();  // ensure j2 reaches suspend point
+                    // When the suspended job is canceled
+                    j1.end()
+                    // Then the waiting should see a CancelError
+                    const e = await j2.catch(e => { log(e); return e; });
+                    see("Error: Job canceled");
+                    expect(e).to.be.instanceOf(CancelError);
                 });
             });
         });

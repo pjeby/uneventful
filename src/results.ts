@@ -1,4 +1,4 @@
-import { Request } from "./types.ts";
+import { Job, Request } from "./types.ts";
 
 /**
  * Resolve a {@link Request} with a value.
@@ -82,7 +82,12 @@ export type HandledError   = {op: "throw",   val: null,      err: any};
 export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
 
 /**
- * A result passed to a job's cleanup callbacks
+ * A result passed to a job's cleanup callbacks, or supplied by its
+ * .{@link Job.result result}() method.
+ *
+ * You can inspect a JobResult using functions like {@link isCancel}(),
+ * {@link isError}(), and {@link isValue}().  {@link getResult}() can be used to
+ * unwrap the value or throw the error.
  *
  * @category Types and Interfaces
  */
@@ -172,3 +177,58 @@ export function markHandled(res: ErrorResult): any {
     res.val = null;
     return res.err;
 }
+
+/**
+ * Get the return value from a {@link JobResult}, throwing an appropriate error
+ * if the result isn't a {@link ValueResult}.
+ *
+ * @param res The job result you want to unwrap.  Must not be undefined!
+ *
+ * @returns The value if the result is a {@link ValueResult}, or a thrown error
+ * if it's an {@link ErrorResult}.  A {@link CancelError} is thrown if the job
+ * was canceled, or the error in the result is thrown.
+ *
+ * If the result is an error, it is marked as handled.
+ *
+ * @category Jobs
+ */
+export function getResult<T>(res: JobResult<T>): T {
+    if (isValue(res)) return res.val;
+    res.op; // throw if not defined
+    fulfillPromise(noop, e => { throw e; }, res);
+}
+
+/**
+ * Fulfill a Promise from a {@link JobResult}
+ *
+ * If the result is a {@link CancelResult}, the promise is rejected with a
+ * {@link CancelError}.  Otherwise it is resolved or rejected according to the
+ * state of the result.
+ *
+ * @param resolve A value-taking function (first arg to `new Promise` callback)
+ *
+ * @param reject An error-taking function (second arg to `new Promise` callback)
+ *
+ * @param res The job result you want to settle the promise with.  An error will
+ * be thrown if it's undefined.
+ *
+ * If the result is an error, it is marked as handled.
+ *
+ * @category Requests and Results
+ */
+export function fulfillPromise<T>(resolve: (v: T) => void, reject: (e: any) => void, res: JobResult<T>) {
+    if (isError(res)) reject(markHandled(res));
+    else if (isCancel(res)) reject(new CancelError("Job canceled"));
+    else resolve(res.val);
+}
+
+/**
+ * Error thrown when waiting for a result from a job that is canceled.
+ *
+ * If you `await`, `yield *`, `.then()`, `.catch()`, {@link getResult}() or
+ * otherwise wait on the result of a job that is canceled, this is the type
+ * of error you'll get.
+ *
+ * @category Errors
+ */
+export class CancelError extends Error {}

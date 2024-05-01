@@ -3,7 +3,7 @@ import { catchers, defaultCatch } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled } from "./results.ts";
-import { resolve, reject } from "./results.ts";
+import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 
 /**
@@ -158,16 +158,12 @@ class _Job<T> implements Job<T> {
 
     *[Symbol.iterator](): JobIterator<T> {
         if (this._done) {
-            if (isValue(this._done)) return this._done.val;
-            throw isError(this._done) ? markHandled(this._done) : this._done;
+            return getResult(this._done);
         } else return yield (req: Request<T>) => {
             // XXX should this be a release(), so if the waiter dies we
             // don't bother? The downside is that it'd have to be mutual and
             // the resume is a no-op anyway in that case.
-            this.do(res => {
-                if (isError(res)) markHandled(res);
-                if (isCancel(res)) req("throw", undefined, res); else req(res.op, res.val, res.err);
-            });
+            this.do(res => fulfillPromise(resolver(req), rejecter(req), res));
         }
     }
 
@@ -280,10 +276,8 @@ const promises = new WeakMap<Job<any>, Promise<any>>();
 export function nativePromise<T>(job = getJob<T>()): Promise<T> {
     if (!promises.has(job)) {
         promises.set(job, new Promise((res, rej) => {
+            const toPromise = (fulfillPromise<T>).bind(null, res, rej);
             if (job.result()) toPromise(job.result()); else job.do(toPromise);
-            function toPromise(r: JobResult<T>) {
-                if (isError(r)) rej(markHandled(r)); else if (isValue(r)) res(r.val); else rej(r);
-            }
         }));
     }
     return promises.get(job);
