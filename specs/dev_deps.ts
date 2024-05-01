@@ -50,7 +50,7 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { isCancel, makeJob } from "../src/mod.ts";
+import { detached, isCancel, makeJob } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
@@ -61,6 +61,19 @@ export function useRoot() {
     beforeEach(() => { current.job = f; log.clear(); });
     afterEach(() => { f.restart(); current.job = null; log.clear(); });
 }
+
+// Log all unhandled job errors as `Uncaught: X`
+export const logUncaught = (e: any) => log(`Uncaught: ${e}`)
+detached.asyncCatch(logUncaught);
+
+// Log all unhandled rejections as `rejected: X`
+const seen = new WeakSet<Promise<any>>();
+process.on("unhandledRejection", (e, p) => {
+    // Workaround for https://github.com/mochajs/mocha/issues/4743 - don't log 2 rejections for same promise
+    if (seen.has(p)) return;
+    seen.add(p);
+    log(`rejected: ${e}`);
+});
 
 export let clock: sinon.SinonFakeTimers;
 export function useClock() {

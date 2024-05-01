@@ -234,7 +234,7 @@ describe("Job instances", () => {
         });
         it("when already throw()n", () => {
             // Given a thrown job
-            f.throw(new Error);
+            f.throw(new Error); see("Uncaught: Error");
             // When must() is called with two new callbacks
             f.must(() => log("first")).must(() => log("last"))
             // Then they should not be run
@@ -270,21 +270,14 @@ describe("Job instances", () => {
             try { f.end(); } finally { freeCtx(swapCtx(old)); }
             expect(hasJobOrCell).to.equal(false);
         });
-        it("converts errors to unhandled rejections", async () => {
+        it("sends errors to the detached job", () => {
             const cb1 = spy(), cb2 = spy();
             f.must(cb1);
             f.must(() => { throw new Error("caught me!"); })
             f.must(cb2);
             f.end();
-            const reason = await new Promise<Error>(res => {
-                process.on("unhandledRejection", handler);
-                function handler(e: any) {
-                    process.off("unhandledRejection", handler);
-                    res(e);
-                }
-            });
-            expect(reason.message).to.equal("caught me!");
-        })
+            see("Uncaught: Error: caught me!")
+        });
         it("passes CancelResult to cleanups", () => {
             f.must(r => log(isCancel(r)));
             f.end();
@@ -292,16 +285,16 @@ describe("Job instances", () => {
         });
     })
     describe(".throw()", () => {
-        it("Fails on an already ended job", () => {
+        it("propagates on an already ended job", () => {
             f.end();
-            expect(() => f.throw("boom")).to.throw("Job already ended");
+            f.throw("boom"); see("Uncaught: boom");
             f = makeJob(); f.return(99);
-            expect(() => f.throw("boom")).to.throw("Job already ended");
-            f = makeJob(); f.throw("blah");
-            expect(() => f.throw("boom")).to.throw("Job already ended");
+            f.throw("boom"); see("Uncaught: boom");
+            f = makeJob(); f.throw("blah"); see("Uncaught: blah");
+            f.throw("boom"); see("Uncaught: boom");
         });
         it("passes an ErrorResult to callbacks", () => {
-            f.must(r => log(isError(r) && r.err));
+            f.onError(log);
             f.throw("pow");
             see("pow");
         });
@@ -312,7 +305,7 @@ describe("Job instances", () => {
             expect(() => f.return(42)).to.throw("Job already ended");
             f = makeJob(); f.return(99);
             expect(() => f.return(42)).to.throw("Job already ended");
-            f = makeJob(); f.throw("blah");
+            f = makeJob(); f.throw("blah"); see("Uncaught: blah");
             expect(() => f.return(42)).to.throw("Job already ended");
         });
         it("passes a ValueResult to callbacks", () => {
@@ -518,15 +511,40 @@ describe("restarting()", () => {
         // And return the result
         expect(res).to.equal(42);
     });
-    it("rolls back when an error is thrown", () => {
-        // Given a restarting wrapper around a function that throws
+    it("rolls back when a synchronous error is thrown", () => {
+        // Given a restarting wrapper around a function that synchronously throws
         const outer = makeJob(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
         // When the function is called, it should throw
         expect(w).to.throw("whoops");
         // And Then it should end the job
         see("undo");
         expect(isJobActive()).to.be.false;
+        expect(w).to.throw("whoops");
+        see("undo");
+    });
+    it("throws async errors to its calling job from sub-jobs", () => {
+        // Given a restarting wrapper around a function that async-throws
+        const outer = makeJob().asyncCatch(e => { log(`caught: ${e}`)});
+        const w = outer.bind(restarting)(() => { start().throw("whoops"); });
+        // When the wrapper is called
+        w()
+        // Then the error should pass to the outer job
+        see("caught: whoops")
+        // And the function should still be callable
+        w()
+        see("caught: whoops")
+    });
+    it("throws direct async errors to its calling job", () => {
+        // Given a restarting wrapper around a function getJob().throw()s
+        const outer = makeJob().asyncCatch(e => { log(`caught: ${e}`)});
+        const w = outer.bind(restarting)(() => { getJob().throw("whoops"); });
+        // When the wrapper is called
+        w()
+        // Then the error should pass to the outer job
+        see("caught: whoops")
+        // But the function won't be callable
         expect(w).to.throw("Job already ended");
+        see();
     });
     it("can be used as a method", () => {
         // Given a restarting-wrapped method
@@ -552,7 +570,7 @@ describe("nativePromise()", () => {
         });
         describe("even after", () => {
             function shouldBeTheSame<T>(after: (j: Job<T>) => (Promise<T>|void)) {
-                const j = detached.start<T>(), p = nativePromise(j);
+                const j = detached.start<T>(), p = nativePromise(j); p.catch(noop);
                 expect(after(j) || nativePromise(j)).to.equal(p);
             }
             it("return", () => { shouldBeTheSame(job => { job.return(42); });    });
@@ -561,7 +579,7 @@ describe("nativePromise()", () => {
         });
         it("except on restart()", () => {
             // Given a job and its nativePromise
-            const j = detached.start(), p1 = nativePromise(j);
+            const j = detached.start(), p1 = nativePromise(j); p1.catch(noop);
             // When nativePromise is called again after restart
             j.restart();
             const p2 = nativePromise(j);
@@ -571,7 +589,7 @@ describe("nativePromise()", () => {
     });
     it("marks errors handled", () => {
         // Given a job with a nativePromise
-        const j = detached.start(), p = nativePromise(j);
+        const j = detached.start(), p = nativePromise(j).catch(noop);
         j.must(r => log(isHandled(r))).do(r => log(isHandled(r)))
         // When the job is thrown
         j.throw("boom");

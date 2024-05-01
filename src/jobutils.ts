@@ -173,13 +173,14 @@ export function abortSignal(job: Job = getJob()) {
 export function restarting(): (task: () => OptionalCleanup<never>) => void
 export function restarting<F extends AnyFunction>(task: F): F
 export function restarting<F extends AnyFunction>(task?: F): F {
-    const outer = getJob(), inner = makeJob<never>(), {end} = inner;
+    const outer = getJob(), inner = makeJob<never>(outer), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
+    inner.asyncCatch(e => outer.asyncThrow(e));
     return <F>function(this: any) {
         inner.restart().must(outer.release(end));
         const old = swapCtx(makeCtx(inner));
         try { return task.apply(this, arguments as any); }
-        catch(e) { inner.throw(e); throw e; }
+        catch(e) { inner.restart(); throw e; }
         finally { freeCtx(swapCtx(old)); }
     };
 }

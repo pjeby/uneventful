@@ -1,9 +1,10 @@
-import { log, see, describe, expect, it, useClock, clock, useRoot, noClock } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logUncaught } from "./dev_deps.ts";
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached
+    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
+import { catchers, defaultCatch } from "../src/internals.ts";
 
 const noop = () => ({ *[Symbol.iterator]() {} });
 
@@ -36,6 +37,17 @@ describe("async start()", () => {
             start(j);
             // Then they should be called after a tick
             see(); clock.tick(0); see("called first", "called second");
+        });
+        it("async-throws on throw during cancel", () => {
+            // Given a suspended job that throws on resume
+            const j = detached.start(function*() {
+                try { yield *start(); } finally { throw "whoops!"; }
+            });
+            clock.tick(0);  // start job
+            // When the job is canceled
+            j.end()
+            // Then the error should propagate
+            see("Uncaught: whoops!")
         });
     });
     describe("with functions", () => {
@@ -233,7 +245,7 @@ describe("Job instances", () => {
                 const j = parent.start(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n
-                expect(() => j.throw("boom")).to.throw("Job already ended");
+                j.throw("boom");
                 // Then the result is unaffected
                 start(function*() { log(yield * j); }); clock.tick(0);
                 see("42");
@@ -452,6 +464,84 @@ describe("Job instances", () => {
     });
 });
 
+
+describe("Error Handling", () => {
+    it("unhandled errors go to direct parent", () => {
+        // Given a fresh job with a parent catcher
+        const j1 = makeJob(); j1.asyncCatch(e => log("caught"));
+        const j2 = j1.start();
+        // When the job throws
+        j2.throw("thrown");
+        // Then the parent should catch it
+        see("caught");
+    });
+    it("goes to detached if no parent", () => {
+        // Given a job with no parent
+        const j = makeJob();
+        // When it throws
+        j.throw("boom");
+        // Then it should be caught by the detached job
+        see("Uncaught: boom")
+    });
+
+    describe(".asyncThrow()", () => {
+        // reset handler to testing default after tests that tweak it
+        afterEach(() => { detached.asyncCatch(logUncaught); });
+
+        it("calls job.throw() if no asyncCatch", () => {
+            // Given a job without an asyncCatch
+            const j = makeJob().onError(e => log(`Err: ${e}`));
+            // When it's async-thrown to
+            j.asyncThrow("boom")
+            // Then it should have its .throw() called
+            see("Err: boom");
+        });
+        it("calls asyncCatch handler if any", () => {
+            // Given a job with an asyncCatch
+            const j = makeJob()
+                .onError(e => log(`Err: ${e}`))
+                .asyncCatch(e => log(`Caught: ${e}`))
+            ;
+            // When it's async-thrown to
+            j.asyncThrow("boom")
+            // Then it should have its handler called
+            see("Caught: boom");
+        });
+        it("removes the asyncCatch handler if it throws", () => {
+            // Given a job with a handler that throws
+            const j = makeJob().asyncCatch(() => { throw "whoops"; });
+            // When it's asyncThrown
+            j.asyncThrow("boom");
+            // Then both errors should be passed up the chain
+            see("Uncaught: boom", "Uncaught: whoops");
+            // And the handler should be removed
+            expect(catchers.has(j)).to.be.false;
+        });
+        it("resets detached.asyncCatch() if it throws", async () => {
+            // Given a throwing handler on the detached job
+            detached.asyncCatch(() => { throw "whoops"; });
+            // When it's asyncThrown
+            detached.asyncThrow("boom");
+            await new Promise(res => {setTimeout(res, 0)});
+            // Then both errors should be passed up to Promise.reject()
+            see("rejected: boom", "rejected: whoops");
+            // And the handler should be reset to the default
+            expect(catchers.get(detached)).to.equal(defaultCatch);
+        });
+    });
+
+    describe(".asyncCatch", () => {
+        it("removes the handler if given a null", () => {
+            // Given a job with a handler
+            const j = makeJob().asyncCatch(log);
+            expect(catchers.get(j)).to.equal(log);
+            // When asyncCatch is called with null
+            j.asyncCatch(null);
+            // Then the handler should be removed
+            expect(catchers.has(j)).to.be.false;
+        });
+    });
+});
 
 describe("Async Ops", () => {
     useRoot();

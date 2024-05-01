@@ -1,7 +1,8 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
+import { catchers, defaultCatch } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator } from "./types.ts";
 import { defer } from "./defer.ts";
-import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled } from "./results.ts";
+import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled } from "./results.ts";
 import { resolve, reject } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 
@@ -27,10 +28,14 @@ export function getJob<T=unknown>() {
     throw new Error("No job is currently active");
 }
 
+/** A null context (no job/observer) for cleanups to run in */
 const nullCtx = makeCtx();
 
+/** Jobs' owners (parents) - uses a map so child jobs can't directly access them */
+const owners = new WeakMap<Job, Job>();
+
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
-    while (qlen(cbs)) try { pop(cbs)(res); } catch (e) { Promise.reject(e); }
+    while (qlen(cbs)) try { pop(cbs)(res); } catch (e) { detached.asyncThrow(e); }
     cbs && recycle(cbs);
     return undefined;
 }
@@ -42,9 +47,10 @@ class _Job<T> implements Job<T> {
     /** @internal */
     static create<T,R>(parent?: Job<R>, stop?: CleanupFn<R>): Job<T> {
         const job = new _Job<T>;
-        if (parent || stop) job.must(
-            (parent || getJob() as Job<R>).release(stop || job.end)
-        );
+        if (parent || stop) {
+            job.must((parent ||= getJob() as Job<R>).release(stop || job.end));
+            owners.set(job, parent);
+        }
         return job;
     }
 
@@ -71,7 +77,9 @@ class _Job<T> implements Job<T> {
 
     end = () => {
         const res = (this._done ||= CancelResult), cbs = this._cbs;
-        if (!cbs) return;  // nothing to do here
+        // if we have an unhandled error, fall through to queued mode for later
+        // re-throw; otherwise, if there aren't any callbacks we're done here
+        if (!cbs && !isUnhandled(res)) return;
 
         const ct = inProcess.size, old = swapCtx(nullCtx);;
         // Put a placeholder on the queue if it's empty
@@ -79,7 +87,7 @@ class _Job<T> implements Job<T> {
 
         // Give priority to the release() chain so we get breadth-first flagging
         // of all child jobs as canceled immediately
-        if (cbs.u) cbs.u = runChain(res, cbs.u);
+        if (cbs && cbs.u) cbs.u = runChain(res, cbs.u);
 
         // Put ourselves on the queue *after* our children, so their cleanups run first
         inProcess.add(this);
@@ -94,6 +102,7 @@ class _Job<T> implements Job<T> {
         for (const item of inProcess) {
             if (item._cbs) item._cbs = runChain(item._done, item._cbs);
             inProcess.delete(item);
+            if (isUnhandled(item._done)) item.throw(markHandled(item._done));
         }
         swapCtx(old);
     }
@@ -122,7 +131,14 @@ class _Job<T> implements Job<T> {
         return this;
     }
 
-    throw(err: any) { return this._end(ErrorResult(err)); }
+    throw(err: any) {
+        if (this._done) {
+            (owners.get(this) || detached).asyncThrow(err);
+            return this;
+        }
+        return this._end(ErrorResult(err));
+    }
+
     return(val: T)  { return this._end(ValueResult(val)); }
 
     then<T1=T, T2=never>(
@@ -178,8 +194,9 @@ class _Job<T> implements Job<T> {
             if (isFunction(result)) return job.must(result);
             if (result && isFunction(result[Symbol.iterator])) {
                 job.run(runGen<T>, result, <Request<T>>((m, v, e) => {
+                    if (m==="throw") job.throw(e);
                     if (job.result()) return;
-                    if (m==="next") job.return(v); else job.throw(e);
+                    job.return(v);
                 }));
             }
             return job;
@@ -214,6 +231,25 @@ class _Job<T> implements Job<T> {
         let cbs = this._chain();
         if (!this._done || cbs.u) cbs = cbs.u ||= chain();
         return pushCB(cbs, cleanup);
+    }
+
+    asyncThrow(err: any) {
+        try {
+            (catchers.get(this) || this.throw).call(this, err);
+        } catch (e) {
+            // Don't allow a broken handler to stay on the job
+            if (this === detached) catchers.set(this, defaultCatch); else catchers.delete(this);
+            const catcher = catchers.get(this) || this.throw;
+            catcher.call(this, err);
+            catcher.call(this, e);   // also report the broken handler
+        }
+        return this;
+    }
+
+    asyncCatch(handler: ((this: Job, err: any) => unknown) | null): this {
+        if (isFunction(handler)) catchers.set(this, handler);
+        else if (handler === null) catchers.delete(this);
+        return this;
     }
 
     protected _done: JobResult<T> = undefined;
@@ -255,7 +291,6 @@ export function nativePromise<T>(job = getJob<T>()): Promise<T> {
         }));
     }
     return promises.get(job);
-
 }
 
 /**
@@ -279,17 +314,33 @@ export const makeJob: <T,R=unknown>(parent?: Job<R>, stop?: CleanupFn<R>) => Job
 
 /**
  * A special {@link Job} with no parents, that can be used to create standalone
- * jobs.  detached.start() returns a new detached job, detached.run() can be used
- * to run code that expects to create a child job, and detached.bind() can wrap
- * a function to work without a parent job.
+ * jobs.  detached.start() returns a new detached job, detached.run() can be
+ * used to run code that expects to create a child job, and detached.bind() can
+ * wrap a function to work without a parent job.
  *
- * (Note that in all cases, a child job of `detached` must be stopped explicitly, or
- * it may "run" forever, never running its cleanup callbacks.)
+ * (Note that in all cases, a child job of `detached` *must* be stopped
+ * explicitly, or it may "run" forever, never running its cleanup callbacks.)
+ *
+ * The detached job has a few special features and limitations:
+ *
+ * - It can't be ended, thrown, return()ed, etc. -- you'll get an error
+ *
+ * - It can't have any cleanup functions added: no do, must, onError, etc., and
+ *   thus also can't have any native promise, abort signal, etc. used.  You can
+ *   call its release() method, but nothing will actually be registered and the
+ *   returned callback is a no-op.
+ *
+ * - Unhandled errors from jobs without parents (and errors from *any* job's
+ *   cleanup functions) are sent to the detached job for handling.  This means
+ *   whatever you set as the detached job's .{@link Job.asyncCatch asyncCatch}()
+ *   handler will receive them.  (Its default is Promise.reject, causing an
+ *   unhandled promise rejection.)
  *
  * @category Jobs
  */
 export const detached = makeJob();
 (detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
+detached.asyncCatch(defaultCatch);
 
 function runGen<R>(g: Yielding<R>, req?: Request<R>) {
     let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getJob()), ct = 0;
@@ -336,7 +387,8 @@ function runGen<R>(g: Yielding<R>, req?: Request<R>) {
                     }
                 }
             } catch(e) {
-                req ? reject(req, e) : Promise.reject(e);
+                it = undefined;
+                req ? reject(req, e) : ctx.job.throw(e);
                 req = undefined;
             }
             // Iteration is finished; disconnect from job

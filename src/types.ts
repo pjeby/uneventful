@@ -318,10 +318,54 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
     restart(): this;
 
     /**
+     * Informs a job of an unhandled error from one of its children.
+     *
+     * If the job has an .{@link Job.asyncCatch asyncCatch}() handler set, it
+     * will be called with the error, otherwise the job will end with the
+     * supplied error.  If the error then isn't handled by a listener on the
+     * job, the error will cascade to an asyncThrow on the job's parent, until
+     * the {@link detached} job and its asyncCatch handler is reached. (Which
+     * defaults to creating an unhandled promise rejection.)
+     *
+     * Note: application code should not normally need to call this method
+     * directly, as it's automatically invoked on a job's parent if the job
+     * fails with no error listeners.  (That is, if a job result isn't awaited
+     * by anything and has no onError handlers, and the job throws, then the
+     * error is automatically asyncThrow()n to the job's parent.)
+     *
+     * @param err The error thrown by the child job
+     *
+     * @category Handling Errors
+     */
+    asyncThrow(err: any): this;
+
+    /**
+     * Set up a callback to receive unhandled errors from child jobs.
+     *
+     * Setting an async-catch handler allows you to create robust parent jobs
+     * that log or report errors and restart either a single job or an entire
+     * group of them, in the event that a child job malfunctions in a way that's
+     * not caught elsewhere.
+     *
+     * @param handler Either an error-receiving callback, or null.  If null,
+     * asyncThrow()n errors for the job will be passed to the job's throw()
+     * method instead.  If a callback is given, it's called with `this` bound to
+     * the relevant job instance.
+     *
+     * @category Handling Errors
+     */
+    asyncCatch(handler: ((this: Job, err: any) => unknown) | null): this;
+
+    /**
      * End the job with a thrown error, passing an {@link ErrorResult} to the
      * cleanup callbacks.  (Throws an error if the job is already ended or is
      * currently restarting.)  Provides the same execution and ordering
      * guarantees as .{@link Job.end end}().
+     *
+     * Note: since this immediately ends the job with an error, it should only
+     * be called by the job when it is no longer able to continue.  If you want
+     * to notify a job about an error in a *different* job, you may want to use
+     * .{@link Job.asyncThrow asyncThrow}() instead.
      *
      * @category Producing Results
      */
