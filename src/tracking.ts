@@ -193,11 +193,7 @@ class _Job<T> implements Job<T> {
             const result = job.run(init as Start<T>, job);
             if (isFunction(result)) return job.must(result);
             if (result && isFunction(result[Symbol.iterator])) {
-                job.run(runGen<T>, result, <Request<T>>((m, v, e) => {
-                    if (m==="throw") job.throw(e);
-                    if (job.result()) return;
-                    job.return(v);
-                }));
+                job.run(runGen<T>, result, job);
             }
             return job;
         } catch(e) {
@@ -342,10 +338,10 @@ export const detached = makeJob();
 (detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
 detached.asyncCatch(defaultCatch);
 
-function runGen<R>(g: Yielding<R>, req?: Request<R>) {
-    let it = g[Symbol.iterator](), running = true, ctx = makeCtx(getJob()), ct = 0;
+function runGen<R>(g: Yielding<R>, job: Job<R>) {
+    let it = g[Symbol.iterator](), running = true, ctx = makeCtx(job), ct = 0;
     let done = ctx.job.release(() => {
-        req = undefined;
+        job = undefined;
         ++ct; // disable any outstanding request(s)
         // XXX this should be deferred to cleanup phase, or must() instead of release
         // (release only makes sense here if you can run more than one generator in a job)
@@ -368,8 +364,8 @@ function runGen<R>(g: Yielding<R>, req?: Request<R>) {
                     ++ct;
                     const {done, value} = it[method](arg);
                     if (done) {
-                        req && resolve(req, value);
-                        req = undefined;
+                        job && job.return(value);
+                        job = undefined;
                         break;
                     } else if (!isFunction(value)) {
                         method = "throw";
@@ -387,9 +383,8 @@ function runGen<R>(g: Yielding<R>, req?: Request<R>) {
                     }
                 }
             } catch(e) {
-                it = undefined;
-                req ? reject(req, e) : ctx.job.throw(e);
-                req = undefined;
+                it = job = undefined;
+                ctx.job.throw(e);
             }
             // Iteration is finished; disconnect from job
             it = undefined;
