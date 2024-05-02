@@ -109,13 +109,48 @@ describe("start(action)", () => {
     it("links to the enclosing job", () => {
         // Given a job created within a standalone job
         const job = detached.start(() => {
-            start(() => () => log("cleanup"))
+            start().must(() => log("cleanup"))
         });
         see();
         // When the outer job is disposed
         job.end();
         // Then the inner job should be cleaned up
         see("cleanup");
+    });
+    it("waits for a promise (passed or returned)", async () => {
+        // Given jobs wrapping passed or returned promises
+        const j1 = detached.start(async () => { return 42; });
+        const j2 = detached.start(Promise.reject("boom"));
+        // When the promises resolve or reject
+        // Then the result should become the job's result
+        await expect(j1).to.eventually.equal(42);
+        await expect(j2).to.be.rejectedWith("boom");
+        see("Uncaught: boom");
+    });
+    it("waits for a returned job", async () => {
+        // Given jobs wrapping returned jobs
+        const j1 = detached.start(() => { return start().return(42); });
+        const j2 = detached.start(() => { return start().onError(noop).throw("boom"); });
+        expect(j1.result()).to.be.undefined;
+        expect(j2.result()).to.be.undefined;
+        // They should eventually match their returned jobs' results
+        await expect(j1).to.eventually.equal(42);
+        await expect(j2).to.be.rejectedWith("boom");
+        see("Uncaught: boom");
+    });
+    it("throws when given other objects or values", () => {
+        for(const item of [42, "blah", {x:"y"},] as any[]) {
+            for(const v of [item, () => item]) {
+                try {
+                    detached.start(v);
+                } catch(e) {
+                    expect(e.message).to.equal("Invalid value/return for start()");
+                    continue;
+                }
+                log(`Should have thrown for ${item}, ${v}`);
+            }
+        }
+        see(); // verify nothing logged
     });
     describe("with an enclosing job", () => {
         useRoot();
@@ -124,13 +159,6 @@ describe("start(action)", () => {
                 log(job === getJob()); must(() => log("destroy"))
             });
             see("true"); job.end(); see("destroy");
-        });
-        it("adds the return value if it's a function", () => {
-            const cb = spy();
-            const job = start(() => cb as CleanupFn);
-            expect(cb).to.not.have.been.called;
-            job.end();
-            expect(cb).to.have.been.calledOnce;
         });
         it("cleans up on throw", () => {
             var cb = spy();
@@ -654,7 +682,7 @@ describe("Cleanup order", () => {
         const [j, _j1, j2, _j3] = setupJobs();
         const toRestart = detached.start(() => {
             must(msg("must @ restart"));
-            start(() => msg("must @ restart sub"));
+            start().must(msg("must @ restart sub"));
         })
         j2.must(() => { log("restart begins"); toRestart.restart(); log("restart done"); })
         // When the root is ended

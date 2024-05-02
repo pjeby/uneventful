@@ -46,33 +46,58 @@ export type DisposeFn = () => void;
 export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
 
 /**
- * An asynchronous start function must return a {@link Yielding}-compatible
- * object, such as a job or generator.  The returned iterator will be run
- * asynchronously, in the context of the newly-started job.  Any result it
- * returns or error it throws will be treated as the result of the job.  If the
- * job is canceled, the iterator's `.return()` method will be called to abort
- * it (thereby running any try-finally clauses in the generator), and the result
- * of the call will be otherwise ignored.
+ * An asynchronous start function is called immediately in the new job and must
+ * return a {@link StartObj}, such as a job, generator, or promise.  If a job or
+ * promise is returned, it will be awaited and its result used to asynchronously
+ * set the result of the returned job.
+ *
+ * If a generator is returned, it will be run asynchronously, in the context of
+ * the newly-started job.  Any result it returns or error it throws will be
+ * treated as the result of the job.  If the job is canceled, the iterator's
+ * `.return()` method will be called to abort it (thereby running any
+ * try-finally clauses in the generator), and the result of the call will be
+ * otherwise ignored.
+ *
+ * @template T The type the job will end up returning
+ * @template This The type of `this` the function accepts, if using two-argument
+ * start().  Defaults to void (for one-argument start()).
  *
  * @category Types and Interfaces
  */
-export type AsyncStart<T,C=void> = (this: C, job: Job<T>) => Yielding<T>;
+export type AsyncStart<T, This=void> = (this: This, job: Job<T>) => StartObj<T>;
 
 /**
- * A synchronous start function can return void or a {@link CleanupFn}. It runs
- * immediately and gets passed the newly created job as its first argument.
+ * A synchronous start function returns void. It runs immediately and gets
+ * passed the newly created job as its first argument.
+ *
+ * @template T The type the job will end up returning
+ * @template This The type of `this` the function accepts, if using two-argument
+ * start().  Defaults to void (for one-argument start()).
  *
  * @category Types and Interfaces
  */
-export type SyncStart<T,C=void>  = (this: C, job: Job<T>) => OptionalCleanup<T>;
+export type SyncStart<T, This=void>  = (this: This, job: Job<T>) => void;
 
 /**
  * A synchronous or asynchronous initializing function for use with the
  * {@link start}() function or a job's {@link Job.start .start}() method.
  *
+ * @template T The type the job will end up returning
+ * @template This The type of `this` the function accepts, if using two-argument
+ * start().  Defaults to void (for one-argument start()).
+ *
  * @category Types and Interfaces
  */
-export type Start<T,C=void> = AsyncStart<T,C> | SyncStart<T,C>
+export type StartFn<T, This=void> = AsyncStart<T,This> | SyncStart<T,This>
+
+/**
+ * An object that can be passed as a single argument to {@link start}() or a
+ * job's {@link Job.start .start}() method, such as a job, generator, or
+ * promise.
+ *
+ * @category Types and Interfaces
+ */
+export type StartObj<T> = Yielding<T> | Promise<T> | PromiseLike<T>
 
 /**
  * A cancellable asynchronous operation with automatic resource cleanup.
@@ -171,15 +196,15 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
     release(cleanup: CleanupFn<T>): DisposeFn;
 
     /**
-     * Start a nested job using the given function (or {@link Yielding}). (Like
-     * {@link start}, but using a specific job as the parent, rather than
-     * whatever job is active.  Zero, one, and two arguments are supported,
-     * just as with start().)
+     * Start a nested job using the given function (or {@link Yielding},
+     * promise, etc.). (Like {@link start}(), but using a specific job as the
+     * parent, rather than whatever job is active.  Zero, one, and two arguments
+     * are supported, just as with start().)
      *
      * @category Execution Control
      */
-    start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
-    start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
+    start<T>(init?: StartFn<T> | StartObj<T>): Job<T>;
+    start<T, This>(thisArg: This, fn: StartFn<T, This>): Job<T>;
 
     /**
      * Invoke a function with this job as the active one, so that calling the

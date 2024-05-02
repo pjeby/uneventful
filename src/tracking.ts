@@ -1,8 +1,8 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { catchers, defaultCatch } from "./internals.ts";
-import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator, RecalcSource } from "./types.ts";
+import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, StartFn, OptionalCleanup, JobIterator, RecalcSource, StartObj } from "./types.ts";
 import { defer } from "./defer.ts";
-import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled } from "./results.ts";
+import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 import { recalcWhen } from "./signals.ts";
@@ -175,29 +175,40 @@ class _Job<T> implements Job<T> {
         }
     }
 
-    start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
-    start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
-    start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
+    start<T>(fn?: StartFn<T> | StartObj<T>): Job<T>;
+    start<T, This>(ctx: This, fn: StartFn<T, This>): Job<T>;
+    start<T, This>(fnOrCtx: StartFn<T> | StartObj<T>|This, fn?: StartFn<T, This>) {
         if (!fnOrCtx) return makeJob(this);
-        let init: Start<T,C>;
+        let init: StartFn<T, This>, result: StartObj<T> | void;
         if (isFunction(fn)) {
-            init = fn.bind(fnOrCtx as C);
+            init = fn.bind(fnOrCtx as This);
         } else if (isFunction(fnOrCtx)) {
-            init = fnOrCtx as Start<T,C>;
+            init = fnOrCtx as StartFn<T, This>;
         } else if (fnOrCtx instanceof _Job) {
             return fnOrCtx;
-        } else if (isFunction((fnOrCtx as Yielding<T>)[Symbol.iterator])) {
-            init = () => fnOrCtx as Yielding<T>;
         } else {
-            // XXX handle promises or other things here?
-            throw new TypeError("Invalid argument for start()");
+            result = fnOrCtx as StartObj<T>;
         }
         const job = makeJob<T>(this);
         try {
-            const result = job.run(init as Start<T>, job);
-            if (isFunction(result)) return job.must(result);
-            if (result && isFunction(result[Symbol.iterator])) {
-                job.run(runGen<T>, result, job);
+            if (init) result = job.run(init as StartFn<T>, job);
+            if (result != null) {
+                if (result instanceof _Job) {
+                    if (result !== job) result.do(res => propagateResult(job, res));
+                } else if (isFunction((result as Promise<T>).then)) {
+                    (result as Promise<T>).then(
+                        v => { job.result() || job.return(v); },
+                        e => { job.result() || job.throw(e); }
+                    );
+                    return job;
+                } else if (
+                    isFunction((result as Yielding<T>)[Symbol.iterator]) &&
+                    typeof result !== "string"
+                ) {
+                    job.run(runGen<T>, result as Yielding<T>, job);
+                } else {
+                    throw new TypeError("Invalid value/return for start()");
+                }
             }
             return job;
         } catch(e) {

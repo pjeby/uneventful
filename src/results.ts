@@ -223,6 +223,26 @@ export function fulfillPromise<T>(resolve: (v: T) => void, reject: (e: any) => v
 }
 
 /**
+ * Propagate a {@link JobResult} to another job
+ *
+ * If the result is a {@link CancelResult}, the job will throw with a
+ * {@link CancelError}.  Otherwise it is resolved or rejected according to the
+ * state of the result.
+ *
+ * @param job The job to terminate.  If it's already ended, nothing changes: the
+ * result is not propagated and the error (if any) is not marked as handled.
+ *
+ * @param res The job result you want to settle the job with.  An error will be
+ * thrown if it's undefined.  If the result is an error, it is marked as
+ * handled.
+ *
+ * @category Requests and Results
+ */
+export function propagateResult<T>(job: Job<T>, res: JobResult<T>) {
+    if (!job.result()) fulfillPromise(job.return.bind(job), job.throw.bind(job), res);
+}
+
+/**
  * Error thrown when waiting for a result from a job that is canceled.
  *
  * If you `await`, `yield *`, `.then()`, `.catch()`, {@link getResult}() or

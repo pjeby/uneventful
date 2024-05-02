@@ -1,6 +1,6 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { getJob, makeJob } from "./tracking.ts";
-import { AnyFunction, Job, OptionalCleanup, Start, Yielding } from "./types.ts";
+import { AnyFunction, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
 
 /**
  * Add a cleanup function to the active job. Non-function values are ignored.
@@ -22,16 +22,20 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
  * - When called with zero arguments, the new job is returned without any other
  *   initialization.
  *
+ * - When called with one argument that's a function (either a {@link SyncStart}
+ *   or {@link AsyncStart}): the function is run inside the new job and receives
+ *   it as an argument.  It can return a {@link Yielding} iterator (such as a
+ *   generator or job), a promise, or void.  A returned iterator or promise will
+ *   be treated as if the method was called with that to begin with; a returned
+ *   job will be awaited and its result transferred to the new job
+ *   asynchronously.
+ *
  * - When called with one argument that's a {@link Yielding} iterator (such as a
  *   generator or an existing job): it's attached to the new job and executed
  *   asynchronously. (Starting in the next available microtask.)
  *
- * - When called with one argument that's a function (either a {@link SyncStart}
- *   or {@link AsyncStart}): the function is run inside the new job and
- *   receives it as an argument.  It can return a {@link Yielding} iterator
- *   (such as a generator), a cleanup callback ({@link CleanupFn}), or void.  A
- *   returned Yielding will be treated as if the method was called with that to
- *   begin with; a returned callback will be added to the job as a `must()`.
+ * - When called with one argument that's a Promise, it's converted to a job
+ *   that will end when the promise settles.  The resulting job is returned.
  *
  * - When called with two arguments -- a "this" object and a function -- it
  *   works the same as one argument that's a function, except the function is
@@ -46,23 +50,23 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
  *   *(this) {...}));`) in order to correctly infer types inside a generator
  *   function.)
  *
- * In any of the above cases, if a supplied function throws an error, the new
- * job will be ended, and the error re-thrown.
+ * In any of the above cases, if a supplied function throws an error when
+ * starting, the new job will be ended, and the error synchronously re-thrown.
  *
  * @returns the created {@link Job}
  *
  * @category Jobs
  */
-export function start<T>(fn?: Start<T>|Yielding<T>): Job<T>;
+export function start<T>(init?: StartFn<T> | StartObj<T>): Job<T>;
 
 /**
  * The two-argument variant of start() allows you to pass a "this" object that
  * will be bound to the initialization function.  (It's mostly useful for
  * generator functions, since generator arrows aren't a thing yet.)
  */
-export function start<T,C>(ctx: C, fn: Start<T,C>): Job<T>;
-export function start<T,C>(fnOrCtx: Start<T>|Yielding<T>|C, fn?: Start<T,C>) {
-    return getJob().start(fnOrCtx as C, fn);
+export function start<T, This>(thisArg: This, fn: StartFn<T, This>): Job<T>;
+export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T, This>) {
+    return getJob().start(init as This, fn);
 }
 
 /**

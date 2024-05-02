@@ -5,6 +5,9 @@ import { expect } from "chai";
 import * as chai from "chai";
 import * as sinon from "sinon";
 import * as sinon_chai from "sinon-chai";
+import * as chaiAsPromised from "chai-as-promised";
+
+chai.use((chaiAsPromised["default"] ?? chaiAsPromised) as Chai.ChaiPlugin);
 chai.use((sinon_chai["default"] ?? sinon_chai) as Chai.ChaiPlugin);
 
 export const { spy, mock, createStubInstance } = sinon;
