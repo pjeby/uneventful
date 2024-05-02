@@ -1,5 +1,8 @@
 import { log, see, describe, expect, it, useRoot } from "./dev_deps.ts";
-import { runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable } from "../mod.ts";
+import {
+    runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
+    DisposeFn, RecalcSource
+} from "../mod.ts";
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {
@@ -141,6 +144,59 @@ describe("Dependency tracking", () => {
                 expect(runRules).to.throw(WriteConflict);
             });
         })
+    });
+    describe("recalcWhen()", () => {
+        useRoot()
+        it("subscribes and unsubscribes on demand", () => {
+            // Given a rule that depends on a mock source
+            let changed: () => void;
+            const src: RecalcSource = (cb) => { changed = cb; log("sub"); must(()=> log("unsub")); }
+            const end = rule(() => { recalcWhen(src); log("ping"); });
+            // When the rule is run
+            see(); runRules();
+            // Then the source should be subscribed
+            see("sub", "ping");
+            runRules(); see();
+            // And when the source produces a value
+            changed(); see();
+            // Then the rule should update
+            runRules(); see("ping");
+            // And when the rule is ended
+            end()
+            // Then the source should be unsubscribed
+            see("unsub");
+        });
+        it("supports key+factory for creating sources on the fly", () => {
+            // Given rules keyed to different sources
+            type o = {n: number, cb?: DisposeFn};
+            const factory = (key: o): RecalcSource => (cb) => {
+                key.cb = cb; log(`sub ${key.n}`); must(()=> log(`unsub ${key.n}`));
+            }
+            const o1: o = {n:1}, o2: o = {n:2};
+            const r1 = rule(() => { recalcWhen(o1, factory); log("ping 1"); });
+            const r2 = rule(() => { recalcWhen(o2, factory); log("ping 2"); });
+            // When they are run
+            see(); runRules();
+            // Then the sources should each be subscribed
+            see("sub 1", "ping 1", "sub 2", "ping 2");
+            // And when they are updated, the rules should recalc
+            o1.cb(); runRules(); see("ping 1");
+            o2.cb(); runRules(); see("ping 2");
+            // And when ended, they should unsubscribe
+            r2(); see("unsub 2");
+            r1(); see("unsub 1");
+        });
+        it("async-throws and kills its job on setup error", () => {
+            // Given a source that throws and a rule that references it
+            const src: RecalcSource = () => { log("sub"); must(()=> log("unsub")); throw "boom"; }
+            const end = rule(() => { recalcWhen(src); log("ping"); });
+            // When the rule is run
+            runRules();
+            // Then the error should async-throw and the subscription should be rolled back
+            see("sub", "Uncaught: boom", "unsub", "ping");
+            runRules(); see();
+            end(); see();
+        });
     });
 });
 

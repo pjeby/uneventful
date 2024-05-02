@@ -1,8 +1,11 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup } from "./types.ts"
-import { getJob, makeJob } from "./tracking.ts";
+import { DisposeFn, OptionalCleanup, RecalcSource } from "./types.ts"
+import { detached, getJob, makeJob } from "./tracking.ts";
+import { IsStream, Source } from "./streams.ts";
+import { setMap } from "./utils.ts";
+import { isCancel } from "./results.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
@@ -163,6 +166,12 @@ export const rule = defaultQueue.rule;
 export const runRules = defaultQueue.flush
 
 
+/** recalcWhen(fn): map fn -> Cell */
+const fntrackers = new WeakMap<Function, Cell>();
+
+/** recalcWhen(key, factory): map factory -> key -> Cell */
+const obtrackers = new WeakMap<Function, WeakMap<WeakKey, Cell>>();
+
 const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
@@ -186,6 +195,7 @@ const enum Is {
     Dead   = 1 << 3,
     Error  = 1 << 4,
     Running = 1 << 5,
+    Stream  = 1 << 6,
     Computed = Rule | Lazy,
 }
 
@@ -388,9 +398,12 @@ export class Cell {
     }
 
     subscribe(sub: Subscription) {
-        if (this.flags & Is.Lazy && !this.subscribers) {
-            this.latestSource = timestamp;
-            for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
+        if (!this.subscribers) {
+            if (this.flags & Is.Lazy) {
+                this.latestSource = timestamp;
+                for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
+            }
+            if (this.flags & Is.Stream) this.compute();  // subscribe to source
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
             sub.nT = this.subscribers;
@@ -403,9 +416,12 @@ export class Cell {
         if (sub.nT) sub.nT.pT = sub.pT;
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
-        if (!this.subscribers && this.flags & Is.Lazy) {
-            this.latestSource = 0;
-            for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
+        if (!this.subscribers) {
+            if (this.flags & Is.Lazy) {
+                this.latestSource = 0;
+                for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
+            }
+            if (this.flags & Is.Stream) this.ctx.job?.restart();  // unsubscribe from source
         }
     }
 
@@ -414,6 +430,47 @@ export class Cell {
         cell.value = val;
         cell.lastChanged = timestamp;
         return cell;
+    }
+
+    static mkStream<T>(src: Source<T>, val?: T) {
+        const cell = this.mkValue(val);
+        cell.flags |= Is.Stream;
+        cell.ctx = makeCtx();
+        const write = cell.setValue.bind(cell);
+        cell.compute = () => {
+            cell.ctx.job ||= makeJob()
+                .asyncCatch(e => detached.asyncThrow(e))
+                .must(r => isCancel(r) || (cell.ctx.job = undefined))
+            ;
+            const old = swapCtx(cell.ctx);
+            try {
+                src(write);
+            } catch(e) {
+                detached.asyncThrow(e);
+                cell.ctx.job.end();
+                cell.ctx.job = undefined;
+            } finally {
+                swapCtx(old);
+            }
+        }
+        return cell;
+    }
+
+    recalcWhen(src: RecalcSource): void;
+    recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
+    recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
+        let trackers: WeakMap<WeakKey, Cell> = fn ?
+            obtrackers.get(fn) || setMap(obtrackers, fn, new WeakMap) :
+            fntrackers
+        ;
+        let cell = trackers.get(fnOrKey);
+        if (!cell) {
+            const src = fn ? fn(<T>fnOrKey) : <RecalcSource> fnOrKey;
+            let ct = 0;
+            cell = Cell.mkStream(s => (src(() => s(++ct)), IsStream), ct);
+            trackers.set(fnOrKey, cell);
+        }
+        cell.getValue();  // Subscribe to the cell
     }
 
     static mkCached<T>(compute: () => T) {

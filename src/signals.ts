@@ -1,5 +1,5 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
-import { PlainFunction, Yielding } from "./types.ts";
+import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
 import { Cell, rule } from "./cells.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
@@ -111,6 +111,57 @@ export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): 
     try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
 }
 
+/**
+ * Arrange for the current signal or rule to recalculate on demand
+ *
+ * This lets you interop with systems that have a way to query a value and
+ * subscribe to changes to it, but not directly produce a signal.  (Such as
+ * querying the DOM state and using a MutationObserver.)
+ *
+ * By calling this with a {@link Source} or {@link RecalcSource}, you arrange
+ * for it to be subscribed, if and when the call occurs in a rule or a cached
+ * function that's in use by a rule (directly or indirectly).  When the source
+ * emits a value, the signal machinery will invalidate the caching of the
+ * function or rule, forcing a recalculation and subsequent rule reruns, if
+ * applicable.
+ *
+ * Note: you should generally only call the 1-argument version of this function
+ * with "static" sources - i.e. ones that won't change on every call. Otherwise,
+ * you will end up creating new signals each time, subscribing and unsubscribing
+ * on every call to recalcWhen().
+ *
+ * If the source needs to reference some object, it's best to use the 2-argument
+ * version (i.e. `changesWhen(someObj, factory)`, where `factory` is a function
+ * that takes `someObj` and returns a suitable {@link RecalcSource}.)
+ *
+ * @remarks
+ * recalcWhen is specifically designed so that using it does not pull in any
+ * part of Uneventful's signals framework, in the event a program doesn't
+ * already use it.  This means you can use it in library code to provide signal
+ * compatibility, without adding bundle bloat to code that doesn't use signals.
+ *
+ * @category Signals
+ */
+export function recalcWhen(src: RecalcSource): void;
+/**
+ * Two-argument variant of recalcWhen
+ *
+ * In certain circumstances, you may wish to use recalcWhen with a source
+ * related to some object.  You could call recalcWhen with a closure, but that
+ * would create and discard signals on every call.  So this 2-argument version
+ * lets you avoid that by allowing the use of an arbitrary object as a key,
+ * along with a factory function to turn the key into a {@link RecalcSource}.
+ *
+ * @param key an object to be used as a key
+ *
+ * @param factory a function that will be called with the key to obtain a
+ * {@link RecalcSource}.  Note that this factory function must also be a static
+ * function, not a closure, or the same memory thrash issue will occur.
+ */
+export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
+export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
+    current.cell?.recalcWhen<T>(fnOrKey as T, fn);
+}
 
 function mkSignal<T>(get: () => T): Signal<T>
 function mkSignal<T>(get: () => T, set: (v: T) => void): Writable<T>

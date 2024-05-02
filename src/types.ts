@@ -469,3 +469,15 @@ export interface Request<T> {
     (op: "throw", val: undefined | null, err: any): void;
     (op: "next" | "throw", val?: T | undefined | null, err?: any): void;
 }
+
+/**
+ * A subscribable function used to trigger signal recalculations
+ *
+ * It must accept a callback, and should arrange (via {@link must}()) to
+ * unsubscribe when its calling job ends.  Once subscribed, it should
+ * invoke the callback to trigger recalculation of the signal(s) that
+ * were targeted via {@link recalcWhen}.
+ *
+ * @category Types and Interfaces
+ */
+export type RecalcSource = ((cb: ()=>void) => unknown);
