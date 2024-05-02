@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isValue, restarting, isHandled, JobResult, nativePromise, Suspend } from "../mod.ts";
-import { Cell } from "../src/cells.ts";
+import { rule, noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isValue, restarting, isHandled, JobResult, nativePromise, Suspend, getResult } from "../mod.ts";
+import { Cell, runRules } from "../src/cells.ts";
 
 describe("makeJob()", () => {
     it("returns new standalone jobs", () => {
@@ -360,6 +360,22 @@ describe("Job instances", () => {
             see("1", "2", "3")
             // And return its result
             expect(res).to.deep.equal([undefined, undefined, undefined]);
+        });
+    });
+    describe(".result()", () => {
+        useRoot();
+        it("can be observed by a rule or signal", () => {
+            // Given a rule observing a pending job
+            const j = makeJob();
+            const end = rule(() => {
+                const res = j.result()
+                if (j.result()) log(`done: ${getResult(res)}`); else log(`loading...`);
+            });
+            // When rules are run, it should see the undefined result
+            runRules(); see("loading...");
+            // And when the job finishes it should see the final result
+            j.return(42); runRules(); see("done: 42");
+            end(); see();
         });
     });
     describe(".bind() returns a function that", () => {

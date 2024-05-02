@@ -84,7 +84,7 @@ const timers = new WeakMap<Job,
  * Set the cancellation timeout for a job.
  *
  * When the timeout is reached, the job is canceled (throwing
- * {@link CancelResult} to any waiting promises or jobs), unless a new timeout
+ * {@link CancelError} to any waiting promises or jobs), unless a new timeout
  * is set before then.  You may set a new timeout value for a job as many times
  * as desired.  A timeout value of zero disables the timeout. Timers are
  * disposed of if the job is canceled or restarted.

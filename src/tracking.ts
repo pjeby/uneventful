@@ -1,10 +1,11 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
 import { catchers, defaultCatch } from "./internals.ts";
-import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator } from "./types.ts";
+import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, Start, OptionalCleanup, JobIterator, RecalcSource } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled } from "./results.ts";
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
+import { recalcWhen } from "./signals.ts";
 
 /**
  * Is the given value a function?
@@ -30,6 +31,9 @@ export function getJob<T=unknown>() {
 
 /** A null context (no job/observer) for cleanups to run in */
 const nullCtx = makeCtx();
+
+/** RecalcSource factory for jobs (so you can wait on a job result in a signal or rule) */
+function recalcJob(job: Job<any>): RecalcSource { return (cb => { current.job.must(job.release(cb)); }); }
 
 /** Jobs' owners (parents) - uses a map so child jobs can't directly access them */
 const owners = new WeakMap<Job, Job>();
@@ -71,7 +75,11 @@ class _Job<T> implements Job<T> {
         return this.do(r => { if (isCancel(r)) cb(); });
     }
 
-    result() { return this._done; }
+    result(): JobResult<T> | undefined {
+        // If we're done, we're done; otherwise make signals/rules reading this
+        // recalc when we're done (handy for rendering "loading" states).
+        return this._done || (current.cell && (recalcWhen(this, recalcJob), undefined));
+    }
 
     get [Symbol.toStringTag]() { return "Job"; }
 
@@ -269,7 +277,7 @@ const promises = new WeakMap<Job<any>, Promise<any>>();
  *
  * @returns A {@link Promise} that resolves or rejects according to whether the
  * job returns or throws.  If the job is canceled, the promise is rejected with
- * {@link CancelResult}.
+ * a {@link CancelError}.
  *
  * @category Jobs
  */
