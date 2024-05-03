@@ -103,8 +103,7 @@ const timers = new WeakMap<Job,
  *
  * @category Scheduling
  */
-export function timeout<T>(ms: number): Job<unknown>;
-export function timeout<T>(ms: number, job: Job<T>): Job<T>;
+export function timeout<T>(ms: number, job?: Job<T>): Job<T>;
 export function timeout(ms = 0, job: Job = getJob()) {
     let timer = timers.get(job);
     if (timer) {
@@ -174,8 +173,8 @@ export function abortSignal(job: Job = getJob()) {
  *
  * @category Jobs
  */
-export function restarting(): (task: () => OptionalCleanup<never>) => void
 export function restarting<F extends AnyFunction>(task: F): F
+export function restarting(): (task: () => OptionalCleanup<never>) => void
 export function restarting<F extends AnyFunction>(task?: F): F {
     const outer = getJob(), inner = makeJob<never>(outer), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
