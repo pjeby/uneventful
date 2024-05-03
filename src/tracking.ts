@@ -5,7 +5,6 @@ import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
-import { recalcWhen } from "./signals.ts";
 
 /**
  * Is the given value a function?
@@ -78,7 +77,7 @@ class _Job<T> implements Job<T> {
     result(): JobResult<T> | undefined {
         // If we're done, we're done; otherwise make signals/rules reading this
         // recalc when we're done (handy for rendering "loading" states).
-        return this._done || (current.cell && (recalcWhen(this, recalcJob), undefined));
+        return this._done || current.cell?.recalcWhen(this, recalcJob) || undefined;
     }
 
     get [Symbol.toStringTag]() { return "Job"; }
