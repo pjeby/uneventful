@@ -166,11 +166,11 @@ export const rule = defaultQueue.rule;
 export const runRules = defaultQueue.flush
 
 
-/** recalcWhen(fn): map fn -> Cell */
-const fntrackers = new WeakMap<Function, Cell>();
+/** recalcWhen(fn): map fn -> signal */
+const fntrackers = new WeakMap<Function, () => number>();
 
-/** recalcWhen(key, factory): map factory -> key -> Cell */
-const obtrackers = new WeakMap<Function, WeakMap<WeakKey, Cell>>();
+/** recalcWhen(key, factory): map factory -> key -> signal */
+const obtrackers = new WeakMap<Function, WeakMap<WeakKey, () => number>>();
 
 const dirtyStack: Cell[] = [];
 
@@ -432,7 +432,7 @@ export class Cell {
         return cell;
     }
 
-    static mkStream<T>(src: Source<T>, val?: T) {
+    static mkStream<T>(src: Source<T>, val?: T): () => T {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();
@@ -440,7 +440,7 @@ export class Cell {
         cell.compute = () => {
             cell.ctx.job ||= makeJob()
                 .asyncCatch(e => detached.asyncThrow(e))
-                .must(r => isCancel(r) || (cell.ctx.job = undefined))
+                .must(r => { cell.value = val; isCancel(r) || (cell.ctx.job = undefined); })
             ;
             const old = swapCtx(cell.ctx);
             try {
@@ -453,27 +453,27 @@ export class Cell {
                 swapCtx(old);
             }
         }
-        return cell;
+        return cell.getValue.bind(cell);
     }
 
     recalcWhen(src: RecalcSource): void;
     recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
     recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
-        let trackers: WeakMap<WeakKey, Cell> = fn ?
+        let trackers: WeakMap<WeakKey, () => number> = fn ?
             obtrackers.get(fn) || setMap(obtrackers, fn, new WeakMap) :
             fntrackers
         ;
-        let cell = trackers.get(fnOrKey);
-        if (!cell) {
+        let signal = trackers.get(fnOrKey);
+        if (!signal) {
             const src = fn ? fn(<T>fnOrKey) : <RecalcSource> fnOrKey;
             let ct = 0;
-            cell = Cell.mkStream(s => (src(() => s(++ct)), IsStream), ct);
-            trackers.set(fnOrKey, cell);
+            signal = Cell.mkStream(s => (src(() => s(++ct)), IsStream), ct);
+            trackers.set(fnOrKey, signal);
         }
-        cell.getValue();  // Subscribe to the cell
+        signal();  // Subscribe to the cell
     }
 
-    static mkCached<T>(compute: () => T) {
+    static mkCached<T>(compute: () => T): () => T {
         const cell = new Cell;
         cell.compute = compute;
         cell.ctx = makeCtx(null, cell);

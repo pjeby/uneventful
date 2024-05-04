@@ -3,6 +3,7 @@ import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
 import { Cell, rule } from "./cells.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
+import { Source } from "./streams.ts";
 export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
 
 export interface Signal<T> {
@@ -83,15 +84,42 @@ export function value<T>(val?: T): Writable<T> {
 }
 
 /**
- * Create a cached version of a function.  The returned callable is also a {@link Signal}.
+ * Create a cached version of a function.  The returned callable is also a
+ * {@link Signal}.
+ *
+ * Note: If the supplied function has a non-zero `.length` (i.e., it explicitly
+ * takes arguments), it is assumed to be a {@link Source}, and the second
+ * calling signature below will apply, even if TypeScript doesn't see it that
+ * way!)
  *
  * @category Signals
  */
-export function cached<T>(compute: () => T): Signal<T>
+export function cached<T>(compute: () => T): Signal<T>;
+
+/**
+ * If the supplied function has a non-zero `.length` (i.e., it explicitly takes
+ * arguments), it is assumed to be a {@link Source}, and the second argument is
+ * a default value for the created signal to use as default value until the
+ * source produces a value.
+ *
+ * The source will be subscribed *only* while the signal is subscribed as a
+ * stream, or observed (directly or indirectly) by a rule.  While subscribed,
+ * the signal will update itself with the most recent value produced by the
+ * source, triggering rules or events as appropriate if the value changes. When
+ * the signal is once again unobserved, it will revert to the supplied inital
+ * value.
+ *
+ * @param source A {@link Source} providing data which will become this signal's value
+ * @param initVal The value to use when the signal is unobserved or waiting for the
+ * first item from the source.
+ */
+export function cached<T>(source: Source<T>, initVal?: T): Signal<T>;
 export function cached<T extends Signal<any>>(signal: T): T
-export function cached<T>(compute: () => T): Signal<T> {
+export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T> {
     if (compute instanceof Signal) return compute;
-    return mkSignal(Cell.mkCached(compute));
+    return mkSignal(
+        compute.length ? Cell.mkStream(compute as Source<T>, initVal) : Cell.mkCached(compute as () => T)
+    );
 }
 
 /**

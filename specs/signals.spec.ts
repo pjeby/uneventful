@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useRoot } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource
+    DisposeFn, RecalcSource, mockSource, lazy
 } from "../mod.ts";
 
 // Verify a signal of a given value returns the right things from its methods
@@ -105,6 +105,33 @@ describe("Signal Constructors/Interfaces", () => {
             // And setting the signal's value should call the set method
             s.value = 9999;
             see("9999");
+        });
+    });
+    describe("cached(stream, initVal)", () => {
+        it("Follows source when observed, initVal otherwise", () => {
+            // Given a mock source lazily wrapped in a cached()
+            const e = mockSource<string>();
+            const s = lazy(() => {
+                log("subscribe"); must(()=>log("unsubscribe")); return e.source;
+            });
+            const c = cached(s, "unobserved");
+            // When the signal is created, it should equal the initial value
+            expect(c()).to.equal("unobserved");
+            // And emitting values should have no effect on it, nor produce output
+            e("testing"); see(); expect(c()).to.equal("unobserved");
+            // But once the signal is observed by a rule
+            const r = rule(() => log(c())); runRules();
+            // The source should be susbcribed
+            see("subscribe", "unobserved");
+            // And emitting values should update the signal and fire the rule
+            e("test 1"); runRules(); see("test 1"); expect(c()).to.equal("test 1");
+            e("test 2"); runRules(); see("test 2"); expect(c()).to.equal("test 2");
+            // But duplicate values should not fire the rule
+            e("test 2"); runRules(); see(); expect(c()).to.equal("test 2");
+            // And if the rule is disposed of, the source should unsubscribe
+            r(); see("unsubscribe");
+            // And the value should revert to the initial value
+            expect(c()).to.equal("unobserved");
         });
     });
 });
