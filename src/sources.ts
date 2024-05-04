@@ -1,6 +1,5 @@
 import { defer } from "./defer.ts";
-import { RuleScheduler, cached } from "./signals.ts";
-import { type Source, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Inlet } from "./streams.ts";
+import { type Source, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Inlet, Producer } from "./streams.ts";
 import { getJob, detached } from "./tracking.ts";
 import { must, start } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
@@ -17,7 +16,7 @@ export interface Emitter<T> {
     /** Call the emitter to emit events on its .source */
     (val: T): void;
     /** An event source that receives the events */
-    source: Source<T>;
+    source: Producer<T>;
     /** Close all current subscribers' connections */
     end: () => void;
     /** Close all current subscribers' connections with an error */
@@ -46,7 +45,7 @@ export function emitter<T>(): Emitter<T> {
  *
  * @category Stream Producers
  */
-export function empty(): Source<never> {
+export function empty(): Producer<never> {
     return (_, conn) => (conn?.return(), IsStream);
 }
 
@@ -59,7 +58,7 @@ export function empty(): Source<never> {
  *
  * @category Stream Producers
  */
-export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
+export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Producer<T> {
     return (sink, conn=start(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.asyncIterator]();
@@ -92,19 +91,19 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
  */
 export function fromDomEvent<T extends HTMLElement, K extends keyof HTMLElementEventMap>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
-): Source<HTMLElementEventMap[K]>;
+): Producer<HTMLElementEventMap[K]>;
 export function fromDomEvent<T extends Window, K extends keyof WindowEventMap>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
-): Source<WindowEventMap[K]>;
+): Producer<WindowEventMap[K]>;
 export function fromDomEvent<T extends Document, K extends keyof DocumentEventMap>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
-): Source<DocumentEventMap[K]>;
+): Producer<DocumentEventMap[K]>;
 export function fromDomEvent<T extends Event>(
     target: EventTarget, type: string, options?: boolean | AddEventListenerOptions
-): Source<T>
+): Producer<T>
 export function fromDomEvent<T extends EventTarget, K extends string>(
     target: T, type: K, options?: boolean | AddEventListenerOptions
-): Source<Event> {
+): Producer<Event> {
     return (sink) => {
         function push(v: Event) { sink(v); }
         target.addEventListener(type, push, options);
@@ -122,7 +121,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  *
  * @category Stream Producers
  */
-export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
+export function fromIterable<T>(iterable: Iterable<T>): Producer<T> {
     return (sink, conn=start(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.iterator]();
@@ -153,34 +152,13 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  *
  * @category Stream Producers
  */
-export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
+export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Producer<T> {
     return (sink, conn) => {
         const job = getJob();
         Promise.resolve(promise).then(
             v => void (job.result() || (sink(v), conn?.return())),
             e => void (job.result() || conn?.throw(e))
         )
-        return IsStream;
-    }
-}
-
-/**
- * Create an event source from a signal (or signal-using function)
- *
- * The resulting event source will emit an event equal to each value the given
- * function produces, including its current value at the time of subscription.
- * (Technically, at the time of its first post-subscription scheduling.)
- *
- * @param scheduler - An {@link RuleScheduler} that will be used to sample the
- * signal.  Events will be only be emitted when the given scheduler is run.  If
- * no scheduler is given, the default (microtask-based) scheduler is used.
- *
- * @category Stream Producers
- */
-export function fromSignal<T>(s: () => T, scheduler = RuleScheduler.for(defer)): Source<T> {
-    s = cached(s);
-    return (sink) => {
-        scheduler.rule(() => { sink(s()); });
         return IsStream;
     }
 }
@@ -198,7 +176,7 @@ export function fromSignal<T>(s: () => T, scheduler = RuleScheduler.for(defer)):
  *
  * @category Stream Producers
  */
-export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
+export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Producer<T> {
     return (sink) => {
         const f = getJob().must(() => sink = noop);
         return defer(() => f.must(subscribe(v => { sink(v); }))), IsStream;
@@ -210,7 +188,7 @@ export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn)
  *
  * @category Stream Producers
  */
-export function fromValue<T>(val: T): Source<T> {
+export function fromValue<T>(val: T): Producer<T> {
     return (sink, conn) => {
         must(() => { sink = noop; conn = undefined; })
         return defer(() => { sink(val); conn?.return(); }), IsStream;
@@ -223,7 +201,7 @@ export function fromValue<T>(val: T): Source<T> {
  *
  * @category Stream Producers
  */
-export function interval(ms: number): Source<number> {
+export function interval(ms: number): Producer<number> {
     return (sink) => {
         let idx = 0, id = setInterval(() => sink(idx++), ms);
         return must(() => clearInterval(id)), IsStream;
@@ -240,7 +218,7 @@ export function interval(ms: number): Source<number> {
  *
  * @category Stream Producers
  */
-export function lazy<T>(factory: () => Source<T>): Source<T> {
+export function lazy<T>(factory: () => Source<T>): Producer<T> {
     return (sink, conn) => factory()(sink, conn)
 }
 
@@ -265,12 +243,12 @@ export interface MockSource<T> extends Emitter<T> {
  */
 export function mockSource<T>(): MockSource<T> {
     let write: Sink<T>, outlet: Connection, ready: Backpressure;
-    function emit(val: T) { if (write) write(val); };
-    emit.source = (mockSource ? (x: Source<T>) => x : share<T>)((sink, conn, inlet) => {
+    const emit: MockSource<T> = (val: T) => { if (write) write(val); };
+    emit.source = (sink, conn, inlet) => {
         write = sink; outlet = conn; ready = backpressure(inlet);
         must(() => write = outlet = ready = undefined);
         return IsStream;
-    });
+    };
     emit.end = () => outlet?.return();
     emit.throw = (e: any) => outlet?.throw(e);
     emit.ready = (cb?: () => any) => ready(cb);
@@ -282,7 +260,7 @@ export function mockSource<T>(): MockSource<T> {
  *
  * @category Stream Producers
  */
-export function never(): Source<never> {
+export function never(): Producer<never> {
     return () => IsStream;
 }
 
@@ -307,7 +285,7 @@ export function never(): Source<never> {
  *
  * @category Stream Operators
  */
-export function share<T>(source: Source<T>): Source<T> {
+export function share<T>(source: Source<T>): Producer<T> {
     let uplink: Connection;
     const
         links = new Set<[sink: Sink<T>, conn: Connection]>,

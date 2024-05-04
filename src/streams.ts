@@ -2,6 +2,7 @@ import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { current } from "./ambient.ts";
+import { Signal, Writable } from "./signals.ts";
 
 /**
  * A backpressure controller: returns true if downstream is ready to accept
@@ -25,7 +26,7 @@ export type Backpressure = (cb?: () => any) => boolean
  */
 export function backpressure(inlet: Inlet = defaultInlet): Backpressure {
     const job = getJob();
-    return (cb?: Producer) => {
+    return (cb?: Flush) => {
         if (!job.result() && inlet.isOpen()) {
             if (cb) inlet.onReady(cb, job);
             return inlet.isReady();
@@ -85,7 +86,7 @@ export interface Throttle extends Inlet {
 export type Connection = Job<void>;
 
 /**
- * A `Source` is a function that can be called to arrange for data to be
+ * A Producer is a function that can be called to arrange for data to be
  * produced and sent to a {@link Sink} function for consumption, until the
  * associated {@link Connection} is closed (either by the source or the sink,
  * e.g. if the sink doesn't want more data or the source has no more to send).
@@ -93,13 +94,24 @@ export type Connection = Job<void>;
  * If the source is a backpressurable stream, it can use the (optional) supplied
  * inlet (usually a {@link throttle}()) to rate-limit its output.
  *
- * A source function *must* return the special {@link IsStream} value, so
+ * A producer function *must* return the special {@link IsStream} value, so
  * TypeScript can tell what functions are usable as sources.  (Otherwise any
  * void function with no arguments would appear to be usable as a source!)
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (sink: Sink<T>, conn?: Connection, inlet?: Inlet) => typeof IsStream;
+export type Producer<T> = (sink: Sink<T>, conn?: Connection, inlet?: Throttle | Inlet) => typeof IsStream;
+
+/**
+ * A Source is either a {@link Producer} or a {@link Signal}.  (Signals actually
+ * implement the {@link Producer} interface as an overload, but TypeScript gets
+ * confused about that sometimes, so we generally declare our stream *inputs* as
+ * `Source<T>` and our stream *outputs* as {@link Producer}, so that TypeScript
+ * knows what's what.
+ *
+ * @category Types and Interfaces
+ */
+export type Source<T> = Producer<T> | Signal<T> | Writable<T>;
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
@@ -124,9 +136,9 @@ export type Sink<T> = (val: T) => void;
  *
  * @category Types and Interfaces
  */
-export type Transformer<T, V=T> = (input: Source<T>) => Source<V>;
+export type Transformer<T, V=T> = (input: Source<T>) => Producer<V>;
 
-type Producer = () => any
+type Flush = () => any
 
 
 /**
@@ -142,7 +154,7 @@ type Producer = () => any
  *
  * @category Stream Consumers
  */
-export function connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection {
+export function connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection {
     return getJob().connect(src, sink, inlet);
 }
 
@@ -163,7 +175,7 @@ export function throttle(job: Job = current.job): Throttle {
 
 class _Throttle implements Throttle {
     /** @internal */
-    protected _callbacks: Map<Producer, DisposeFn> = undefined;
+    protected _callbacks: Map<Flush, DisposeFn> = undefined;
 
     /** @internal */
     constructor(protected _job?: Job) {}
@@ -176,7 +188,7 @@ class _Throttle implements Throttle {
     _isReady = true;
     _isPulling = false;
 
-    onReady(cb: Producer, job: Job) {
+    onReady(cb: Flush, job: Job) {
         if (!this.isOpen()) return this;
         const _callbacks = (this._callbacks ||= new Map);
         const unlink = job.release(() => _callbacks.delete(cb));

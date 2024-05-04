@@ -3,7 +3,7 @@ import { defer } from "./defer.ts";
 import { RunQueue } from "./scheduling.ts";
 import { DisposeFn, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
-import { IsStream, Source } from "./streams.ts";
+import { Connection, Inlet, IsStream, Sink, Producer, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
 import { isCancel } from "./results.ts";
 
@@ -248,6 +248,8 @@ function delsub(sub: Subscription) {
     freesubs = sub;
 }
 
+const sentinel = {}  // a unique value for uniqueness checking
+
 /** @internal */
 export class Cell {
     value: any = undefined // the value, or, for a rule, the scheduler
@@ -265,7 +267,17 @@ export class Cell {
 
     compute: () => any = undefined;
 
+    stream<T>(sink: Sink<T>, conn?: Connection, inlet?: Inlet) {
+        let lastValue = sentinel;
+        (inlet ? RuleScheduler.for(backpressure(inlet)).rule : rule)(() => {
+            const val = this.getValue();
+            if (val !== lastValue) sink(lastValue = val);
+        });
+        return IsStream;
+    }
+
     getValue() {
+        if (arguments.length) return this.stream.apply(this, arguments as any);
         this.catchUp();
         const dep = current.cell;
         if (dep) {
@@ -432,7 +444,7 @@ export class Cell {
         return cell;
     }
 
-    static mkStream<T>(src: Source<T>, val?: T): () => T {
+    static mkStream<T>(src: Producer<T>, val?: T): () => T {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();

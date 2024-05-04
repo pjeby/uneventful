@@ -61,12 +61,14 @@ But Uneventful is actually *better* than statecharts, even for design purposes: 
 ```ts
 import { each } from "uneventful";
 
-function supportDragDrop(node: HTMLElement) {
+function supportDragDrop(parentNode: HTMLElement) {
     return start(function*(job) {
-        const mouseDown = fromDomEvent(node, "mousedown");
-        for (const {item: node, next} of yield *each(mouseDown)) {
-            const dropTarget = yield *drag(node);
-            // do something with the drop here
+        const mouseDown = fromDomEvent(parentNode, "mousedown");
+        for (const {item: event, next} of yield *each(mouseDown)) {
+            if (event.target.matches(".drag-handle") {
+                const dropTarget = yield *drag(event.target.closest(".draggable"));
+                // do something with the dropTarget here
+            }
             yield next;  // wait for next mousedown
         });
     });
@@ -75,7 +77,7 @@ function supportDragDrop(node: HTMLElement) {
 
 Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so semi-synchronously.  (Specifically, each pass of the loop starts *during* the event being responded to, not in a later microtask!)
 
-Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but again, semi-synchronously, during the mouseup event that ends the `drag()` call.  (Note: this synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
+Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but again, semi-synchronously, during the mouseup event that ends the `drag()` call.  (Note: this pseudo-synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
 
 And though we haven't shown any details here of what's being *done* with the drop, it's possible that we'll kick off some additional jobs to do an animation or contact a server or something of that sort, and wait for those to finish before enabling drag again.  (Unless of course we *want* them to be able to overlap with additional dragging, in which case we can spin off detached jobs.)
 
@@ -114,9 +116,9 @@ start(job => {
 });
 ```
 
-Let's say that `currentlyHoveredFolder` is a stream that sends events as the hover state changes: either a folder object or `null` if no hovering is happening.  The `restarting()` API wraps the event handler with a "temp" job that is canceled and restarted each time the function is called.
+Let's say that `currentlyHoveredFolder` is a stream (or signal!) that sends events as the hover state changes: either a folder object or `null` if no hovering is happening.  The `restarting()` API wraps the event handler with a "temp" job that is canceled and restarted each time the function is called.
 
-With this setup, the "open the folder here" code will only be reached if the hover time on a given folder exceeds 300ms.  Otherwise, the next change in the hovered folder will cancel the sleeping job (incidentally clearing the timer ID allocated by the `sleep()` as it does so).
+With this setup, the "open the folder here" code will only be reached if the hover time on a given folder exceeds 300ms.  Otherwise, the next change in the hovered folder will cancel the sleeping job (incidentally clearing the timeout allocated by the `sleep()` as it does so).
 
 Now, in this simple example you *could* just directly do the debouncing by manipulating the stream.  And for a lot of simple things, that might even be the best way to do it.  Some event driven libraries might even have lots of handy built-in ways to do things like canceling your in-flight ajax requests when the user types in a search field.
 
@@ -131,7 +133,15 @@ Why the differences?  Uneventful is all about *making clear what your code is do
 
 (But of course, if you're migrating from another signal framework, or are just really attached to the more obscure terminology, you can still rename them in your code with `import as`!)
 
-Beyond these superficial differences, though, there are some deeper ones.  Unlike other libraries' "effects", Uneventful's rules *start asynchronously* and can be *independently scheduled*.  This means, for example, that it's easy to make rules that run only in, say, animation frames:
+Beyond these superficial differences, though, there are some deeper ones.
+
+First off, in Uneventful, *signals are also streams*.  When signals are used in APIs that expect streams (including `each()`), they send their current value on the initial subscription, followed by new values when their values change.
+
+And they also support *backpressure*: if you iterate over a signal's values with `each()`, then the changes are based on sampling the value when the loop isn't busy (i.e. during the `yield next`).  This makes it really easy to (for example) loop over the various value of an input field doing remote searches with them, while maintaining a desired search frequency or level connection saturation using `sleep()` delays in the loop.
+
+Second, you can also *turn streams into signals*, by passing them to `cached()`.  So if you want a signal that tracks the current mouse position or modifier keys' state, just use `cached(fromDomEvent(...))` or `pipe(fromDomEvent(...), map(...), cached)`, and off you go!  As long as the resulting signal is observed by a rule (directly or indirectly) it subscribes to the stream and returns the most recent value.  And as soon as all its observers go away, the underlying source is unsubscribed, so there are no dangling event listeners.
+
+But wait, there's more: Unlike most libraries' "effects", Uneventful's rules *start asynchronously* and can be *independently scheduled*.  This means, for example, that it's easy to make rules that run only in, say, animation frames:
 
 ```ts
 import { RuleScheduler } from "uneventful";

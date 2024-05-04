@@ -3,10 +3,16 @@ import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
 import { Cell, rule } from "./cells.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
-import { Source } from "./streams.ts";
+import { Connection, Inlet, IsStream, Sink, Source, Producer } from "./streams.ts";
 export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
 
 export interface Signal<T> {
+    /**
+     * A signal object implements the {@link Producer} interface, even if it's
+     * not directly recognized as one by TypeScript.
+     */
+    (sink: Sink<T>, conn?: Connection, inlet?: Inlet): typeof IsStream
+
     /** A signal object can be called to get its current value */
     (): T
 }
@@ -35,7 +41,10 @@ export class Signal<T> extends Function implements UntilMethod<T> {
     readonly(): Signal<T> { return this; }
 
     /** New writable signal with a custom setter */
-    withSet(set: (v: T) => unknown) { return mkSignal(() => this(), set); }
+    withSet(set: (v: T) => unknown) {
+        const that = this;
+        return mkSignal( function () { return that.apply(null, arguments); }, set);
+    }
 
     *"uneventful.until"(): Yielding<T> {
         return yield (r => {
@@ -70,7 +79,10 @@ export interface Writable<T> {
 export class Writable<T> extends Signal<T>  {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
-    readonly() { return mkSignal(() => this()); }
+    readonly(): Signal<T> {
+        const that = this;
+        return mkSignal<T>( function () { return that.apply(null, arguments); });
+    }
 }
 
 /**
@@ -118,7 +130,7 @@ export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T> {
     if (compute instanceof Signal) return compute;
     return mkSignal(
-        compute.length ? Cell.mkStream(compute as Source<T>, initVal) : Cell.mkCached(compute as () => T)
+        compute.length ? Cell.mkStream(compute as Producer<T>, initVal) : Cell.mkCached(compute as () => T)
     );
 }
 

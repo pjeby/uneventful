@@ -1,12 +1,12 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { throttle, connect, value, runRules, isError, JobResult, isValue, markHandled } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
-    emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
-    fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource
-} from "../src/sources.ts";
+    emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise,
+    fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource,
+    throttle, connect, isError, JobResult, isValue, markHandled
+} from "../src/mod.ts";
 
 function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${markHandled(e)}`)}
 
@@ -294,34 +294,6 @@ describe("Sources", () => {
             // Then it should emit the resolved value asynchronously
             // And the stream should be closed
             see(); await Promise.resolve(); await Promise.resolve(); see("42", "closed");
-        });
-    });
-    describe("fromSignal()", () => {
-        it("should output each value of the signal, including the first", () => {
-            // Given a fromSignal(value())
-            const v = value(42), s = fromSignal(v);
-            // When it's subscribed
-            connect(s, log.emit);
-            // Then it should output the current value once rules+pulls run
-            see(); runRules(); runPulls(); see("42");
-            // And output the latest current value on subsequent runs
-            v.set(43); runPulls(); v.set(44);
-            see(); runRules(); runPulls(); see("44");
-        });
-        it("should not emit duplicate values", () => {
-            // Given a fromSignal(func())
-            const v1 = value(42), v2 = value(0);
-            const f = () => v1() * v2(), s = fromSignal(f);
-            // When it's subscribed
-            connect(s, log.emit);
-            // Then it should output the current value once rules+pulls run
-            see(); runRules(); runPulls(); see("0");
-            // And should not output duplicates even if dependencies change
-            v1.set(43); v1.set(44);
-            see(); runRules(); runPulls(); see();
-            // But should still output changes to the result
-            v2.set(1);
-            see(); runRules(); runPulls(); see("44");
         });
     });
     describe("fromSubscribe()", () => {

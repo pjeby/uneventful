@@ -1,5 +1,5 @@
 import { JobResult } from "./results.ts";
-import { Connection, Inlet, Sink, Source } from "./streams.ts";
+import { Connection, Inlet, Sink, Source, Throttle } from "./streams.ts";
 
 /**
  * An undefined or null value
@@ -221,7 +221,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @category Execution Control
      */
-    connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection
+    connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection
 
     /**
      * Invoke a function with this job as the active one, so that calling the

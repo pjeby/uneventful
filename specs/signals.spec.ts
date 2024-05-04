@@ -1,7 +1,7 @@
-import { log, see, describe, expect, it, useRoot } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource, mockSource, lazy
+    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep
 } from "../mod.ts";
 
 // Verify a signal of a given value returns the right things from its methods
@@ -21,6 +21,7 @@ function verifyMulti(f: <T>(v: T) => Signal<T>) {
 
 describe("Signal Constructors/Interfaces", () => {
     useRoot();
+    useClock();
     describe("value()", () => {
         it("implements the Signal interface", () => { verifyMulti(value); });
         it("is a Writable instance", () => {
@@ -75,6 +76,27 @@ describe("Signal Constructors/Interfaces", () => {
             s.value = 9999;
             see("9999");
         });
+        it("can be subscribed as a source", () => {
+            // Given a value and a job that iterates over it with pauses
+            const v = value(42), j = detached.start(function *(){
+                for(const {item, next} of yield *each(v)) {
+                    log(item); yield *sleep(10); yield next;
+                }
+            });
+            // When the job starts, it should output the initial value
+            clock.tick(0); see("42");
+            // And it should reflect changes in the value over time
+            v.set(99); clock.tick(10); see("99");
+            v.set(27); clock.tick(10); see("27");
+            // But changes made while paused are overlooked
+            v.set(54); clock.tick(5); see();
+            v.set(22); clock.tick(5); see("22");
+            v.set(33); clock.tick(5); see();
+            // And if the value changes back to the previously-seen value
+            // Then there's no new output when iteration resumes
+            v.set(22); clock.tick(5); see();
+            j.end();
+        });
     });
     describe("cached()", () => {
         it("implements the Signal interface", () => { verifyMulti((v) => cached(() => v)); });
@@ -105,6 +127,27 @@ describe("Signal Constructors/Interfaces", () => {
             // And setting the signal's value should call the set method
             s.value = 9999;
             see("9999");
+        });
+        it("can be subscribed as a source", () => {
+            // Given a cached based on a value, and a job that iterates it with pauses
+            const v = value(42), s = cached(() => v()*2), j = detached.start(function *(){
+                for(const {item, next} of yield *each(s)) {
+                    log(item); yield *sleep(10); yield next;
+                }
+            });
+            // When the job starts, it should output the initial value
+            clock.tick(0); see("84");
+            // And it should reflect changes in the value over time
+            v.set(99); clock.tick(10); see("198");
+            v.set(27); clock.tick(10); see("54");
+            // But changes made while paused are overlooked
+            v.set(54); clock.tick(5); see();
+            v.set(22); clock.tick(5); see("44");
+            v.set(33); clock.tick(5); see();
+            // And if the value changes back to the previously-seen value
+            // Then there's no new output when iteration resumes
+            v.set(22); clock.tick(5); see();
+            j.end();
         });
     });
     describe("cached(stream, initVal)", () => {

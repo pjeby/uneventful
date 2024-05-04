@@ -1,5 +1,5 @@
 import { fromIterable } from "./sources.ts";
-import { Connection, IsStream, Sink, Source, Transformer, backpressure, throttle } from "./streams.ts";
+import { Connection, IsStream, Producer, Sink, Source, Transformer, backpressure, throttle } from "./streams.ts";
 import { isValue, noop } from "./results.ts";
 import { start } from "./jobutils.ts";
 
@@ -16,7 +16,7 @@ import { start } from "./jobutils.ts";
  *
  * @category Stream Operators
  */
-export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> {
+export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<T> {
     return concatAll(fromIterable(sources))
 }
 
@@ -33,7 +33,7 @@ export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T>
  *
  * @category Stream Operators
  */
-export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
+export function concatAll<T>(sources: Source<Source<T>>): Producer<T> {
     return (sink, conn=start(), inlet) => {
         let inner: Connection;
         const inputs: Source<T>[] = [], t = throttle();
@@ -112,7 +112,7 @@ export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
  *
  * @category Stream Operators
  */
-export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> {
+export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<T> {
     return mergeAll(fromIterable(sources));
 }
 
@@ -124,7 +124,7 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> 
  *
  * @category Stream Operators
  */
-export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
+export function mergeAll<T>(sources: Source<Source<T>>): Producer<T> {
     return (sink, conn=start(), inlet) => {
         const uplinks: Set<Connection> = new Set;
         let outer = conn.connect(sources, (s) => {
@@ -264,7 +264,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
  *
  * @category Stream Operators
  */
-export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
+export function switchAll<T>(sources: Source<Source<T>>): Producer<T> {
     return (sink, conn=start(), inlet) => {
         let inner: Connection;
         let outer = conn.connect(sources, s => {
