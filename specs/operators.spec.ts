@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, pause, resume, slack, mockSource, each, sleep, start, isValue, Connection, isHandled } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, slack, mockSource, each, sleep, start, isValue, Connection, isHandled, throttle } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -32,13 +32,13 @@ describe("Operators", () => {
             // Given a concat of multiple streams
             const s = concat([fromIterable([1, 2, 3]), fromIterable([5, 6, 7])])
             // When it's connected with a sink that pauses, and pulls run
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).do(logClose); runPulls()
+            const t = throttle(), c = connect(s, v => { log(v); !!(v%3) || t.pause() }, t).do(logClose); runPulls()
             // Then it should emit the values up to the first pause
             see("1", "2", "3");
             // Then continue when resumed
-            resume(c); see("5", "6");
+            t.resume(); see("5", "6");
             // And close after the final resume
-            resume(c); see("7", "closed");
+            t.resume(); see("7", "closed");
         });
     });
     describe("concatAll()", () => {
@@ -60,11 +60,11 @@ describe("Operators", () => {
         });
         it("shouldn't end while a stream is still active", () => {
             // Given a concatAll() of an emitter source
-            const e = emitter<Source<number>>(), s = concatAll(e.source);
+            const e = emitter<Source<number>>(), s = concatAll(e.source), t = throttle();
             // When it's connected to a paused sink
-            const c = connect(s, log.emit).do(logClose); pause(c);
+            const c = connect(s, log.emit, t).do(logClose); t.pause();
             // And a source is pushed followed by a close and a resume of the sink
-            e(fromIterable([1, 2])); e.end(); resume(c);
+            e(fromIterable([1, 2])); e.end(); t.resume();
             // Then it should see all the output before closing
             see("1", "2", "closed");
         });
@@ -160,12 +160,12 @@ describe("Operators", () => {
             // Given a merge of multiple streams
             const s = merge([fromIterable([2, 3, 4]), fromIterable([6, 7, 8])])
             // When it's connected with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c); }).do(logClose);
+            const t = throttle(), c = connect(s, v => { log(v); !!(v%3) || t.pause(); }, t).do(logClose);
             // Then it should emit values and pause accordingly, resuming on request
             runPulls(); see("2", "3");
-            resume(c); see("6");
+            t.resume(); see("6");
             // And close after the final pull
-            resume(c); see("4", "7", "8", "closed");
+            t.resume(); see("4", "7", "8", "closed");
         });
     });
     describe("mergeAll()", () => {
@@ -234,7 +234,7 @@ describe("Operators", () => {
             // Given a shared synchronous source
             const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
             // When it's connected and pulled with a sink that pauses
-            const c = connect(s, v => { log(v); !!(v%3) || pause(c) }).do(logClose);
+            const t = throttle(), c = connect(s, v => { log(v); !!(v%3) || t.pause() }, t).do(logClose);
             see(); runPulls();
             // Then it should emit values until the pause
             see("1", "2", "3");
@@ -310,58 +310,58 @@ describe("Operators", () => {
         function dropper(v: any) { log(`drop: ${v}`); }
         it("drops everything when paused (w/size=0)", () => {
             // Given a connection to a mockSource piped through slack 0
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(0, dropper)), log).do(logClose);
+            const t = throttle(), e=mockSource<number>(), c = connect(pipe(e.source, slack(0, dropper)), log, t).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // But when the connection is pasued, they are dropped
-            pause(c); e(2); see("drop: 2");
+            t.pause(); e(2); see("drop: 2");
             // Until the connection is resumed
-            resume(c); e(3); see("3");
+            t.resume(); e(3); see("3");
             // And it closes when the upstream does
             e.end(); see("closed");
         });
         it("buffers newest items when paused (w/size > 0)", () => {
             // Given a connection to a mockSource piped through slack 2
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(2, dropper)), log).do(logClose);
+            const t = throttle(), e=mockSource<number>(), c = connect(pipe(e.source, slack(2, dropper)), log, t).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // And the upstream is unpaused
             expect(e.ready()).to.be.true;
             // But when the connection is pasued, they are buffered
-            pause(c); e(2);
+            t.pause(); e(2);
             // Until the connection is resumed (and upstream is resumed)
-            resume(c); see("2"); e(3); see("3");
+            t.resume(); see("2"); e(3); see("3");
             // And the upstream is paused when the buffer is full
-            pause(c); e(4); see(); e(5); see();
+            t.pause(); e(4); see(); e(5); see();
             expect(e.ready()).to.be.false;
             // And if the buffer overflows, older items are dropped
             e(6); see("drop: 4");
             // And only the newest items are seen on resume
             // with the upstream resuming only once there's room in the buffer
-            e.ready(()=>log("resumed")); resume(c); see("5", "resumed", "6");
+            e.ready(()=>log("resumed")); t.resume(); see("5", "resumed", "6");
             expect(e.ready()).to.be.true;
             // And it closes when the upstream does
             e.end(); see("closed");
         });
         it("buffers oldest items when paused (w/size > 0)", () => {
             // Given a connection to a mockSource piped through slack -2
-            const e=mockSource<number>(), c = connect(pipe(e.source, slack(-2, dropper)), log).do(logClose);
+            const t = throttle(), e=mockSource<number>(), c = connect(pipe(e.source, slack(-2, dropper)), log, t).do(logClose);
             // When items are emitted, they pass through immediately
             e(1); see("1");
             // And the upstream is unpaused
             expect(e.ready()).to.be.true;
             // But when the connection is pasued, they are buffered
-            pause(c); e(2);
+            t.pause(); e(2);
             // Until the connection is resumed
-            resume(c); see("2"); e(3); see("3");
+            t.resume(); see("2"); e(3); see("3");
             // And the upstream is paused when the buffer is full
-            pause(c); e(4); see(); e(5); see();
+            t.pause(); e(4); see(); e(5); see();
             expect(e.ready()).to.be.false;
             // And if the buffer overflows, newer items are dropped
             e(6); see("drop: 6");
             // And only the oldest items are seen on resume,
             // with the upstream resuming only once there's room in the buffer
-            e.ready(()=>log("resumed")); resume(c); see("4", "resumed", "5");
+            e.ready(()=>log("resumed")); t.resume(); see("4", "resumed", "5");
             // And it closes when the upstream does
             e.end(); see("closed");
         });
@@ -439,13 +439,13 @@ describe("Operators", () => {
                 fromIterable([1,2,3,4,5,6,7])
             ]));
             // When it's subscribed with a pausing sink
-            const c = connect(s, v => { log(v); !!(v%3)|| pause(c); }).do(logClose);
+            const t = throttle(), c = connect(s, v => { log(v); !!(v%3)|| t.pause(); }, t).do(logClose);
             // Then output should pause
             runPulls(); see("1", "2", "3");
             // And resume on demand
-            resume(c); runPulls(); see("4", "5", "6");
+            t.resume(); runPulls(); see("4", "5", "6");
             // And finally close
-            resume(c); runPulls(); see("7", "closed");
+            t.resume(); runPulls(); see("7", "closed");
         });
     });
     describe("switchMap()", () => {

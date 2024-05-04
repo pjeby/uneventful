@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logU
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
     IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob,
-    CancelError
+    CancelError, throttle
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
@@ -658,7 +658,7 @@ describe("Async Ops", () => {
             it("throwing on throw", () => {
                 let conn: Connection;
                 // When a suspended until() on a throwing stream is run
-                suspendOn(until((_,c) => { backpressure(conn = c)(() => c.throw("boom")); return IsStream; }));
+                suspendOn(until((_,c) => { backpressure(throttle(conn = c))(() => c.throw("boom")); return IsStream; }));
                 conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
                 // Then the job should throw once pulls run (and mark the error handled)

@@ -1,9 +1,8 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { connect, value, runRules, isError, JobResult, isValue, markHandled } from "../src/mod.ts";
+import { throttle, connect, value, runRules, isError, JobResult, isValue, markHandled } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { Connector, pause, resume } from "../src/streams.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise, fromSignal,
     fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource
@@ -109,13 +108,13 @@ describe("Sources", () => {
         });
     });
     describe("fromAsyncIterable()", () => {
+        // Given an async iterable
+        // and a fromAsyncIterable based on it
+        const iterable = {async *[Symbol.asyncIterator]() {
+            yield 1; yield 2; yield 3; yield "a"; yield "b"; yield "c";
+        }};
+        const s = fromAsyncIterable(iterable);
         it("should output all the values, then close", async () => {
-            // Given an async iterable
-            const iterable = {async *[Symbol.asyncIterator]() {
-                yield 1; yield 2; yield 3; yield "a"; yield "b"; yield "c";
-            }};
-            // and a fromAsyncIterable based on it
-            const s = fromAsyncIterable(iterable);
             // When it's subscribed
             const c = connect(s, log.emit).do(logClose);
             // Then it should asynchronously output it values after the next tick
@@ -124,21 +123,16 @@ describe("Sources", () => {
             await waitAndSee("1", "2", "3", "a", "b", "c", "closed");
         });
         it("should pause and resume per protocol", async () => {
-            // Given an async iterable
-            const iterable = {async *[Symbol.asyncIterator]() {
-                yield 1; yield 2; yield 3; yield "a"; yield "b"; yield "c";
-            }};
-            // and a fromAsyncIterable based on it
-            const s = fromAsyncIterable(iterable);
             // When it's subscribed and pulled with a pausing sink
-            const c = connect(s, v => (log(v), v !== 3)).do(logClose);
+            const t = throttle(), c = connect(s, v => (log(v), v !== 3 || t.pause()), t).do(logClose);
             see(); runPulls();
             // Then it should output the values up to the pause after the next tick
             // And the connection should still be open
             await waitAndSee("1", "2", "3");
-            // And When the connection is resumed
-            resume(c)
-            see();
+            // And the iterator should be paused
+            await Promise.resolve(); see();
+            // Until the connection is resumed
+            t.resume(); see();
             // Then it should output the rest on the next tick
             // And close the connection
             runPulls();
@@ -199,12 +193,12 @@ describe("Sources", () => {
             // Given a fromIterable() stream
             const s = fromIterable([1,2,3,"a","b","c"]);
             // When it's subscribed with a pausing sink
-            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
+            const t = throttle(), c = connect(s, v => (log(v), v === 3 && t.pause()), t).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see(); runPulls(); see("1", "2", "3");
             // And When the connection is resumed
-            resume(c);
+            t.resume();
             // Then it should output the rest
             // And close the connection
             see("a", "b", "c", "closed");
@@ -219,9 +213,9 @@ describe("Sources", () => {
                 }
             }};
             // and a fromIterable based on it
-            const s = fromIterable(iterable);
+            const s = fromIterable(iterable), t = throttle();
             // When it's subscribed and pulled with a pausing sink
-            const c: Connector = connect(s, v => (log(v), v === 3 && pause(c))).do(logClose);
+            const c = connect(s, v => (log(v), v === 3 && t.pause()), t).do(logClose);
             // Then it should output the values up to the pause on the next tick
             // And the connection should still be open
             see();
@@ -403,17 +397,17 @@ describe("Sources", () => {
         testEmitterBasics(mockSource);
         it("should have working backpressure", () => {
             // Given a subscribed mock emitter
-            const e = mockSource<any>(), c = connect(e.source, log);
+            const e = mockSource<any>(), t = throttle(), c = connect(e.source, log, t);
             // Then it should be .ready()
             e(22); see("22");
             expect(e.ready()).to.be.true;
             // And When paused
-            pause(c);
+            t.pause();
             // Then its ready() should reflect that
             expect(e.ready()).to.be.false;
             // And a ready() callback should run when resumed
             e.ready(()=>log("resumed"));
-            resume(c); runPulls(); see("resumed")
+            t.resume(); runPulls(); see("resumed")
         });
     });
     describe("never()", () => {

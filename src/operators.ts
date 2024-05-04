@@ -1,6 +1,7 @@
 import { fromIterable } from "./sources.ts";
-import { Connector, IsStream, Sink, Source, Transformer, backpressure, connect, pause, resume, subconnect } from "./streams.ts";
+import { Connection, IsStream, Sink, Source, Transformer, backpressure, throttle } from "./streams.ts";
 import { isValue, noop } from "./results.ts";
+import { start } from "./jobutils.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -33,19 +34,19 @@ export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T>
  * @category Stream Operators
  */
 export function concatAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn=connect()) => {
-        let inner: Connector;
-        const inputs: Source<T>[] = [];
-        let outer = subconnect(conn, sources, s => {
-            inputs.push(s); startNext(); pause(outer);
-        }).do(r => {
+    return (sink, conn=start(), inlet) => {
+        let inner: Connection;
+        const inputs: Source<T>[] = [], t = throttle();
+        let outer = conn.connect(sources, s => {
+            inputs.push(s); startNext(); t.pause();
+        }, t).do(r => {
             outer = undefined
             inputs.length || inner || !isValue(r) || conn.return();
         });
         function startNext() {
-            inner ||= subconnect(conn, inputs.shift(), sink, conn).do(r => {
+            inner ||= conn.connect(inputs.shift(), sink, inlet).do(r => {
                 inner = undefined;
-                inputs.length ? startNext() : (outer ? resume(outer) : !isValue(r) || conn.return());
+                inputs.length ? startNext() : (outer ? t.resume() : !isValue(r) || conn.return());
             });
         }
         return IsStream;
@@ -84,8 +85,8 @@ export function concatMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transf
 export function filter<T,R extends T>(filter: (v: T, idx: number) => v is R): Transformer<T,R>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T>;
 export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T> {
-    return src => (sink, conn) => {
-        let idx = 0; return src(v => filter(v, idx++) && sink(v), conn);
+    return src => (sink, conn, inlet) => {
+        let idx = 0; return src(v => filter(v, idx++) && sink(v), conn, inlet);
     }
 }
 
@@ -98,8 +99,8 @@ export function filter<T>(filter: (v: T, idx: number) => boolean): Transformer<T
  * @category Stream Operators
  */
 export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
-    return src => (sink, conn) => {
-        let idx = 0; return src(v => sink(mapper(v, idx++)), conn);
+    return src => (sink, conn, inlet) => {
+        let idx = 0; return src(v => sink(mapper(v, idx++)), conn, inlet);
     }
 }
 
@@ -124,10 +125,10 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Source<T> 
  * @category Stream Operators
  */
 export function mergeAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn=connect()) => {
-        const uplinks: Set<Connector> = new Set;
-        let outer = subconnect(conn, sources, (s) => {
-            const c = subconnect(conn, s, sink, conn).do(r => {
+    return (sink, conn=start(), inlet) => {
+        const uplinks: Set<Connection> = new Set;
+        let outer = conn.connect(sources, (s) => {
+            const c = conn.connect(s, sink, inlet).do(r => {
                 uplinks.delete(c);
                 uplinks.size || outer || !isValue(r) || conn.return();
             });
@@ -174,10 +175,10 @@ export function skip<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (sink, conn=connect()) => {
+    return src => (sink, conn=start(), inlet) => {
         let taking = false;
-        const c = subconnect(conn, notifier, () => { taking = true; c.end(); });
-        return src(v => taking && sink(v), conn);
+        const c = conn.connect(notifier, () => { taking = true; c.end(); });
+        return src(v => taking && sink(v), conn, inlet);
     }
 }
 
@@ -189,9 +190,9 @@ export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
  * @category Stream Operators
  */
 export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
-    return src => (sink, conn) => {
+    return src => (sink, conn, inlet) => {
         let idx = 0, met = false;
-        return src(v => (met ||= !condition(v, idx++)) && sink(v), conn);
+        return src(v => (met ||= !condition(v, idx++)) && sink(v), conn, inlet);
     };
 }
 
@@ -215,17 +216,17 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
  */
 export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> {
     const max = Math.abs(size);
-    return src => (sink, conn=connect()) => {
-        const buffer: T[] = [], ready = backpressure(conn);
+    return src => (sink, conn=start(), inlet) => {
+        const buffer: T[] = [], ready = backpressure(inlet);
         let paused = false, draining = false;
-
-        const s = subconnect(conn, src, v => {
+        const t = throttle();
+        conn.connect(src, v => {
             buffer.push(v);
             if (!draining && ready()) return drain();
             while (buffer.length > max) { dropped((size < 0) ? buffer.pop() : buffer.shift()); }
-            if (buffer.length === max) { pause(s); paused = true; }
+            if (buffer.length === max) { t.pause(); paused = true; }
             if (buffer.length) ready(drain);
-        }).do(r => {
+        }, t).do(r => {
             if (isValue(r)) conn.return();
         });
 
@@ -235,7 +236,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
                 while(buffer.length) {
                     sink(buffer.shift());
                     if (paused && ready()) {
-                        paused = false; resume(s);
+                        paused = false; t.resume();
                     }
                     if (buffer.length && !ready()) {
                         return ready(drain);
@@ -264,11 +265,11 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
  * @category Stream Operators
  */
 export function switchAll<T>(sources: Source<Source<T>>): Source<T> {
-    return (sink, conn=connect()) => {
-        let inner: Connector;
-        let outer = subconnect(conn, sources, s => {
+    return (sink, conn=start(), inlet) => {
+        let inner: Connection;
+        let outer = conn.connect(sources, s => {
             inner?.end();
-            inner = subconnect(conn, s, sink, conn).do(r => {
+            inner = conn.connect(s, sink, inlet).do(r => {
                 inner = undefined;
                 outer || !isValue(r) || conn.return();
             });
@@ -315,9 +316,9 @@ export function take<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
-    return src => (sink, conn=connect()) => {
-        subconnect(conn, notifier, () => conn.return());
-        return src(sink, conn);
+    return src => (sink, conn=start(), inlet) => {
+        conn.connect(notifier, () => conn.return());
+        return src(sink, conn, inlet);
     }
 }
 
@@ -334,8 +335,8 @@ export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
 export function takeWhile<T,R extends T>(condition: (v: T, idx: number) => v is R): Transformer<T,R>;
 export function takeWhile<T>(condition: (v: T, idx: number) => boolean): Transformer<T>;
 export function takeWhile<T>(condition: (v: T, index: number) => boolean) : Transformer<T> {
-    return src => (sink, conn) => {
+    return src => (sink, conn, inlet) => {
         let idx = 0;
-        return src(v => condition(v, idx++) ? sink(v) : conn?.return(), conn);
+        return src(v => condition(v, idx++) ? sink(v) : conn?.return(), conn, inlet);
     };
 }

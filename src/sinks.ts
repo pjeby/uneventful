@@ -1,10 +1,10 @@
 import { Request, Suspend, Yielding} from "./types.ts"
 import { to } from "./async.ts";
 import { defer } from "./defer.ts";
-import { Source, pause, resume, connect } from "./streams.ts";
+import { Source, connect, throttle } from "./streams.ts";
 import { reject, resolve, isError, markHandled } from "./results.ts";
 import { start } from "./jobutils.ts";
-import { isFunction } from "./tracking.ts";
+import { getJob, isFunction } from "./tracking.ts";
 
 /**
  * The result type returned from calls to {@link Each}.next()
@@ -61,12 +61,12 @@ export type Each<T> = IterableIterator<EachResult<T>>
 export function *each<T>(src: Source<T>): Yielding<Each<T>> {
     let yielded = false, waiter: Request<void>;
     const result: IteratorYieldResult<EachResult<T>> = {value: {item: undefined as T, next}, done: false};
-    const conn = connect(src, v => {
-        pause(conn);
+    const t = throttle(), conn = getJob().connect(src, v => {
+        t.pause();
         if (!waiter || conn.result()) return;
         result.value.item = v;
         resolve(waiter, waiter = void 0);
-    }).do(r => {
+    }, t).do(r => {
         // Prevent unhandled throws from here - it'll be seen by the next `yield
         // next`, or in the next microtask if `yield next` is already running.
         if (isError(r)) markHandled(r);
@@ -74,7 +74,7 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
     });
 
     // Wait for first value to arrive (and get put in result) before returning the iterator
-    pause(conn); yield next;
+    t.pause(); yield next;
     return {
         [Symbol.iterator]() { return this; },
         next() {
@@ -95,7 +95,7 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
             isError(conn.result()) ? reject(r, conn.result().err) : resolve(r, void 0);
         } else {
             waiter = r;
-            resume(conn);
+            t.resume();
         }
     }
 }

@@ -1,35 +1,17 @@
 import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
-import { start } from "./jobutils.ts";
-
-const throttles = new WeakMap<Job, _Throttle>();
-
-/**
- * @category Stream Consumers
- */
-export function pause(s: Connector | undefined) {
-    throttles.get(s)?.pause();
-}
-
-/**
- * Un-pause, and iterate backpressure-able sources' onReady callbacks to
- * resume sending immediately.
- *
- * @category Stream Consumers
- */
-export function resume(s: Connector | undefined) {
-    throttles.get(s)?.resume();
-}
+import { current } from "./ambient.ts";
 
 /**
  * A backpressure controller: returns true if downstream is ready to accept
  * data.
  *
  * @param cb (optional) - a callback to run when the downstream consumer wishes
- * to resume event production (i.e., when a sink calls {@link resume}()).  The
- * callback is automatically unregistered when invoked, so the producer must
- * re-register it after each call if it wishes to keep being called.
+ * to resume event production (i.e., when a sink calls
+ * {@link Throttle.resume}()).  The callback is automatically unregistered when
+ * invoked, so the producer must re-register it after each call if it wishes to
+ * keep being called.
  *
  * @category Types and Interfaces
  */
@@ -41,35 +23,66 @@ export type Backpressure = (cb?: Producer) => boolean
  *
  * @category Stream Producers
  */
-export function backpressure(conn: Connector): Backpressure {
-    const job = getJob(), t = throttles.get(conn);
+export function backpressure(inlet: Inlet = defaultInlet): Backpressure {
+    const job = getJob();
     return (cb?: Producer) => {
-        if (!job.result() && t.isOpen()) {
-            if (cb) t.onReady(cb, job);
-            return t.isReady();
+        if (!job.result() && inlet.isOpen()) {
+            if (cb) inlet.onReady(cb, job);
+            return inlet.isReady();
         }
         return false;
     }
 }
 
 /**
+ * Control backpressure for listening streams.  This interface is the API
+ * internal to the implementation of {@link backpressure}().  Unless you're
+ * implementing a backpressurable stream yourself, see the {@link Throttle}
+ * interface instead.
+ *
  * @category Types and Interfaces
  */
-export interface Throttle {
+export interface Inlet {
+    /** Is the main connection open?  (i.e. is the creating job not closed yet?) */
+    isOpen(): boolean
+
+    /** Is the conduit currently ready to receive data? */
+    isReady(): boolean
+
+    /**
+     * Register a callback to produce more data when the inlet is resumed
+     * (The callback is unregistered if the supplied job ends.)
+     */
+    onReady(cb: Producer, job: Job): this;
+}
+
+/**
+ * Control backpressure for listening streams
+ *
+ * Obtain instances via {@link throttle}(), then pass them into the appropriate
+ * stream-consuming API.  (e.g. {@link connect}).
+ *
+ * @category Types and Interfaces
+ */
+export interface Throttle extends Inlet {
+    /** Set inlet status to "paused". */
     pause(): void;
+
+    /**
+     * Un-pause, and iterate backpressure-able sources' onReady callbacks to
+     * resume sending immediately.  (i.e., synchronously!)
+     */
     resume(): void;
 }
 
-
 /**
- * @category Stream Producers
+ * A Connection is a job that returns void when the connected stream ends
+ * itself.  If the stream doesn't end itself (e.g. it's an event listener), the
+ * job will never return, and only end with a cancel or throw.
+ *
+ * @category Types and Interfaces
  */
 export type Connection = Job<void>;
-
-/**
- * @category Stream Consumers
- */
-export type Connector = Job<void>;
 
 /**
  * A `Source` is a function that can be called to arrange for data to be
@@ -77,17 +90,20 @@ export type Connector = Job<void>;
  * associated {@link Connection} is closed (either by the source or the sink,
  * e.g. if the sink doesn't want more data or the source has no more to send).
  *
- * The function must return the special {@link IsStream} value, so TypeScript
- * can tell what functions are actually sources.  (As otherwise any void
- * function with no arguments would appear to be usable as a source!)
+ * If the source is a backpressurable stream, it can use the (optional) supplied
+ * inlet (usually a {@link throttle}()) to rate-limit its output.
+ *
+ * A source function *must* return the special {@link IsStream} value, so
+ * TypeScript can tell what functions are usable as sources.  (Otherwise any
+ * void function with no arguments would appear to be usable as a source!)
  *
  * @category Types and Interfaces
  */
-export type Source<T> = (sink: Sink<T>, conn?: Connection) => typeof IsStream;
+export type Source<T> = (sink: Sink<T>, conn?: Connection, inlet?: Inlet) => typeof IsStream;
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
- * streaming protocol.  Return it from a function that implements the
+ * streaming protocol.  Return it from a function to implement the
  * {@link Source} type.
  *
  * @category Types and Interfaces
@@ -104,7 +120,7 @@ export type Sink<T> = (val: T) => void;
 /**
  * A `Transformer` is a function that takes one source and returns another,
  * possibly one that produces data of a different type.  Most operator functions
- * return a transformer, allowing them to be combined via {@link pipe `pipe()`}.
+ * return a transformer, allowing them to be combined via {@link pipe}().
  *
  * @category Types and Interfaces
  */
@@ -114,33 +130,45 @@ type Producer = () => any
 
 
 /**
- * Subscribe a sink to a source, returning a nested job.
+ * Subscribe a sink to a source, returning a nested job. (Shorthand for
+ * {@link getJob}().{@link Job.connect connect}(...).)
+ *
+ * @param src An event source or finite data stream
+ * @param sink A callback that will receive the events
+ * @param inlet Optional - a {@link throttle}() to control backpressure
+ *
+ * @returns A job that can be aborted to end the subscription, and which will
+ * end naturally (with a void return or error) if the stream ends itself.
  *
  * @category Stream Consumers
  */
-export function connect<T>(src?: Source<T>, sink?: Sink<T>, to?: Connection): Connector {
-    return <Connector> start((job) => {
-        throttles.set(job as Connector, (throttles.get(to) || new _Throttle(job)));
-        if (src && sink) src(sink, job);
-    });
+export function connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection {
+    return getJob().connect(src, sink, inlet);
 }
 
 /**
- * @category Stream Producers
+ * Create a backpressure controller for a stream.  Pass it to one or more
+ * sources you're connecting to, and if they support backpressure they'll
+ * respond when you call its .pause() and .resume() methods.
+ *
+ * @param job - Optional: a job that controls readiness.  (The throttle will
+ * pause indefinitely when the job ends.)  Defaults to the currently-active job,
+ * but unlike most such defaults, it won't throw if no job is active.
+ *
+ * @category Stream Consumers
  */
-export function subconnect<T>(parent: Connection, src: Source<T>, sink: Sink<T>, to?: Connection): Connector {
-    if (parent.result()) throw new Error("Can't fork or link a closed conduit");
-    return parent.run(() => connect(src, sink, to)).onError(e => parent.throw(e));
+export function throttle(job: Job = current.job) {
+    return new _Throttle(job);
 }
 
-class _Throttle {
+class _Throttle implements Throttle {
     /** @internal */
     protected _callbacks: Map<Producer, DisposeFn> = undefined;
 
     /** @internal */
-    constructor(protected _job: Job<void>) {}
+    constructor(protected _job?: Job) {}
 
-    isOpen(): boolean { return !this._job.result(); }
+    isOpen(): boolean { return !this._job?.result(); }
 
     /** Is the conduit currently ready to receive data? */
     isReady(): boolean { return this.isOpen() && this._isReady; }
@@ -186,6 +214,7 @@ class _Throttle {
     }
 }
 
+const defaultInlet: Inlet = throttle();
 
 /**
  * Pipe a stream (or anything else) through a series of single-argument

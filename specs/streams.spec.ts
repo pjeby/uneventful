@@ -1,12 +1,7 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
-import { Connection, Connector, backpressure, pause, resume, subconnect } from "../src/streams.ts";
+import { Connection, Throttle, backpressure, throttle } from "../src/streams.ts";
 import { runPulls } from "../src/scheduling.ts";
-import { type Job, IsStream, connect, Sink, Source, compose, pipe, must, detached, start, getJob, isError, JobResult, noop, isHandled } from "../mod.ts";
-
-type Conn = Connector & Connection;
-function mkConn(parent: Job = null) {
-    return (parent || detached).run(() => connect());
-}
+import { IsStream, connect, Sink, compose, pipe, must, detached, start, isError, JobResult } from "../mod.ts";
 
 function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
@@ -18,7 +13,7 @@ describe("connect()", () => {
         // When connect() is called with them
         const c = connect(src, sink);
         // Then the source should have been called with the sink and connector
-        expect(src).to.have.been.calledOnceWithExactly(sink, c);
+        expect(src).to.have.been.calledOnceWithExactly(sink, c, undefined);
     });
     it("is linked to the running job", () => {
         // Given a conduit opened by connect in the context of a job
@@ -46,64 +41,64 @@ describe("backpressure()", () => {
     useRoot();
     it("initially is ready", () => {
         // Given a ready function
-        const ready = backpressure(mkConn());
+        const ready = backpressure(throttle(start<void>()));
         // Then it should be ready
         expect(ready()).to.be.true;
     });
     it("is unready when connection is ended", () => {
         // Given an ended connection
-        const c = mkConn().do(logClose); c.end();
+        const c = start<void>().do(logClose); c.end();
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
-        expect(backpressure(c)()).to.be.false;
+        expect(backpressure(throttle(c))()).to.be.false;
     });
     it("closes(+unready) when its enclosing job is cleaned up", () => {
         // Given a job and a connection it's attached to
         detached.start(job => {
-            const c = mkConn(getJob()).must(logClose);
+            const c = start<void>().must(logClose);
             // When the job ends
             job.end();
             // Then the connection should be closed and the limiter unready
             see("closed");
-            expect(backpressure(c)()).to.be.false;
+            expect(backpressure(throttle(c))()).to.be.false;
         });
     });
 
     describe(".isReady()", () => {
         it("is false after pause(), true after resume() (if open)", () => {
-            // Given a conduit
-            const c = mkConn()
+            // Given a conduit and throttle
+            const c = start<void>(), t = throttle(c), ready = backpressure(t);
             // When it's paused, Then it shoud be unready
-            pause(c); expect(backpressure(c)()).to.be.false;
+            t.pause(); expect(ready()).to.be.false;
             // And when resumed it should be ready again
-            resume(c); expect(backpressure(c)()).to.be.true;
+            t.resume(); expect(ready()).to.be.true;
             // Unless it's closed
-            c.end(); expect(backpressure(c)()).to.be.false;
+            c.end(); expect(ready()).to.be.false;
             // In which case it should not be resumable
-            resume(c); expect(backpressure(c)()).to.be.false;
+            t.resume(); expect(ready()).to.be.false;
         });
     });
 
     describe(".resume()", () => {
-        let c: Conn;
+        let c: Connection, t: Throttle;
         beforeEach(() => {
             // Given a paused conduit with an onReady
-            c = mkConn(); pause(c); backpressure(c)(() => log("resumed"));
+            c = start<void>(); t = throttle(c); t.pause(); backpressure(t)(() => log("resumed"));
         });
         describe("does nothing if", () => {
             it("conduit is already closed", () => {
                 // Given a paused conduit with an onReady
                 // When the conduit is closed and resume()ed
-                see(); c.end(); resume(c);
+                see(); c.end(); t.resume();
                 // Then the callback is not invoked
                 runPulls(); see();
             });
             it("no onReady() is set", () => {
                 // Given a conduit without an onReady
-                c = mkConn();
+                c = start<void>(); t = throttle(c); t.pause();
                 // When the conduit is resume()d
-                resume(c);
+                t.resume();
                 // Then nothing happens
                 runPulls();
                 see();
@@ -112,101 +107,31 @@ describe("backpressure()", () => {
                 // Given a paused conduit with an onReady
                 // When the conduit is resume()d twice
                 // Then nothing should happen the second time
-                resume(c); runPulls(); see("resumed");
-                resume(c); runPulls(); see();
+                t.resume(); runPulls(); see("resumed");
+                t.resume(); runPulls(); see();
             });
         });
         it("synchronously runs callbacks", () => {
             // Given a paused conduit with an onReady
             // When the conduit is resume()d
             // Then the onReady callback should be invoked
-            resume(c); see("resumed");
+            t.resume(); see("resumed");
             // And When a new onReady() is set
-            backpressure(c)(() => log("resumed again"));
+            backpressure(t)(() => log("resumed again"));
             // Then the new callback should be invoked asynchronously
             see(); // but not synchronously
             runPulls(); see("resumed again");
         });
         it("doesn't run duplicate onReady callbacks", () => {
             // Given a paused conduit with added duplicate functions
-            const c = mkConn(); pause(c); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
-            const r = backpressure(c); r(f1); r(f2); r(f1); r(f2);
+            const c = start<void>(), t = throttle(); t.pause(); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
+            const r = backpressure(t); r(f1); r(f2); r(f1); r(f2);
             // When the conduit is resumed
-            resume(c);
+            t.resume();
             // Then it should run each function only once
             see("f1", "f2");
         });
     });
-});
-
-describe("subconnect()", () => {
-    it("won't work on a closed connection", () => {
-        // Given a closed conduit
-        const c = mkConn(); c.end();
-        // When fork() or link() is called
-        // Then an error should be thrown
-        expect(() => subconnect(c, () => IsStream, noop)).to.throw("Can't fork or link a closed conduit");
-    });
-
-    describe("returns a conduit that", () => {
-        testChildConduit((c, src?, sink?) => subconnect(c, src, sink));
-        it("throws to its parent when throw()n", () => {
-            // Given a conduit and its link()ed child
-            const c = mkConn().onError(noop), f = subconnect(c, () => IsStream, noop), e = new Error("x");
-            f.must(r => log(isHandled(r))).do(r=>log(isHandled(r)));
-            c.do(e => { log("c"); logClose(e); });
-            f.do(e => { log("f"); logClose(e); });
-            // When the child is thrown
-            f.throw(e);
-            // Then it and its parent should have the same error
-            // (and the subconnect's error should be marked handled)
-            see("false", "true", "f", "closed", "err: Error: x",  "c", "closed", "err: Error: x");
-        });
-    });
-
-    function testChildConduit(mkChild: <T>(c: Connection, src?: Source<T>, sink?: Sink<T>) => Connector) {
-        it("is open", () => {
-            // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).do(logClose);
-            // Then the link should be open and not equal the conduit
-            see();
-            expect(f).to.not.equal(c);
-        });
-        it("closes when the parent closes", () => {
-            // Given a conduit and its child
-            const c = mkConn(), f = mkChild(c).do(logClose);
-            // When the conduit is closed
-            c.end();
-            // Then the link should also be closed
-            see("closed");
-        });
-        it("closes when the parent is thrown", () => {
-            // Given a conduit and its child
-            const c = mkConn().onError(noop), f = mkChild(c).do(logClose);
-            // When the conduit is thrown
-            c.throw(new Error);
-            // Then the link should be closed without error
-            see("closed");
-        });
-        it("subscribes a source if given one", () => {
-            // Given a conduit, a source, and a sink
-            const c = mkConn(), src = spy(), sink = spy();
-            // When the conduit is forked/linked
-            const f = mkChild(c, src, sink);
-            // Then the source should be called with the new conduit and the sink
-            expect(src).to.have.been.calledOnceWithExactly(sink, f);
-        });
-        it("runs with the new conduit's job", () => {
-            // Given a conduit, a source and a sink
-            const c = mkConn();
-            function sink() { return true; }
-            function src() { must(() => log("cleanup")); return IsStream; }
-            // When the conduit is forked/linked and closed
-            mkChild(c, src, sink).end();
-            // Then cleanups added by the source should be called
-            see("cleanup");
-        });
-    }
 });
 
 describe("pipe()", () => {

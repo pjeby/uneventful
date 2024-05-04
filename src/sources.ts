@@ -1,8 +1,8 @@
 import { defer } from "./defer.ts";
 import { RuleScheduler, cached } from "./signals.ts";
-import { type Source, IsStream, Connection, backpressure, connect, Sink, Connector, pause, resume, Backpressure } from "./streams.ts";
+import { type Source, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Throttle } from "./streams.ts";
 import { getJob, detached } from "./tracking.ts";
-import { must } from "./jobutils.ts";
+import { must, start } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
 import { isError, isUnhandled, isValue, markHandled, noop } from "./results.ts";
 
@@ -60,8 +60,8 @@ export function empty(): Source<never> {
  * @category Stream Producers
  */
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
-    return (sink, conn=connect()) => {
-        const ready = backpressure(conn);
+    return (sink, conn=start(), inlet) => {
+        const ready = backpressure(inlet);
         const iter = iterable[Symbol.asyncIterator]();
         if (iter.return) must(() => iter.return());
         return ready(next), IsStream;
@@ -123,8 +123,8 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * @category Stream Producers
  */
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
-    return (sink, conn=connect()) => {
-        const ready = backpressure(conn);
+    return (sink, conn=start(), inlet) => {
+        const ready = backpressure(inlet);
         const iter = iterable[Symbol.iterator]();
         if (iter.return) must(() => iter.return());
         return ready(loop), IsStream;
@@ -266,8 +266,8 @@ export interface MockSource<T> extends Emitter<T> {
 export function mockSource<T>(): MockSource<T> {
     let write: Sink<T>, outlet: Connection, ready: Backpressure;
     function emit(val: T) { if (write) write(val); };
-    emit.source = (mockSource ? (x: Source<T>) => x : share<T>)((sink, conn) => {
-        write = sink; outlet = conn; ready = backpressure(conn);
+    emit.source = (mockSource ? (x: Source<T>) => x : share<T>)((sink, conn, inlet) => {
+        write = sink; outlet = conn; ready = backpressure(inlet);
         must(() => write = outlet = ready = undefined);
         return IsStream;
     });
@@ -306,10 +306,10 @@ export function never(): Source<never> {
  * @category Stream Operators
  */
 export function share<T>(source: Source<T>): Source<T> {
-    let uplink: Connector, resumed = false;
+    let uplink: Connection, resumed = false, t: Throttle;
     let links = new Set<[sink: Sink<T>, conn: Connection, bp: Backpressure]>;
-    return (sink, conn=connect()) => {
-        const ready = backpressure(conn);
+    return (sink, conn=start(), inlet) => {
+        const ready = backpressure(inlet);
         const self: [Sink<T>, Connection, Backpressure] = [sink, conn, ready];
         links.add(self);
         ready(produce);
@@ -318,14 +318,15 @@ export function share<T>(source: Source<T>): Source<T> {
             if (!links.size) uplink?.end();
         });
         if (links.size === 1) {
-            uplink = detached.bind(connect)(source, v => {
+            t = throttle();
+            uplink = detached.connect(source, v => {
                 resumed = false;
                 for(const [s,_,ready] of links) {
                     if (s(v), ready()) resumed = true; else ready(produce);
                 }
-                resumed || pause(uplink);
-            }).do(r => {
-                uplink = undefined;
+                resumed || t?.pause();
+            }, t).do(r => {
+                uplink = t = undefined;
                 if (isUnhandled(r)) markHandled(r);
                 links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
                     isValue(r) ? c.return() : c.end()
@@ -335,7 +336,7 @@ export function share<T>(source: Source<T>): Source<T> {
         function produce() {
             if (!resumed) {
                 resumed = true;
-                resume(uplink);
+                t?.resume();
             };
         }
         return IsStream;
