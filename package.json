@@ -1,6 +1,18 @@
 {
     "name": "uneventful",
     "version": "0.0.1",
+    "description": "Signals plus streams, minus the seams (plus structured concurrency and integrated resource cleanup)",
+    "keywords": [
+        "signals",
+        "reactive streams",
+        "streams",
+        "cancellation",
+        "abortSignals",
+        "cancellable promises",
+        "FRP"
+    ],
+    "repository": "https://github.com/pjeby/uneventful.git",
+    "license": "ISC",
     "type": "module",
     "main": "./dist/mod.cjs",
     "module": "./dist/mod.mjs",
