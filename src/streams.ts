@@ -15,7 +15,7 @@ import { current } from "./ambient.ts";
  *
  * @category Types and Interfaces
  */
-export type Backpressure = (cb?: Producer) => boolean
+export type Backpressure = (cb?: () => any) => boolean
 
 
 /**
@@ -53,7 +53,7 @@ export interface Inlet {
      * Register a callback to produce more data when the inlet is resumed
      * (The callback is unregistered if the supplied job ends.)
      */
-    onReady(cb: Producer, job: Job): this;
+    onReady(cb: () => any, job: Job): this;
 }
 
 /**
@@ -157,7 +157,7 @@ export function connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connec
  *
  * @category Stream Consumers
  */
-export function throttle(job: Job = current.job) {
+export function throttle(job: Job = current.job): Throttle {
     return new _Throttle(job);
 }
 

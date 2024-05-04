@@ -207,6 +207,7 @@ describe("Operators", () => {
         });
     });
     describe("share()", () => {
+        useClock();
         it("should subscribe/close based on demand", () => {
             // Given a shared source
             const src = spy((_sink) => (must(logClose), IsStream)), s = share(src);
@@ -230,7 +231,7 @@ describe("Operators", () => {
             expect(src).to.have.been.calledTwice
             c4.end();
         });
-        it("pauses if all subscribers pause, resumes if any resume", () => {
+        it("pauses if any subscriber pauses, resumes when all resume", () => {
             // Given a shared synchronous source
             const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
             // When it's connected and pulled with a sink that pauses
@@ -240,9 +241,34 @@ describe("Operators", () => {
             see("1", "2", "3");
             // But if another connection is added and pulled (w/non-pausing sink)
             connect(s, log.emit).do(logClose); see(); runPulls();
-            // Then both connections see all the remaining values without pausing
+            // Then there should be no output
+            see();
+            // Until the original connection resumes
+            t.resume();
+            // Then both connections should see values until the next pause
+            see("4", "4", "5", "5", "6", "6");
+            // Until the next resume
+            t.resume();
+            // When they should see all the remaining values
             // And they should both close
-            see("4", "4", "5", "5", "6", "6", "7", "7", "closed", "closed");
+            see( "7", "7", "closed", "closed");
+        });
+        it("resumes if paused subscriber(s) close", () => {
+            // Given a shared synchronous source
+            const s = share(fromIterable([1, 2, 3, 4, 5, 6, 7]));
+            // When it's connected and pulled with a sink that pauses
+            const t = throttle(), c = connect(s, v => { log(v); !!(v%3) || t.pause() }, t).do(logClose);
+            see(); runPulls();
+            // Then it should emit values until the pause
+            see("1", "2", "3");
+            // But if another connection is added and pulled (w/non-pausing sink)
+            connect(s, log.emit).do(logClose); see(); runPulls();
+            // Then there should be no output
+            see();
+            // Until a tick after the original connection is closed
+            c.end(); see("closed"); clock.tick(0)
+            // Then the second connections should see the remaining values and also close
+            see("4", "5", "6", "7", "closed");
         });
         it("should mark errors handled on the upstream", () => {
             // Given a shared mockSource tracking the connection

@@ -1,10 +1,10 @@
 import { defer } from "./defer.ts";
 import { RuleScheduler, cached } from "./signals.ts";
-import { type Source, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Throttle } from "./streams.ts";
+import { type Source, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Inlet } from "./streams.ts";
 import { getJob, detached } from "./tracking.ts";
 import { must, start } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
-import { isError, isUnhandled, isValue, markHandled, noop } from "./results.ts";
+import { isCancel, isError, isUnhandled, markHandled, noop } from "./results.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -291,53 +291,72 @@ export function never(): Source<never> {
  *
  * The input source will be susbcribed when the output has at least one
  * subscriber, and unsubscribed when the output has no subscribers.  The input
- * will only be paused when all subscribers pause (i.e. all sinks return false),
- * and will be resumed when any subscriber resume()s.  All subscribers are closed
- * or thrown if the input source closes or throws.
+ * will be paused when any subscriber pauses, and will only be resumed when all
+ * subscribers are unpaused.  All subscribers are closed or thrown if the input
+ * source closes or throws.
  *
- * (Generally speaking, you should place the share call as late in your pipelines
- * as possible, if you use it at all.  It adds some overhead that is wasted if
- * the stream doesn't have multiple subscribers, and may be redundant if an
- * upstream source is already shared.  It's mainly useful if there is a lot of
- * mapping, filtering, or other complicated processing taking place upstream of
- * the share, and you know for a fact there will be enough subscribers to make
- * it a bottleneck.)
+ * (Generally speaking, you should place the share call as late in your
+ * pipelines as possible, if you use it at all.  It adds some overhead that is
+ * wasted if the stream doesn't have multiple subscribers, and may be redundant
+ * if an upstream source is already shared.  It's mainly useful if there is a
+ * lot of mapping, filtering, or other complicated processing taking place
+ * upstream of the share, and you know for a fact there will be enough
+ * subscribers to make it a bottleneck.  You should probably also consider
+ * putting some {@link slack}() either upstream or downstream of the share, if
+ * the upstream supports backpressure.)
  *
  * @category Stream Operators
  */
 export function share<T>(source: Source<T>): Source<T> {
-    let uplink: Connection, resumed = false, t: Throttle;
-    let links = new Set<[sink: Sink<T>, conn: Connection, bp: Backpressure]>;
+    let uplink: Connection;
+    const
+        links = new Set<[sink: Sink<T>, conn: Connection]>,
+        inlets = new Map<Inlet, number>(),  // refcounts of incoming inlets
+        t = throttle(), // the actual onReady queue
+        multi: Inlet = {
+            // A multi-connection inlet that requires all downstreams to be ready
+            isOpen() { return !uplink?.result(); },
+            isReady() {
+                if (this.isOpen()) {
+                    for (const [i] of inlets) if (!i.isReady()) return (t.pause(), false);
+                    return true;
+                }
+                t.pause();
+                return false;
+            },
+            onReady(cb, job) {
+                if (this.isOpen()) {
+                    t.onReady(cb, job);
+                    for (const [i] of inlets) i.isReady() || i.onReady(produce, job);
+                }
+                return this;
+            }
+        }
+    ;
+    function produce() { multi.isReady() && t.resume(); }
+
     return (sink, conn=start(), inlet) => {
-        const ready = backpressure(inlet);
-        const self: [Sink<T>, Connection, Backpressure] = [sink, conn, ready];
+        const self: [Sink<T>, Connection] = [sink, conn];
         links.add(self);
-        ready(produce);
-        must(() => {
+        if (inlet) inlets.set(inlet, 1+(inlets.get(inlet) || 0));
+        conn.must(() => {
             links.delete(self);
+            if (inlet) {
+                inlets.set(inlet, inlets.get(inlet)-1);
+                if (!inlets.get(inlet)) inlets.delete(inlet);
+            }
             if (!links.size) uplink?.end();
+            else if (multi.isReady() && !t.isReady()) defer(produce);
         });
         if (links.size === 1) {
-            t = throttle();
             uplink = detached.connect(source, v => {
-                resumed = false;
-                for(const [s,_,ready] of links) {
-                    if (s(v), ready()) resumed = true; else ready(produce);
-                }
-                resumed || t?.pause();
-            }, t).do(r => {
-                uplink = t = undefined;
+                for(const [s, c] of links) try { s(v) } catch(e) { c.throw(e); };
+            }, multi).do(r => {
+                uplink = undefined;
+                if (isCancel(r)) return;
                 if (isUnhandled(r)) markHandled(r);
-                links.forEach(([_,c]) => isError(r) ? c.throw(r.err) : (
-                    isValue(r) ? c.return() : c.end()
-                ));
+                for(const [_, c] of links) isError(r) ? c.throw(r.err) : c.return();
             })
-        }
-        function produce() {
-            if (!resumed) {
-                resumed = true;
-                t?.resume();
-            };
         }
         return IsStream;
     }
