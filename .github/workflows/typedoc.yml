@@ -13,13 +13,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 16.x
-      - uses: pnpm/action-setup@v2.2.4
+      - uses: pnpm/action-setup@v3.0.0
       - run: pnpm install && pnpm run docs
-      - uses: actions/upload-pages-artifact@v2
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: ./docs
   deploy:
@@ -32,4 +32,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         # https://github.com/actions/deploy-pages
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
