@@ -4,6 +4,7 @@
  * @module
  */
 
+import { makeCtx } from "./ambient.ts";
 import { Job } from "./types.ts";
 
 export const
@@ -13,3 +14,9 @@ export const
     /** Default error handler for the `detached` job */
     defaultCatch = (e: any) => { Promise.reject(e); }
 ;
+
+/** A null context (no job/observer) for cleanups to run in */
+export const nullCtx = makeCtx();
+
+/** Jobs' owners (parents) - uses a map so child jobs can't directly access them */
+export const owners = new WeakMap<Job, Job>();

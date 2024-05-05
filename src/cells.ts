@@ -6,6 +6,7 @@ import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Producer, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
 import { isCancel } from "./results.ts";
+import { nullCtx } from "./internals.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
@@ -267,11 +268,14 @@ export class Cell {
 
     compute: () => any = undefined;
 
-    stream<T>(sink: Sink<T>, conn?: Connection, inlet?: Inlet) {
+    stream<T>(sink: Sink<T>, _conn?: Connection, inlet?: Inlet) {
         let lastValue = sentinel;
         (inlet ? RuleScheduler.for(backpressure(inlet)).rule : rule)(() => {
             const val = this.getValue();
-            if (val !== lastValue) sink(lastValue = val);
+            if (val !== lastValue) {
+                const old = swapCtx(nullCtx);
+                try { sink(lastValue = val); } finally { swapCtx(old); }
+            }
         });
         return IsStream;
     }

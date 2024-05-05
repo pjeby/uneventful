@@ -3,6 +3,8 @@ import {
     runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
     DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep
 } from "../mod.ts";
+import { current } from "../src/ambient.ts";
+import { nullCtx } from "../src/internals.ts";
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {
@@ -97,6 +99,15 @@ describe("Signal Constructors/Interfaces", () => {
             v.set(22); clock.tick(5); see();
             j.end();
         });
+        it("as a source, runs sinks in the null context", () => {
+            // Given a value subscribed to as a stream
+            const v = value(42);
+            const c = detached.connect(v, () => { log(current === nullCtx) });
+            // When rules run
+            runRules();
+            // Then the subscriber should be run in the null context
+            see("true"); c.end();
+        });
     });
     describe("cached()", () => {
         it("implements the Signal interface", () => { verifyMulti((v) => cached(() => v)); });
@@ -148,6 +159,15 @@ describe("Signal Constructors/Interfaces", () => {
             // Then there's no new output when iteration resumes
             v.set(22); clock.tick(5); see();
             j.end();
+        });
+        it("as a source, runs sinks in the null context", () => {
+            // Given a value subscribed to as a stream
+            const v = value(42), s = cached(() => v()*2);
+            const c = detached.connect(s, () => { log(current === nullCtx) });
+            // When rules run
+            runRules();
+            // Then the subscriber should be run in the null context
+            see("true"); c.end();
         });
     });
     describe("cached(stream, initVal)", () => {

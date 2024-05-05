@@ -1,5 +1,5 @@
 import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { catchers, defaultCatch } from "./internals.ts";
+import { catchers, defaultCatch, nullCtx, owners } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, StartFn, OptionalCleanup, JobIterator, RecalcSource, StartObj } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
@@ -29,14 +29,8 @@ export function getJob<T=unknown>() {
     throw new Error("No job is currently active");
 }
 
-/** A null context (no job/observer) for cleanups to run in */
-const nullCtx = makeCtx();
-
 /** RecalcSource factory for jobs (so you can wait on a job result in a signal or rule) */
 function recalcJob(job: Job<any>): RecalcSource { return (cb => { current.job.must(job.release(cb)); }); }
-
-/** Jobs' owners (parents) - uses a map so child jobs can't directly access them */
-const owners = new WeakMap<Job, Job>();
 
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
     while (qlen(cbs)) try { pop(cbs)(res); } catch (e) { detached.asyncThrow(e); }
