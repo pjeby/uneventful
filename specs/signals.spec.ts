@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep
+    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob
 } from "../mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
@@ -107,6 +107,17 @@ describe("Signal Constructors/Interfaces", () => {
             runRules();
             // Then the subscriber should be run in the null context
             see("true"); c.end();
+        });
+        it("cleans up its until() rules", () => {
+            // Given a falsy value
+            const v = value(false);
+            // When it's waited for via until and then goes truthy
+            for(const cb of v["uneventful.until"]()) {
+                cb(() => { log(isCancel(getJob().result())); });
+            }
+            v.set(true); runRules();
+            // Then the resolve should be in a canceled job (rule)
+            see("true");
         });
     });
     describe("cached()", () => {

@@ -50,8 +50,15 @@ export class Signal<T> extends Function implements UntilMethod<T> {
         return yield (r => {
             try {
                 let res: T = this.peek();
-                if (res) resolve(r, res); else rule(() => {
-                    try { (res = this()) && resolve(r, res); } catch(e) { reject(r,e); }
+                if (res) return resolve(r, res);
+                rule(stop => {
+                    try {
+                        if (res = this()) {
+                            stop(); resolve(r, res);
+                        }
+                    } catch(e) {
+                        stop(); reject(r,e);
+                    }
                 })
             } catch(e) {
                 reject(r, e);

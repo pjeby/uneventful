@@ -381,7 +381,6 @@ export class Cell {
                     job.must(this.compute());
                     this.lastChanged = timestamp;
                 } catch (e) {
-                    job.end();
                     this.disposeRule();
                     throw e;
                 }
@@ -404,12 +403,12 @@ export class Cell {
     }
 
     disposeRule() {
+        this.ctx.job.end();
         this.flags |= Is.Dead;
         (this.value as RunQueue<Cell>).delete(this);
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
-            this.ctx.job.end();
         }
     }
 
