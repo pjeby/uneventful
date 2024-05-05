@@ -1,3 +1,5 @@
+[![NPM Version](https://img.shields.io/npm/v/uneventful?color=33cd56&logo=npm)](https://www.npmjs.com/package/uneventful) [![](https://img.shields.io/github/stars/pjeby/uneventful?style=flat&logo=github&)](https://github.com/pjeby/uneventful/)
+
 ## uneventful: signals plus streams, minus the seams
 
 #### The Problem
@@ -183,9 +185,9 @@ So far, we've highlighted just a handful of Uneventful's coolest and most impact
 - Play well with state charts, or ignore the charts and just express interactivity directly in code!
 - Easily control the *timing* of operations, building advanced debouncing and sampling with basic async operators like `sleep()` or by defining rules tied to a scheduler
 
-And at the same time, this has actually been a pretty superficial tour: we haven't gotten into a lot of things like how to actually *use* signals or abort jobs or any other details, really.  For those, you'll currently have to dig through the API Reference, but there should be more tutorials and guides as time goes on.
+And at the same time, this has actually been a pretty superficial tour: we haven't gotten into a lot of things like how to actually *use* signals or abort jobs or any other details, really.  For those, you'll currently have to dig through the [API Reference](https://uneventful.js.org/modules.html), but there should be more tutorials and guides as time goes on.
 
 (Also, at some point you'll be able to use the "Calibre Connect" Obsidian plugin I'm working on as an example of how to use these things to create responsive search and tame Electron WebFrames while keeping track of whether a connection to a remote server is available, handling logins and background processes and integrating a plugin to a larger application, not to mention controlling lots of features via settings.)
 
-In the meantime, this library should now be available for installation and experimentation via npm.  Enjoy!
+In the meantime, this library should now be available for installation and experimentation via [npm](https://www.npmjs.com/package/uneventful).  Enjoy!
 

@@ -15,11 +15,11 @@ code { padding: 0; }
 }
 
 
-a:has(use[href="#icon-64"]) span::after {
+a:has(use[href$="#icon-64"]) span::after {
     content: "()";
 }
 
-a:has(use[href="#icon-4"]) span::after {
+a:has(use[href$="#icon-4"]) span::after {
     content: ".*";
 }
 

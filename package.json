@@ -1,7 +1,7 @@
 {
     "name": "uneventful",
     "version": "0.0.1",
-    "description": "Signals plus streams, minus the seams (plus structured concurrency and integrated resource cleanup)",
+    "description": "Declarative, event-driven reactivity: signals, streams, structured concurrency, and easy resource cleanup",
     "keywords": [
         "signals",
         "reactive streams",
@@ -12,6 +12,7 @@
         "FRP"
     ],
     "repository": "https://github.com/pjeby/uneventful.git",
+    "homepage": "https://uneventful.js.org",
     "license": "ISC",
     "type": "module",
     "main": "./dist/mod.cjs",
