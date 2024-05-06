@@ -15,28 +15,20 @@
     "homepage": "https://uneventful.js.org",
     "license": "ISC",
     "type": "module",
-    "main": "./dist/mod.cjs",
-    "module": "./dist/mod.mjs",
-    "types": "./dist/mod.d.ts",
     "files": ["./dist/*"],
     "exports": {
-        "require": {
-            "types": "./dist/mod.d.ts",
-            "default": "./dist/mod.cjs"
-        },
         "import": {
             "types": "./dist/mod.d.ts",
             "default": "./dist/mod.mjs"
         }
     },
     "scripts": {
-        "build": "pkgroll",
         "coverage": "c8 -r lcov mocha -n loader=ts-node/esm",
         "docs": "tsx typedoc/run.mts",
         "watch": "mocha -r tsx --watch",
         "watch-docs": "onchange -i --kill \"*.md\"  \"guides/**/*.md\" \"typedoc.config.*\" \"typedoc/*\" -- tsx typedoc/run.mts --watch",
         "test": "mocha -r tsx && pkgroll",
-        "prepublishOnly": "mocha -r tsx && pkgroll --minify --sourcemap"
+        "prepare": "pkgroll --minify --sourcemap"
     },
     "mocha": {
         "spec": "specs/*.spec.ts",

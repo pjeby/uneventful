@@ -189,5 +189,5 @@ And at the same time, this has actually been a pretty superficial tour: we haven
 
 (Also, at some point you'll be able to use the "Calibre Connect" Obsidian plugin I'm working on as an example of how to use these things to create responsive search and tame Electron WebFrames while keeping track of whether a connection to a remote server is available, handling logins and background processes and integrating a plugin to a larger application, not to mention controlling lots of features via settings.)
 
-In the meantime, this library should now be available for installation and experimentation via [npm](https://www.npmjs.com/package/uneventful).  Enjoy!
+In the meantime, this library should now be available for installation and experimentation via [npm](https://www.npmjs.com/package/uneventful), as [an ESM-only package](https://gist.github.com/sindresorhus/a39789f98801d908bbc7ff3ecc99d99c).  Enjoy!
 
