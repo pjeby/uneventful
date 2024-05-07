@@ -173,7 +173,7 @@ class _Job<T> implements Job<T> {
     start<T, This>(ctx: This, fn: StartFn<T, This>): Job<T>;
     start<T, This>(fnOrCtx: StartFn<T> | StartObj<T>|This, fn?: StartFn<T, This>) {
         if (!fnOrCtx) return makeJob(this);
-        let init: StartFn<T, This>, result: StartObj<T> | void;
+        let init: StartFn<T, This>, result: StartObj<T> | OptionalCleanup;
         if (isFunction(fn)) {
             init = fn.bind(fnOrCtx as This);
         } else if (isFunction(fnOrCtx)) {
@@ -200,6 +200,8 @@ class _Job<T> implements Job<T> {
                     typeof result !== "string"
                 ) {
                     job.run(runGen<T>, result as Yielding<T>, job);
+                } else if (isFunction(result)) {
+                    job.must(result);
                 } else {
                     throw new TypeError("Invalid value/return for start()");
                 }

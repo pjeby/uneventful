@@ -68,8 +68,8 @@ export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
 export type AsyncStart<T, This=void> = (this: This, job: Job<T>) => StartObj<T>;
 
 /**
- * A synchronous start function returns void. It runs immediately and gets
- * passed the newly created job as its first argument.
+ * A synchronous start function returns void or a {@link CleanupFn}. It runs
+ * immediately and gets passed the newly created job as its first argument.
  *
  * @template T The type the job will end up returning
  * @template This The type of `this` the function accepts, if using two-argument
@@ -77,7 +77,7 @@ export type AsyncStart<T, This=void> = (this: This, job: Job<T>) => StartObj<T>;
  *
  * @category Types and Interfaces
  */
-export type SyncStart<T, This=void>  = (this: This, job: Job<T>) => void;
+export type SyncStart<T, This=void>  = (this: This, job: Job<T>) => OptionalCleanup;
 
 /**
  * A synchronous or asynchronous initializing function for use with the

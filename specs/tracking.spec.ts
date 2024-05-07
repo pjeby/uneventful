@@ -160,6 +160,13 @@ describe("start(action)", () => {
             });
             see("true"); job.end(); see("destroy");
         });
+        it("adds the return value if it's a function", () => {
+            const cb = spy();
+            const job = start(() => cb as CleanupFn);
+            expect(cb).to.not.have.been.called;
+            job.end();
+            expect(cb).to.have.been.calledOnce;
+        });
         it("cleans up on throw", () => {
             var cb = spy();
             expect(() => start(() => {
@@ -682,7 +689,7 @@ describe("Cleanup order", () => {
         const [j, _j1, j2, _j3] = setupJobs();
         const toRestart = detached.start(() => {
             must(msg("must @ restart"));
-            start().must(msg("must @ restart sub"));
+            start(() => msg("must @ restart sub"));
         })
         j2.must(() => { log("restart begins"); toRestart.restart(); log("restart done"); })
         // When the root is ended

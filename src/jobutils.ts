@@ -28,7 +28,7 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
  *   generator or job), a promise, or void.  A returned iterator or promise will
  *   be treated as if the method was called with that to begin with; a returned
  *   job will be awaited and its result transferred to the new job
- *   asynchronously.
+ *   asynchronously.  A returned function will be added to the job via `must()`.
  *
  * - When called with one argument that's a {@link Yielding} iterator (such as a
  *   generator or an existing job): it's attached to the new job and executed
@@ -50,7 +50,7 @@ export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
  *   *(this) {...}));`) in order to correctly infer types inside a generator
  *   function.)
  *
- * In any of the above cases, if a supplied function throws an error when
+ * In any of the above cases, if a supplied function throws an error while
  * starting, the new job will be ended, and the error synchronously re-thrown.
  *
  * @returns the created {@link Job}
