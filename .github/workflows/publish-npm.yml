@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 16.x
       - uses: pnpm/action-setup@v3
-      - run: pnpm install && pnpm run prepublishOnly
+      - run: pnpm install
       - uses: JS-DevTools/npm-publish@v3
         with:
           token: ${{ secrets.NPM_TOKEN }}
