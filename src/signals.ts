@@ -3,10 +3,20 @@ import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
 import { Cell, rule } from "./cells.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
-import { Connection, Inlet, IsStream, Sink, Source, Producer } from "./streams.ts";
+import { Connection, Inlet, IsStream, Producer, Sink } from "./streams.ts";
 export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
 
-export interface Signal<T> {
+/**
+ * A function that can be called to get a value.
+ *
+ * (This interface is needed because TypeScript won't infer type of
+ * {@link Signal} correctly otherwise, specifically it won't see it as a zero-agument function.)
+ *
+ * @category Types and Interfaces
+ */
+export type Returns<T> = () => T
+
+export interface Signal<T> extends Producer<T>, Returns<T> {
     /**
      * A signal object implements the {@link Producer} interface, even if it's
      * not directly recognized as one by TypeScript.
@@ -107,7 +117,7 @@ export function value<T>(val?: T): Writable<T> {
  * {@link Signal}.
  *
  * Note: If the supplied function has a non-zero `.length` (i.e., it explicitly
- * takes arguments), it is assumed to be a {@link Source}, and the second
+ * takes arguments), it is assumed to be a {@link Producer}, and the second
  * calling signature below will apply, even if TypeScript doesn't see it that
  * way!)
  *
@@ -117,7 +127,7 @@ export function cached<T>(compute: () => T): Signal<T>;
 
 /**
  * If the supplied function has a non-zero `.length` (i.e., it explicitly takes
- * arguments), it is assumed to be a {@link Source}, and the second argument is
+ * arguments), it is assumed to be a {@link Producer}, and the second argument is
  * a default value for the created signal to use as default value until the
  * source produces a value.
  *
@@ -128,13 +138,13 @@ export function cached<T>(compute: () => T): Signal<T>;
  * the signal is once again unobserved, it will revert to the supplied inital
  * value.
  *
- * @param source A {@link Source} providing data which will become this signal's value
+ * @param source A {@link Producer} providing data which will become this signal's value
  * @param initVal The value to use when the signal is unobserved or waiting for the
  * first item from the source.
  */
-export function cached<T>(source: Source<T>, initVal?: T): Signal<T>;
+export function cached<T>(source: Producer<T>, initVal?: T): Signal<T>;
 export function cached<T extends Signal<any>>(signal: T): T
-export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T> {
+export function cached<T>(compute: Producer<T> | (() => T), initVal?: T): Signal<T> {
     if (compute instanceof Signal) return compute;
     return mkSignal(
         compute.length ? Cell.mkStream(compute as Producer<T>, initVal) : Cell.mkCached(compute as () => T)
@@ -165,7 +175,7 @@ export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): 
  * subscribe to changes to it, but not directly produce a signal.  (Such as
  * querying the DOM state and using a MutationObserver.)
  *
- * By calling this with a {@link Source} or {@link RecalcSource}, you arrange
+ * By calling this with a {@link Producer} or {@link RecalcSource}, you arrange
  * for it to be subscribed, if and when the call occurs in a rule or a cached
  * function that's in use by a rule (directly or indirectly).  When the source
  * emits a value, the signal machinery will invalidate the caching of the

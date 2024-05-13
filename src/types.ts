@@ -477,10 +477,10 @@ export type JobIterator<T> = Generator<Suspend<any>, T, any>
  * explicit throw()/return() calls on the job instance.)
  *
  * Also note that any subjobs the Suspend function creates (or cleanup callbacks
- * it registers) **will not be called until the *calling* job ends**.  So any
- * resources that won't be needed once the job is resumed should be explicitly
- * disposed of -- in which case you should probably just `yield *` to a
- * {@link start}(), instead of yielding a Suspend!
+ * it registers) **will not be cleaned up until the *calling* job ends**.  So
+ * any resources that won't be needed once the job is resumed should be
+ * explicitly disposed of -- in which case you should probably just `yield *` to
+ * a {@link start}(), instead of yielding a Suspend!
  *
  * @category Types and Interfaces
  */

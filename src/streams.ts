@@ -111,7 +111,7 @@ export type Producer<T> = (sink: Sink<T>, conn?: Connection, inlet?: Throttle | 
  *
  * @category Types and Interfaces
  */
-export type Source<T> = Producer<T> | Signal<T> | Writable<T>;
+export type Source<T> = Producer<T> | Signal<T>;
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
