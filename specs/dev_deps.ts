@@ -26,6 +26,8 @@ log.get = () => _log;
 /** log() as Event sink */
 log.emit = (s: any) => { log(s); return true; };
 
+export function msg(val: any) { return () => log(val); }
+
 /** Verify current log contents (and clear the log) */
 export function see(...lines: Array<string|RegExp>) {
     const data = _log.splice(0);

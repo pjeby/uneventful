@@ -1,9 +1,9 @@
-import { Request, Suspend, Yielding} from "./types.ts"
+import { Job, Request, Suspend, Yielding} from "./types.ts"
 import { to } from "./async.ts";
 import { defer } from "./defer.ts";
-import { Source, connect, throttle } from "./streams.ts";
+import { Connection, Inlet, Producer, Sink, Source, connect, pipe, throttle } from "./streams.ts";
 import { reject, resolve, isError, markHandled } from "./results.ts";
-import { start } from "./jobutils.ts";
+import { restarting, start } from "./jobutils.ts";
 import { getJob, isFunction } from "./tracking.ts";
 
 /**
@@ -151,4 +151,46 @@ export function until<T>(source: Waitable<T>): Yielding<T> {
         })
     }
     throw new TypeError("until(): must be signal, source, or then-able");
+}
+
+/**
+ * Run a {@link restarting}() callback for each value produced by a source.
+ *
+ * With each event that occurs, any previous callback run is cleaned up before
+ * the new one begins.  (And the last run is cleaned up when the connection or
+ * job ends.)
+ *
+ * This function is almost the exact opposite of {@link each}(), in that the
+ * stream is never paused (unless you do so manually via a throttle or inlet),
+ * and if the "loop body" (callback job) is still running when a new value
+ * arrives, forEach() restarts the job instead of dropping the value.
+ *
+ * @param src An event source (i.e. a {@link Producer} or {@link Signal})
+ * @param sink A callback that receives values from the source
+ * @param inlet An optional throttle or inlet that will be used to pause the
+ * source (if it's a signal or supports backpressure)
+ * @returns a {@link Connection} that can be used to detect the stream
+ * end/error, or ended to close it early.
+ *
+ * @category Stream Consumers
+ */
+export function forEach<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection;
+/**
+ * When called without a source, return a callback suitable for use w/{@link pipe}().
+ * e.g.:
+ *
+ * ```ts
+ * pipe(someSource, ..., forEach(v => { doSomething(v); }), optionalInlet));
+ * ```
+ *
+ */
+export function forEach<T>(sink: Sink<T>, inlet?: Inlet): (src: Source<T>) => Connection;
+export function forEach<T>(
+    src: Source<T>|Sink<T>, sink?: Sink<T>|Inlet, inlet?: Inlet
+): Connection | ((src: Source<T>) => Connection) {
+    if (isFunction(sink)) return start(j => {
+        (src as Source<T>)(restarting(sink as Sink<T>), j, inlet)
+    });
+    inlet = sink as Inlet; sink = src as Sink<T>;
+    return (src: Source<T>) => forEach(src, sink as Sink<T>, inlet);
 }

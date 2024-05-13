@@ -1,5 +1,5 @@
-import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
-import { each, Source, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled } from "../mod.ts";
+import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
+import { each, Source, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, Producer, pipe } from "../mod.ts";
 
 describe("each()", () => {
     useRoot();
@@ -94,5 +94,54 @@ describe("each()", () => {
         clock.tick(1); e(42); await job;
         // Then it should throw an error
         see("err: Error: Multiple `yield next` in loop");
+    });
+});
+
+describe("forEach()", () => {
+    useRoot();
+    it("calls the source w/a restarting sink, the job, and the inlet", () => {
+        // Given a mock source and throttle
+        const emit = mockSource<number>(), t = throttle();
+        let received: Job;
+        // When iterated with forEach
+        const conn = forEach((s, j, i) => {
+            received = j;
+            log(i === t);
+            return emit.source(s, j, i);
+        }, (x: number) => {
+            log(`got: ${x}`); must(msg(`restart: ${x}`));
+        }, t);
+        // Then the source should receive the matching job and throttle
+        see("true");
+        expect(received).to.equal(conn);
+        // And the sink should be run in a job that restarts on each new value
+        emit(17); see("got: 17");
+        emit(42); see("restart: 17", "got: 42");
+        // And ends with the connection
+        emit.end(); see("restart: 42");
+        expect(isValue(conn.result())).to.be.true;
+    });
+    it("works as a pipe() target", () => {
+        // Given a mock source and throttle
+        const emit = mockSource<number>(), t = throttle();
+        let received: Job;
+        const src = (s: Sink<number>, j: Connection, i: Inlet) => {
+            received = j;
+            log(i === t);
+            return emit.source(s, j, i);
+        }
+        // When iterated with forEach through a pipe()
+        const conn = pipe(src, forEach((x: number) => {
+            log(`got: ${x}`); must(msg(`restart: ${x}`));
+        }, t));
+        // Then the source should receive the matching job and throttle
+        see("true");
+        expect(received).to.equal(conn);
+        // And the sink should be run in a job that restarts on each new value
+        emit(17); see("got: 17");
+        emit(42); see("restart: 17", "got: 42");
+        // And ends with the connection
+        emit.end(); see("restart: 42");
+        expect(isValue(conn.result())).to.be.true;
     });
 });
