@@ -66,3 +66,11 @@ li.tsd-signature.tsd-anchor-link,
 pre { margin-bottom: 1em; }
 
 code { border-radius: 0; background: none; }
+
+/*
+ * Remove top-level navigation node if it's the README - this avoids duplicating
+ * the project name if there are multiple entry points and one of thm has the
+ * same name as the project.  If there's only one entry point then the top-level
+ * link is "modules.html" not "index.html".
+ */
+ .site-menu > .tsd-navigation > a[href$="index.html"] { display: none;}

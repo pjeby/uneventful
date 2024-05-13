@@ -28,11 +28,13 @@ module.exports = {
     hideParameterTypesInTitle: false,
     navigation: {
         includeCategories: true,
+        includeFolders: false,
     },
     options: "package.json", // workaround for https://github.com/KnodesCommunity/typedoc-plugins/issues/525
     sort: [
         "alphabetical"
     ],
+    sortEntryPoints: false
 };
 
 // Set source links to vscode unless running on GitHub Actions

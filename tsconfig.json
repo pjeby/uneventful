@@ -25,6 +25,6 @@
         "newLine": "lf"
     },
     "include": [
-        "src/*.ts", "mod.ts"
+        "./src/*.ts", "./mod.ts"
     ]
 }
