@@ -197,7 +197,9 @@ const enum Is {
     Error  = 1 << 4,
     Running = 1 << 5,
     Stream  = 1 << 6,
+    Mutable = 1 << 7,
     Computed = Rule | Lazy,
+    Variable = Computed | Mutable,
 }
 
 type Subscription = {
@@ -284,7 +286,8 @@ export class Cell {
         if (arguments.length) return this.stream.apply(this, arguments as any);
         this.catchUp();
         const dep = current.cell;
-        if (dep) {
+        // Only create a dependency if our value can change
+        if (dep && this.flags & Is.Variable) {
             if (this.flags & Is.Running) throw new CircularDependency("Cached function dependency cycle");
             // See if we've already got a subscription node for the dependent
             let s = this.adding;
@@ -398,6 +401,11 @@ export class Cell {
                 sub = pS;
             }
             this.sources = head;
+            if (!head) {
+                // without sources, we can never change or be invalidated, so
+                // revert to settable value() or permanent constant
+                this.flags &= ~Is.Lazy;
+            }
             if (this.flags & Is.Dead) this.disposeRule();
         }
     }
@@ -442,6 +450,7 @@ export class Cell {
 
     static mkValue<T>(val: T) {
         const cell = new Cell;
+        cell.flags = Is.Mutable;
         cell.value = val;
         cell.lastChanged = timestamp;
         return cell;

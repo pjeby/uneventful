@@ -1,6 +1,7 @@
 import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
 import { runRules, value, cached, rule, CircularDependency, RuleScheduler, WriteConflict } from "../mod.ts";
 import { defer } from "../src/defer.ts";
+import { current } from "../src/ambient.ts";
 
 describe("Cycles and Side-Effects", () => {
     useRoot();
@@ -162,6 +163,29 @@ describe("cached()", () => {
         // When it's called
         // Then it should throw an error
         expect(c1).to.throw(CircularDependency);
+    });
+    it("doesn't rerun without dependencies", () => {
+        // Given a cached() with no dependencies that has run once
+        const c = cached(() => { log("run"); return 42; });
+        expect(c()).to.equal(42); see("run");
+        // When other values change
+        const v = value(99); v(); v.set(55);
+        // Then the cached() should not rerun
+        c(); see();
+    });
+    it("ignores dependency on a cached with no dependencies", () => {
+        // Given a cached with no dependencies and another that reads it
+        const c1 = cached(() => {
+            log("run 1"); return 42;
+        });
+        const c2 = cached(() => {
+            log("run 2");
+            try { return c1(); } finally { log(!!current.cell.sources); }
+        });
+        // When the second is run
+        expect(c2()).to.equal(42);
+        // Then it should not gain a dependency
+        see("run 2", "run 1", "false");
     });
 });
 
