@@ -13,6 +13,8 @@
         "target": "es2020",
         "lib": ["es2020", "DOM"],
 
+        "experimentalDecorators": true,
+
         // required to import ".ts" files (for ts-node/esm, deno, and VSCode)
         "allowImportingTsExtensions": true,
 
@@ -25,6 +27,6 @@
         "newLine": "lf"
     },
     "include": [
-        "./src/*.ts", "./mod.ts"
+        "./src/*.ts", "./mod.ts", "./specs/*.ts"
     ]
 }

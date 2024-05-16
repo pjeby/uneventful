@@ -1,5 +1,5 @@
-import { describe, expect, it, useClock, clock } from "./dev_deps.ts";
-import { timeout, detached, abortSignal } from "../mod.ts";
+import { describe, expect, it, useClock, clock, log, useRoot, see } from "./dev_deps.ts";
+import { timeout, detached, abortSignal, task, getJob, getResult, Yielding, start } from "../mod.ts";
 
 describe("timeout()", () => {
     useClock();
@@ -97,5 +97,59 @@ describe("abortSignal", () => {
         expect(s1).not.to.equal(s2);
         // That isn't aborted
         expect(s2.aborted).to.be.false;
+    });
+});
+
+describe("task()", () => {
+    useRoot()
+    useClock();
+    it("passes arguments+this, returning a job", () => {
+        // Given a task-wrapped function
+        const that = {};
+        const t = task(function *(a: number, b: string) {
+            log(this === that);
+            log(a);
+            log(b);
+            log(getJob() === job);
+            return 42;
+        })
+        // When called w/args and a `this`
+        const job = t.call(that, 99, "foo"); see();
+
+        // Then the function should be called in a new job
+        // that's the same as the return value, with the
+        // given `this`
+        clock.tick(0); see("true", "99", "foo", "true");
+
+        // And the wrapped function's eventual return
+        // goes to the enclosing job
+        expect(getResult(job.result())).to.equal(42);
+    });
+    it("works as a decorator", () => {
+        // Given an instance of a class w/a @task-decorated method
+        // (experimental/legacy mode)
+        class X {
+            @task
+            *method(a: number, b: string): Yielding<number> {
+                log(this === that);
+                log(a);
+                log(b);
+                log(getJob() === job);
+                return 42;
+            }
+        }
+        const that = new X;
+        // When the method is called w/args
+        const job = start(that.method(99, "foo")); see();
+
+        // Then the method should be called in a new job
+        // that's the same as the return value, with the
+        // object as its `this`
+        clock.tick(0); see("true", "99", "foo", "true");
+
+        // And the wrapped function's eventual return
+        // goes to the enclosing job
+        expect(getResult(start(job).result())).to.equal(42);
+
     });
 });

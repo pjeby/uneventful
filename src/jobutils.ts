@@ -187,3 +187,78 @@ export function restarting<F extends AnyFunction>(task?: F): F {
         finally { freeCtx(swapCtx(old)); }
     };
 }
+
+/**
+ * Wrap an argument-taking function so it will run in (and returns) a new Job
+ * when called.
+ *
+ * This lets you avoid the common pattern of needing to write your functions or
+ * methods like this:
+ *
+ * ```ts
+ * function outer(arg1, arg2) {
+ *     return start(function*() {
+ *         // ...
+ *     })
+ * }
+ * ```
+ * and instead write them like this:
+ * ```ts
+ * const outer = task(function *(arg1, arg2) {
+ *     // ...
+ * });
+ * ```
+ * or this:
+ * ```ts
+ * class Something {
+ *     ⁣⁣@task  // auto-detects TC39 or legacy decorators
+ *     *someMethod(arg1): Yielding<SomeResultType> {
+ *         // ...
+ *     }
+ * }
+ * ```
+ *
+ * Important: if the wrapped function or method has overloads, the resulting
+ * function type will be based on the **last** overload, because TypeScript (at
+ * least as of 5.x) is still not very good at dealing with higher order
+ * generics, especially if overloads are involved.
+ *
+ * Also note that TypeScript doesn't allow decorators to change the calling
+ * signature or return type of a method, so even though the above method will
+ * return a {@link Job}, TypeScript will only see it as a {@link Yielding}.
+ *
+ * This is fine if all you're going to do is `yield *` it to wait for the
+ * result, but if you need to use any job-specific methods on it, you'll have to
+ * pass it through {@link start} to have TypeScript treat it as an actual job.
+ * (Luckily, start() has a fast path to return the original job if it's passed a
+ * job, so you won't actually create a new job by doing this.)
+ *
+ * @param fn The function to wrap. A function returning a generator or
+ * promise-like object (i.e., a {@link StartObj}).
+ *
+ * @returns A wrapped version of the function that passes through its arguments
+ * to the original function, while running it in a new job.  (The wrapper also
+ * returns the job.)
+ *
+ * @category Jobs
+ */
+export function task<T, A extends any[], C>(fn: (this: C, ...args: A) => StartObj<T>): (this: C, ...args: A) => Job<T>;
+
+/** @hidden TC39 Decorator protocol */
+export function task<T, A extends any[], C>(
+    fn: (this: C, ...args: A) => StartObj<T>, ctx: {kind: "method"}
+): (this: C, ...args: A) => Job<T>;
+
+/** @hidden Legacy Decorator protocol */
+export function task<T, A extends any[], C, D extends {value?: (this:C, ...args: A) => StartObj<T>}>(
+    clsOrProto: any, name: string|symbol, desc: D
+): D
+
+export function task<T, A extends any[], C, D extends {value?: (this:C, ...args: A) => StartObj<T>}>(
+    fn: (this: C, ...args: A) => StartObj<T>, _ctx?: any, desc?: D
+): D | ((this: C, ...args: A) => Job<T>) {
+    if (desc) return {...desc, value: task(desc.value)};
+    return function (this: C, ...args: A) {
+        return start<T>(() => fn.apply(this, args));
+    }
+}
