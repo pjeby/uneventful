@@ -1,3 +1,4 @@
+import { type Cell } from "./cells.ts";
 import { defer } from "./defer.ts";
 
 /** Scheduler state flags */
@@ -77,6 +78,37 @@ export class RunQueue<K> {
         }
     }
 }
+
+export var currentRule: Cell;
+var currentQueue: RuleQueue;
+
+const ruleQueues = new WeakMap<Function, RuleQueue>();
+
+export class RuleQueue extends RunQueue<Cell> {
+    constructor(sched: (cb: () => unknown) => unknown) {
+        super(sched, function(this: RuleQueue, q) {
+            // another queue is running? reschedule for later
+            if (currentQueue) return;
+            currentQueue = this;
+            try {
+                // run rules marked dirty by value changes
+                for (currentRule of q) {
+                    currentRule.catchUp();
+                    q.delete(currentRule);
+                }
+            } finally {
+                currentQueue = currentRule = undefined;
+            }
+        });
+    }
+}
+
+export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
+    ruleQueues.has(scheduleFn) || ruleQueues.set(scheduleFn, new RuleQueue(scheduleFn));
+    return ruleQueues.get(scheduleFn);
+}
+
+export const defaultQ = /* @__PURE__ */ ruleQueue(defer);
 
 /** @internal */
 export const pulls = new RunQueue<{doPull(): void}>(defer, pulls => {

@@ -1,7 +1,6 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
-import { defer } from "./defer.ts";
-import { RunQueue } from "./scheduling.ts";
-import { DisposeFn, OptionalCleanup, RecalcSource } from "./types.ts"
+import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
+import { OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Producer, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
@@ -27,145 +26,6 @@ export class WriteConflict extends Error {}
 export class CircularDependency extends Error {}
 
 var timestamp = 1;
-var currentRule: Cell;
-var currentQueue: RuleScheduler;
-
-/**
- * A queue for rules to run during a particular kind of period, such as
- * microtasks or animation frames.  (Can only be obtained or created via
- * {@link RuleScheduler.for}().)
- *
- * @category Signals
- */
-export class RuleScheduler {
-
-    /** @internal */
-    protected static cache = new WeakMap<Function, RuleScheduler>();
-
-    /** @internal */
-    protected readonly q: RunQueue<Cell>;
-
-    /**
-     * Run all pending rules on this scheduler.
-     *
-     * This is a bound method
-     *
-     * (Note: "pending" rules are ones with at least one changed ancestor
-     * dependency; this doesn't mean they will actually *do* anything,
-     * since intermediate cached() function results might end up unchanged.)
-     */
-    flush: () => void;
-
-    /**
-     * Create an {@link RuleScheduler} from a callback-taking function, that
-     * you can then use to make rules that run in a specific time frame.
-     *
-     * ```ts
-     * // frame.rule will now create rules that run during animation fames
-     * const animate = RuleScheduler.for(requestAnimationFrame).rule;
-     *
-     * animate(() => {
-     *     // ... do stuff in an animation frame when signals used here change
-     * })
-     * ```
-     *
-     * Returns the default scheduler if no arguments are given.  If called with
-     * the same function more than once, it returns the same scheduler instance.
-     *
-     * @param scheduleFn A single-argument scheduling function (like
-     * requestAnimationFrame, setImmediate, or queueMicrotask).  The scheduler
-     * will call it from time to time with a single callback.  The scheduling
-     * function should then arrange for that callback to be invoked *once* at
-     * some future point, when it is the desired time for all pending rules on
-     * that scheduler to run.
-     */
-    static for(scheduleFn: (cb: () => unknown) => unknown = defer) {
-        this.cache.has(scheduleFn) || this.cache.set(scheduleFn, new this(scheduleFn));
-        return this.cache.get(scheduleFn);
-    }
-
-    protected constructor(_scheduleFn: (cb: () => unknown) => unknown = defer) {
-        this.q = new RunQueue<Cell>(_scheduleFn, _queue => {
-            // another queue is running? reschedule for later
-            if (currentQueue) return;
-            currentQueue = this;
-            try {
-                // run rules marked dirty by value changes
-                for(currentRule of _queue) {
-                    currentRule.catchUp();
-                    _queue.delete(currentRule);
-                }
-            } finally {
-                currentQueue = currentRule = undefined;
-            }
-        });
-        this.flush = this.q.flush;
-    }
-
-    /**
-     * @inheritdoc rule tied to a specific scheduler.  See {@link rule} for
-     * more details.
-     *
-     * @remarks The rule will only run during its matching
-     * {@link RuleScheduler.flush}().
-     *
-     * This is a bound method, so you can use it independently of the scheduler
-     * it came from.
-     */
-    rule = (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => {
-        return Cell.mkRule(fn, this.q);
-    };
-}
-
-const defaultQueue = RuleScheduler.for(defer);
-
-/**
- * Subscribe a function to run every time certain values change.
- *
- * @remarks
- * The function is run asynchronously, first after being created, then again
- * after there are changes in any of the values or cached functions it read
- * during its previous run.
- *
- * The created subscription is tied to the currently-active job (which may be
- * another rule).  So when that job is ended or restarted, the rule will be
- * terminated automatically.  You can also terminate it early by calling the
- * "stop" function that is both passed to the rule function and returned by
- * `rule()`.
- *
- * Note: this function will throw an error if called without an active job. If
- * you need a standalone rule, use {@link detached}.run to wrap the
- * call to rule.
- *
- * @param fn The function that will be run each time its dependencies change.
- * The function will be run in a restarted job each time, with any resources
- * used by the previous run being cleaned up.  The function is passed a single
- * argument: a function that can be called to terminate the rule.   The function
- * should return a cleanup function or void.
- *
- * @returns A function that can be called to terminate the rule.
- *
- * @category Signals
- */
-export const rule = defaultQueue.rule;
-
-/**
- * Synchronously run pending rules from the default scheduler.
- *
- * @remarks Equivalent to calling
- * {@link RuleScheduler.for}(defer).{@link RuleScheduler.flush flush}().
- *
- * Note that you should normally only need to call this when you need
- * side-effects to occur within a specific synchronous timeframe, e.g. if
- * rules need to be able to cancel a synchronous event or continue an
- * IndexedDB transaction.  (You can also define rules to run in a specific
- * timeframe by creating a {@link RuleScheduler} for them, via
- * {@link RuleScheduler.for}.)
- *
- * @category Signals
- */
-export const runRules = defaultQueue.flush
-
 
 /** recalcWhen(fn): map fn -> signal */
 const fntrackers = new WeakMap<Function, () => number>();
@@ -183,7 +43,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource || tgt.latestSource === 0) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Rule) (tgt.value as RunQueue<Cell>).add(tgt);
+            if (tgt.flags & Is.Rule) (tgt.value.q as RuleQueue).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -260,9 +120,8 @@ function delsub(sub: Subscription) {
 
 const sentinel = {}  // a unique value for uniqueness checking
 
-/** @internal */
 export class Cell {
-    value: any = undefined // the value, or, for a rule, the scheduler
+    value: any = undefined // the value, or, for a rule, the `{q, rm}` struct
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source (0 = Infinity)
@@ -279,13 +138,13 @@ export class Cell {
 
     stream<T>(sink: Sink<T>, _conn?: Connection, inlet?: Inlet) {
         let lastValue = sentinel;
-        (inlet ? RuleScheduler.for(backpressure(inlet)).rule : rule)(() => {
+        Cell.mkRule(() => {
             const val = this.getValue();
             if (val !== lastValue) {
                 const old = swapCtx(nullCtx);
                 try { sink(lastValue = val); } finally { swapCtx(old); }
             }
-        });
+        }, inlet ? ruleQueue(backpressure(inlet)) : defaultQ);
         return IsStream;
     }
 
@@ -440,7 +299,8 @@ export class Cell {
     disposeRule() {
         this.ctx.job.end();
         this.flags |= Is.Dead;
-        (this.value as RunQueue<Cell>).delete(this);
+        (this.value.q as RuleQueue).delete(this);
+        this.value.rm();
         if (current !== this.ctx) {
             for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
             this.sources = undefined;
@@ -533,21 +393,14 @@ export class Cell {
         return cell.getValue.bind(cell);
     }
 
-    static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RunQueue<Cell>) {
-        var unlink = getJob().release(stop);
-        var cell = new Cell, f = makeJob();
-        cell.value = q;
+    static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RuleQueue) {
+        var cell = new Cell, job = makeJob();
+        const stop = cell.disposeRule.bind(cell);
+        cell.value = {q, rm: getJob().release(stop)};
         cell.compute = fn.bind(null, stop);
-        cell.ctx = makeCtx(f, cell);
+        cell.ctx = makeCtx(job, cell);
         cell.flags = Is.Rule;
         q.add(cell);
         return stop;
-        function stop() {
-            unlink();
-            if (cell) {
-                cell.disposeRule();
-                cell = undefined;
-            }
-        }
     }
 }

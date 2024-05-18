@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { rule, noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isValue, restarting, isHandled, JobResult, nativePromise, Suspend, getResult } from "../mod.ts";
-import { Cell, runRules } from "../src/cells.ts";
+import { rule, runRules, noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isValue, restarting, isHandled, JobResult, nativePromise, Suspend, getResult } from "../mod.ts";
+import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
     it("returns new standalone jobs", () => {

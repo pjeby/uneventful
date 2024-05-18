@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
-import { runRules, value, cached, rule, CircularDependency, RuleScheduler, WriteConflict } from "../mod.ts";
+import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../mod.ts";
 import { defer } from "../src/defer.ts";
 import { current } from "../src/ambient.ts";
 
@@ -251,57 +251,51 @@ describe("rule()", () => {
     });
 });
 
-describe("RuleScheduler.for()", () => {
-    it("returns the default scheduler by default", () => {
-        // Given a scheduler returned by RuleScheduler.for(defer)
-        const s = RuleScheduler.for(defer);
-        // Then it should be the same as RuleScheduler.for()
-        expect(s).to.equal(RuleScheduler.for());
-        // And its .flush should be the same as runRules
-        expect(s.flush).to.equal(runRules);
+describe("rule.factory()", () => {
+    it("returns the default factory by default", () => {
+        // Given a factory returned by rule.factory(defer)
+        const newRule = rule.factory(defer);
+        // Then it should be the same as rule
+        expect(newRule).to.equal(rule);
     });
     it("is idempotent for a given argument", () => {
-        // Given a scheduler returned by RuleScheduler.for(fn)
-        const fn = () => {}, s = RuleScheduler.for(fn);
-        // When RuleScheduler.for is called with the same function
-        // Then it should return the same RuleScheduler
-        expect(RuleScheduler.for(fn)).to.equal(s);
+        // Given a factory returned by rule.factory(fn)
+        const fn = () => {}, s = rule.factory(fn);
+        // When rule.factory is called with the same function
+        // Then it should return the same RuleFactory
+        expect(rule.factory(fn)).to.equal(s);
     });
-    describe("returns a RuleScheduler that", () => {
+    describe("returns a RuleFactory that", () => {
         useRoot();
         it("can be used to create rules that run separately", () => {
-            // Given a scheduler based on a spy
-            const cb = spy(), s = RuleScheduler.for(cb);
-            // When a rule is added to the scheduler
-            s.rule(() => log("run"));
+            // Given a factory based on a spy
+            const cb = spy(), newRule = rule.factory(cb);
+            // When a rule is created with the factory
+            newRule(() => log("run"));
             // Then it should not run during normal runRules()
             runRules(); see();
             // But only when the requested callback is run
             cb.args[0][0](); see("run");
         });
-    });
-});
-
-describe("RuleScheduler", () => {
-    useRoot();
-    it("will defer its flush if another scheduler is flushing", () => {
-        // Given a populated custom scheduler
-        const v = value<Function>(), s = RuleScheduler.for(v.set);
-        s.rule(() => log("inner flush"));
-        // Which has therefore scheduled itself
-        const flush = v();
-        v.set(undefined);  // clear value so we can tell when it's scheduled again
-        // and a (main-schedule) rule that flushes it
-        rule(() => {
-            flush();
-            log("outer flush");
+        it("will defer its flush if another factory is flushing", () => {
+            // Given a new rule in a custom factory
+            const v = value<Function>(), s = rule.factory(v.set);
+            s(() => log("inner flush"));
+            // Which has therefore scheduled itself
+            const flush = v();
+            v.set(undefined);  // clear value so we can tell when it's scheduled again
+            // and a (main-schedule) rule that flushes it
+            rule(() => {
+                flush();
+                log("outer flush");
+            });
+            // When the main scheduler is flushed
+            runRules();
+            // Then the nested flush should not run
+            see("outer flush");
+            // Until the (now-rescheduled) factory's rules run
+            v()();
+            see("inner flush");
         });
-        // When the main schedule is flushed
-        runRules();
-        // Then the nested flush should not run
-        see("outer flush");
-        // Until the (now-rescheduled) custom scheduler runs
-        v()();
-        see("inner flush");
     });
 });

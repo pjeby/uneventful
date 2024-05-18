@@ -146,13 +146,13 @@ Second, you can also *turn streams into signals*, by passing them to `cached()`.
 But wait, there's more: Unlike most libraries' "effects", Uneventful's rules *start asynchronously* and can be *independently scheduled*.  This means, for example, that it's easy to make rules that run only in, say, animation frames:
 
 ```ts
-import { RuleScheduler } from "uneventful";
+import { rule } from "uneventful";
 
 /**
  * An alternate version of rule() that runs in animation frames
  * instead of microticks
  */
-const animate = RuleScheduler.for(requestAnimationFrame).rule;
+const animate = rule.factory(requestAnimationFrame);
 
 animate(() => {
     // Code here will not run until the next animation frame.

@@ -1,10 +1,14 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
-import { Cell, rule } from "./cells.ts";
+import { Cell } from "./cells.ts";
+import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
 import { Connection, Inlet, IsStream, Producer, Sink } from "./streams.ts";
-export { RuleScheduler, rule, runRules, WriteConflict, CircularDependency } from "./cells.ts";
+import { CallableObject } from "./utils.ts";
+
+export { rule, runRules, type GenericMethodDecorator, type RuleFactory } from "./rules.ts"
+export { WriteConflict, CircularDependency } from "./cells.ts";
 
 /**
  * A function that can be called to get a value.
@@ -35,7 +39,7 @@ export interface Signal<T> extends Producer<T>, Returns<T> {
  *
  * @category Types and Interfaces
  */
-export class Signal<T> extends Function implements UntilMethod<T> {
+export class Signal<T> extends CallableObject<Returns<T>> implements UntilMethod<T> {
     /** The current value */
     get value() { return this(); }
     /** The current value */
@@ -75,8 +79,6 @@ export class Signal<T> extends Function implements UntilMethod<T> {
             }
         });
     }
-
-    protected constructor() { super(); }
 }
 
 export interface Writable<T> {
