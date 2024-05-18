@@ -1,7 +1,8 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
 import {
-    runRules, value, cached, rule, noDeps, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob
+    runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, must, recalcWhen,
+    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob,
+    SignalImpl, WritableImpl
 } from "../mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
@@ -27,7 +28,7 @@ describe("Signal Constructors/Interfaces", () => {
     describe("value()", () => {
         it("implements the Signal interface", () => { verifyMulti(value); });
         it("is a Writable instance", () => {
-            expect(value(27)).to.be.instanceOf(Writable);
+            expect(value(27)).to.be.instanceOf(WritableImpl);
         })
         it("can be set()", () => {
             const val = value();
@@ -61,7 +62,7 @@ describe("Signal Constructors/Interfaces", () => {
         });
         it(".readonly() returns a readonly signal", () => {
             // Given a value() and its .readonly() signal
-            const val = value(), s = val.readonly();
+            const val = value(), s = val.asReadonly();
             // When the value is changed, it should be reflected in the signal
             verifyMulti(v => { val.value = v; return s as Signal<typeof v>; });
             // And the signal should not have a .set() method
@@ -123,7 +124,7 @@ describe("Signal Constructors/Interfaces", () => {
     describe("cached()", () => {
         it("implements the Signal interface", () => { verifyMulti((v) => cached(() => v)); });
         it("is a Signal instance", () => {
-            expect(cached(() => 27)).to.be.instanceOf(Signal);
+            expect(cached(() => 27)).to.be.instanceOf(SignalImpl);
         })
         it("is idempotent", () => {
             // Given an existing cached() signal
@@ -137,7 +138,7 @@ describe("Signal Constructors/Interfaces", () => {
             // Given a cached() signal
             const c1 = cached(() => 53);
             // When you call .readonly() Then it should return itself
-            expect(c1.readonly()).to.equal(c1);
+            expect(c1.asReadonly()).to.equal(c1);
         });
         it(".withSet() returns a signal with a .set()", () => {
             // Given a cached() and its .withSet() signal
@@ -212,21 +213,21 @@ describe("Signal Constructors/Interfaces", () => {
 
 describe("Dependency tracking", () => {
     useRoot();
-    describe("noDeps()", () => {
+    describe("peek()", () => {
         describe("returns the result of calling the function", () => {
             it("with no arguments", () => {
                 // When called with a no argument function
                 // Then it should return the result
-                expect(noDeps(() => 42)).to.equal(42);
+                expect(peek(() => 42)).to.equal(42);
             });
             it("with arguments", () => {
                 // When called with a function and arguments
                 // Then it should return the result
-                expect(noDeps((x, y) => ({x, y}), 15, 21)).to.deep.equal({x: 15, y: 21});
+                expect(peek((x, y) => ({x, y}), 15, 21)).to.deep.equal({x: 15, y: 21});
             });
             it("prevents forming a dependency", () => {
-                // Given a cached that peeks at a value via noDeps
-                const v = value(42), c = cached(() => noDeps(v));
+                // Given a cached that peeks at a value via peek
+                const v = value(42), c = cached(() => peek(v));
                 // And has a subscriber (so it will only recompute if a dependency changes)
                 rule(() => { c() }); runRules();
                 expect(c()).to.equal(42);
@@ -237,9 +238,9 @@ describe("Dependency tracking", () => {
                 expect(c()).to.equal(42);
             });
             it("doesn't prevent cycle detection on assignment", () => {
-                // Given a rule that reads and writes a value with noDeps
+                // Given a rule that reads and writes a value with peek
                 const v = value(42);
-                rule(() => { noDeps(() => { v.set(v()+1); }); })
+                rule(() => { peek(() => { v.set(v()+1); }); })
                 // When the rule is run,
                 // Then it should still throw a write conflict
                 expect(runRules).to.throw(WriteConflict);

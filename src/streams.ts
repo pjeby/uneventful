@@ -2,7 +2,7 @@ import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { current } from "./ambient.ts";
-import { Signal, Writable } from "./signals.ts";
+import { type Signal, type Writable } from "./signals.ts";
 
 /**
  * A backpressure controller: returns true if downstream is ready to accept
@@ -100,7 +100,10 @@ export type Connection = Job<void>;
  *
  * @category Types and Interfaces
  */
-export type Producer<T> = (sink: Sink<T>, conn?: Connection, inlet?: Throttle | Inlet) => typeof IsStream;
+export interface Producer<T> {
+    /** Subscribe sink to receive values */
+    (sink: Sink<T>, conn?: Connection, inlet?: Throttle | Inlet): typeof IsStream;
+}
 
 /**
  * A Source is either a {@link Producer} or a {@link Signal}.  (Signals actually

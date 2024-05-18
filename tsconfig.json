@@ -10,10 +10,26 @@
         // These options support running tsx + ts-node
         "module": "Node16",
         "moduleResolution": "Node16",
-        "target": "es2020",
-        "lib": ["es2020", "DOM"],
+        "target": "es2021",
+        "lib": ["es2021", "DOM"],
 
         "experimentalDecorators": true,
+
+        // Ensure CallableObject subclasses don't use ES2022 pre-declared
+        // fields.  These can apparently be quite slow in general (as described
+        // in https://stackoverflow.com/a/75779079/), but are *especially* bad
+        // for creating instances of CallableObject subclasses, as they force
+        // even more shape changes to happen than usual.  So this option speeds
+        // up signal object creation by around 3x.
+        //
+        // Luckily, as that post describes, V8 doesn't yet do any optimization
+        // on predeclared fields that it doesn't do for fields set in the
+        // constructor.  So avoiding them is a straight-up performance win right
+        // now, so long as you're not using any uninitialized fields.  (Also,
+        // this doesn't affect *users* of Uneventful, since CallableObject and
+        // its subclasses aren't exposed to them.
+        //
+        "useDefineForClassFields": false,
 
         // required to import ".ts" files (for ts-node/esm, deno, and VSCode)
         "allowImportingTsExtensions": true,

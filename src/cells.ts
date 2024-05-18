@@ -343,7 +343,7 @@ export class Cell {
         return cell;
     }
 
-    static mkStream<T>(src: Producer<T>, val?: T): () => T {
+    static mkStream<T>(src: Producer<T>, val?: T) {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();
@@ -364,7 +364,7 @@ export class Cell {
                 swapCtx(old);
             }
         }
-        return cell.getValue.bind(cell);
+        return cell;
     }
 
     recalcWhen(src: RecalcSource): void;
@@ -378,19 +378,19 @@ export class Cell {
         if (!signal) {
             const src = fn ? fn(<T>fnOrKey) : <RecalcSource> fnOrKey;
             let ct = 0;
-            signal = Cell.mkStream(s => (src(() => s(++ct)), IsStream), ct);
-            trackers.set(fnOrKey, signal);
+            const c = Cell.mkStream(s => (src(() => s(++ct)), IsStream), ct);
+            trackers.set(fnOrKey, signal = c.getValue.bind(c));
         }
         signal();  // Subscribe to the cell
     }
 
-    static mkCached<T>(compute: () => T): () => T {
+    static mkCached<T>(compute: () => T) {
         const cell = new Cell;
         cell.compute = compute;
         cell.ctx = makeCtx(null, cell);
         cell.flags = Is.Lazy;
         cell.latestSource = 0;
-        return cell.getValue.bind(cell);
+        return cell;
     }
 
     static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RuleQueue) {

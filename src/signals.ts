@@ -4,7 +4,7 @@ import { Cell } from "./cells.ts";
 import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
-import { Connection, Inlet, IsStream, Producer, Sink } from "./streams.ts";
+import { Producer } from "./streams.ts";
 import { CallableObject } from "./utils.ts";
 
 export { rule, runRules, type GenericMethodDecorator, type RuleFactory } from "./rules.ts"
@@ -13,20 +13,14 @@ export { WriteConflict, CircularDependency } from "./cells.ts";
 /**
  * A function that can be called to get a value.
  *
- * (This interface is needed because TypeScript won't infer type of
- * {@link Signal} correctly otherwise, specifically it won't see it as a zero-agument function.)
+ * This interface is needed because TypeScript won't infer the overloads of
+ * {@link Signal} correctly otherwise. (Specifically, it won't see it as a
+ * zero-agument function.)
  *
  * @category Types and Interfaces
+ * @hidden
  */
-export type Returns<T> = () => T
-
-export interface Signal<T> extends Producer<T>, Returns<T> {
-    /**
-     * A signal object implements the {@link Producer} interface, even if it's
-     * not directly recognized as one by TypeScript.
-     */
-    (sink: Sink<T>, conn?: Connection, inlet?: Inlet): typeof IsStream
-
+interface Returns<T> {
     /** A signal object can be called to get its current value */
     (): T
 }
@@ -34,73 +28,113 @@ export interface Signal<T> extends Producer<T>, Returns<T> {
 /**
  * An observable value, as a zero-argument callable with extra methods.
  *
- * Note: this class is not directly instantiable - use {@link cached}() or call
- * {@link readonly |.readonly()} on an existing signal instead.
+ * In addition to being callable, signals also offer a `.value` getter, and
+ * implement the standard JS methods `.toString()`, `.valueOf()`, and
+ * `.toJSON()` in such a way that they reflect the signal's contents rather than
+ * the signal itself.
+ *
+ * Signals also implement the {@link Producer} interface, and can thus be
+ * subscribed to.  Subscribers receive the current value first, and then any
+ * changes thereafter.  They can be waited on by {@link until}(), in which case
+ * the calling job resumes when the signal's value is truthy.
+ *
+ * You can also transform a signal to a {@link Writable} by calling its
+ * .{@link Signal.withSet withSet}() method, or create a writable value using
+ * {@link value}().
  *
  * @category Types and Interfaces
  */
-export class Signal<T> extends CallableObject<Returns<T>> implements UntilMethod<T> {
-    /** The current value */
+export interface Signal<T> extends Producer<T>, Returns<T>, UntilMethod<T> {
+    /**
+     * The current value
+     *
+     * @category Reading
+     */
+    readonly value: T
+
+    /** Current value @hidden */
+    valueOf()  : T
+
+    /** Current value as a string @hidden */
+    toString(): string
+
+    /** The current value @hidden */
+    toJSON()   : T
+
+    /**
+     * Get the signal's current value, without adding the signal as a dependency
+     *
+     * (This is exactly equivalent to calling {@link peek}(signal), and exists
+     * here mainly for interop with other signal frameworks.)
+     *
+     *  @category Reading */
+    peek(): T;
+
+    /** Get a read-only version of this signal @category Reading */
+    asReadonly(): Signal<T>
+
+    /** New writable signal with a custom setter @category Writing */
+    withSet(set: (v: T) => unknown): Writable<T>
+
+    /** @hidden */
+    "uneventful.until"(): Yielding<T>;
+}
+
+/** @internal */
+export class SignalImpl<T> extends CallableObject<Producer<T> & Returns<T>> {
+    constructor(protected _c: Cell) { super(_c.getValue.bind(_c)); }
     get value() { return this(); }
-    /** The current value */
     valueOf()   { return this(); }
-    /** The current value, as a string */
     toString()  { return "" + this(); }
-    /** The current value */
     toJSON()    { return this(); }
-    /** Get the signal's current value, without adding the signal as a dependency */
-    peek()      { return noDeps(this as () => T); };
-
-    /** Get a read-only version of this signal */
-    readonly(): Signal<T> { return this; }
-
-    /** New writable signal with a custom setter */
-    withSet(set: (v: T) => unknown) {
-        const that = this;
-        return mkSignal( function () { return that.apply(null, arguments); }, set);
+    peek()      { return peek(this as () => T); };
+    asReadonly(): Signal<T> { return this; }
+    withSet(set: (v: T) => unknown): Writable<T> {
+        return Object.assign(new WritableImpl<T>(this._c), {set});
     }
 
     *"uneventful.until"(): Yielding<T> {
         return yield (r => {
-            try {
-                let res: T = this.peek();
-                if (res) return resolve(r, res);
-                rule(stop => {
-                    try {
-                        if (res = this()) {
-                            stop(); resolve(r, res);
-                        }
-                    } catch(e) {
-                        stop(); reject(r,e);
-                    }
-                })
-            } catch(e) {
-                reject(r, e);
-            }
+            let res: T;
+            try { res = this(); } catch(e) { reject(r, e); return; }
+            if (res) return resolve(r, res);
+            rule(stop => {
+                try { res = this(); } catch(e) { stop(); reject(r,e); }
+                if (res) { stop(); resolve(r, res); }
+            });
         });
     }
-}
-
-export interface Writable<T> {
-    /** Set the current value.  (Note: this is a bound method so it can be used as a callback.) */
-    set(val: T): void;
 }
 
 /**
  * A {@link Signal} with a {@link Writable.set | .set()} method and writable
  * {@link Writable.value | .value} property.
  *
- * Note: this class is not directly instantiable - use {@link value}() or call
- * {@link Signal.withSet | .withSet()} on an existing signal instead.
- *
  * @category Types and Interfaces
  */
-export class Writable<T> extends Signal<T>  {
+export interface Writable<T> extends Signal<T>  {
+    /**
+     * Set the current value.  (Note: this is a bound method so it can be used
+     * as a callback.)
+     *
+     * @category Writing
+     */
+    readonly set: (val: T) => void;
+
+    get value(): T
+
+    /** Set the current value */
+    set value(val: T);
+}
+
+export interface WritableImpl<T> extends Writable<T> {}
+/** @internal */
+export class WritableImpl<T> extends SignalImpl<T>  {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
-    readonly(): Signal<T> {
-        const that = this;
-        return mkSignal<T>( function () { return that.apply(null, arguments); });
+    set = (val: T) => { this._c.setValue(val); }
+    asReadonly(): Signal<T> {
+        return new SignalImpl<T>(this._c);
     }
 }
 
@@ -111,7 +145,7 @@ export class Writable<T> extends Signal<T>  {
  */
 export function value<T>(val?: T): Writable<T> {
     const cell = Cell.mkValue(val);
-    return mkSignal(cell.getValue.bind(cell), cell.setValue.bind(cell));
+    return new WritableImpl<T>(cell);
 }
 
 /**
@@ -147,8 +181,8 @@ export function cached<T>(compute: () => T): Signal<T>;
 export function cached<T>(source: Producer<T>, initVal?: T): Signal<T>;
 export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: Producer<T> | (() => T), initVal?: T): Signal<T> {
-    if (compute instanceof Signal) return compute;
-    return mkSignal(
+    if (compute instanceof SignalImpl) return compute;
+    return new SignalImpl<T>(
         compute.length ? Cell.mkStream(compute as Producer<T>, initVal) : Cell.mkCached(compute as () => T)
     );
 }
@@ -164,7 +198,7 @@ export function cached<T>(compute: Producer<T> | (() => T), initVal?: T): Signal
  *
  * @category Signals
  */
-export function noDeps<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
+export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     if (!current.cell) return fn(...args);
     const old = swapCtx(makeCtx(current.job));
     try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
@@ -220,11 +254,4 @@ export function recalcWhen(src: RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
     current.cell?.recalcWhen<T>(fnOrKey as T, fn);
-}
-
-function mkSignal<T>(get: () => T): Signal<T>
-function mkSignal<T>(get: () => T, set: (v: T) => void): Writable<T>
-function mkSignal<T>(get: () => T, set?: (v: T) => void) {
-    if (set) (get as Writable<T>)["set"] = set;
-    return Object.setPrototypeOf(get, (set ? Writable : Signal).prototype);
 }

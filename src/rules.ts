@@ -136,7 +136,7 @@ class RF extends CallableObject<(fn: (stop: DisposeFn) => OptionalCleanup) => Di
     }
     if(condition: () => any, action: () => OptionalCleanup): DisposeFn {
         const cond = Cell.mkCached(() => !!condition());
-        return this(() => cond() ? action() : undefined);
+        return this(() => cond.getValue() ? action() : undefined);
     }
 
     get method(): GenericMethodDecorator<(...args: any[]) => OptionalCleanup> {
