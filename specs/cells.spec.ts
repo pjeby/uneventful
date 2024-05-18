@@ -65,6 +65,18 @@ describe("Cycles and Side-Effects", () => {
             // And it should still be active
             v1.set(23); runRules(); expect(v2()).to.equal(46);
         });
+        it("that's virtually read before it", () => {
+            // Given a multipart condition with short-circuit evaluation
+            const v1 = value(42), v2 = value(57), s = value("started");
+            const c = cached(() => !!(v1() && v2()));
+            rule(() => { if(c()) log(s()); })
+            runRules(); see("started");
+            // When it has a phantom read on a dependency
+            v2.set(99); runRules(); see();
+            // Then writing that dependency from a rule should fail
+            rule(() => s.set("changed"));
+            expect(runRules).to.throw("Value already used");
+        });
     });
     // XXX shouldn't sp.run(), job(), cleanup, and many more from inside cached?
     // don't allow create rule() inside cached?
@@ -96,6 +108,19 @@ describe("Consistent updates", () => {
         start.set(44);
         runRules(); see("44, 66");
         direct();
+    });
+    it("with changes to short-circuited evaluations", () => {
+        // Given a multipart condition with short-circuit evaluation
+        const v1 = value(42), v2 = value(57), s = value("started");
+        const c = cached(() => !!(v1() && v2()));
+        rule(() => { if(c()) log(s()); })
+        runRules(); see("started");
+        // When its conditions change
+        // Then nothing happens unless the truthiness changes
+        v2.set(99); runRules(); see();
+        // Or a dependency of the action changes (i.e., a write to a
+        // short-circuited evaluation should trigger recalculation here)
+        s.set("changed"); runRules(); see("changed");
     });
     it("passes the state managers' efficiency test", () => {
         // adapted from https://habr.com/ru/articles/707600/

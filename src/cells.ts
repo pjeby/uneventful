@@ -189,6 +189,13 @@ function markDependentsDirty(cell: Cell) {
     }
 }
 
+/**
+ * Cells that are known to be clean as of this timestamp, but have not been
+ * marked as read yet (and whose sources might also not be marked read).  This
+ * lets us lazily determine if a cell's value has been depended on (i.e.
+ * "virtually read") in this timestamp, even if it wasn't *actually* read.
+ */
+const notCaughtUp = [] as Cell[];
 
 const enum Is {
     Rule = 1 << 0,
@@ -320,23 +327,31 @@ export class Cell {
         if (cell) {
             if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
-            if (this.validThrough === timestamp) throw new WriteConflict("Value already used");
+            if (this.validThrough === timestamp || this.hasBeenRead()) throw new WriteConflict("Value already used");
         } else {
             // Skip update if unchanged
             if (val === this.value) return;
-            // If we had readers this timestamp, bump it so they'll run again
-            if (this.validThrough === timestamp) ++timestamp;
+            // If we might have had readers this timestamp, bump it so they'll run again
+            if (this.validThrough === timestamp || notCaughtUp.length) { ++timestamp; notCaughtUp.length = 0; }
         }
         // If we changed as of the current timestamp, we're already dirty
         (this.lastChanged === timestamp) || markDependentsDirty(this);
         this.value = val;
     }
 
-    catchUp() {
+    hasBeenRead() {
+        if (notCaughtUp.length) {
+            for(const cell of notCaughtUp) cell.catchUp();
+            notCaughtUp.length = 0;
+        }
+        return this.validThrough === timestamp;
+    }
+
+    catchUp(): void {
         const {validThrough} = this;
         if (validThrough === timestamp) return;
         this.validThrough = timestamp;
-        if ((this.latestSource !== 0 && this.latestSource <= validThrough) || !(this.flags & Is.Computed)) return;
+        if (!(this.flags & Is.Computed)) return;
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
@@ -349,6 +364,18 @@ export class Cell {
                 if (s.lastChanged > validThrough) {
                     return this.doRecalc();
                 }
+            }
+            // If we got to this point, we didn't need to recalc, but that means
+            // none of our sources actually *changed*, despite at least one being
+            // dirty.  But that means we "virtually" read the clean values and
+            // therefore depended on them... which means if they get written to,
+            // either the timestamp must change or the write must be blocked.
+            //
+            // So we put them on our notCaughtUp list, in order to prevent rules
+            // from changing them (or their sources) in the same timestamp, and
+            // so that non-rule writes will know to update the timestamp.
+            for(let sub=this.sources; sub; sub = sub.nS) {
+                if (sub.src.validThrough !== timestamp) notCaughtUp.push(sub.src);
             }
         } else return this.doRecalc();
     }
