@@ -66,7 +66,7 @@ export interface Signal<T> extends SignalSource<T>, UntilMethod<T> {
 }
 
 /** @internal */
-export class SignalImpl<T> extends CallableObject<SignalSource<T>> {
+export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Signal<T> {
     constructor(protected _c: Cell) { super(_c.getValue.bind(_c)); }
     get value() { return this(); }
     valueOf()   { return this(); }
@@ -123,9 +123,8 @@ export interface Writable<T> extends Signal<T>  {
     set value(val: T);
 }
 
-export interface WritableImpl<T> extends Writable<T> {}
 /** @internal */
-export class WritableImpl<T> extends SignalImpl<T>  {
+export class WritableImpl<T> extends SignalImpl<T> implements Writable<T> {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
     set = (val: T) => { this._c.setValue(val); }
@@ -249,8 +248,8 @@ export function recalcWhen(src: RecalcSource): void;
  * @param key an object to be used as a key
  *
  * @param factory a function that will be called with the key to obtain a
- * {@link RecalcSource}.  Note that this factory function must also be a static
- * function, not a closure, or the same memory thrash issue will occur.
+ * {@link RecalcSource}.  (Note that this factory function must also be a static
+ * function, not a closure, or the same memory thrash issue will occur!)
  */
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {

@@ -97,7 +97,7 @@ In order for all this to work, of course, Uneventful has to keep track of the "a
 - If you're in the body of a `start()` function, that job is active
 - if you're in the body of a `start()`-ed *generator* function, the same applies, but also any generator functions you `yield *` to in the generator function will still have the job active.
 - Callbacks **must** be wrapped with `restarting()` or a job's `.bind()` method (or invoked via a job's `.run()` method) in order to have a job active.
-- If you're in a function directly called from an any place where there's an active job, that job is still active.
+- If you're in a (non-async) function directly called from an any place where there's an active job, that job is still active.
 
 Early versions of Uneventful also tried to automatically wrap event handlers to run in their owning jobs, but it turned out that this is fairly wasteful in practice!  Most event handlers are defined inside of jobs, and so have easy access to their job instance in a variable (as provided by `start()`).  So they can explicitly target `job.start()` or `job.must()` to create subjobs or register cleanups, etc., without needing an implicit current job.
 
@@ -137,9 +137,9 @@ Why the differences?  Uneventful is all about *making clear what your code is do
 
 Beyond these superficial differences, though, there are some deeper ones.
 
-First off, in Uneventful, *signals are also streams*.  When signals are used in APIs that expect streams (including `each()`), they send their current value on the initial subscription, followed by new values when their values change.
+First off, in Uneventful, *signals are also streams*.  When signals are used in APIs that expect streams (including `each()`!), they send their current value on the initial subscription, followed by new values when their values change.
 
-And they also support *backpressure*: if you iterate over a signal's values with `each()`, then the changes are based on sampling the value when the loop isn't busy (i.e. during the `yield next`).  This makes it really easy to (for example) loop over the various value of an input field doing remote searches with them, while maintaining a desired search frequency or level connection saturation using `sleep()` delays in the loop.
+And they also support *backpressure*: if you iterate over a signal's values with `each()`, then the changes are based on sampling the value when the loop isn't busy (i.e. during the `yield next`).  This makes it really easy to (for example) loop over the various values of an input field and do remote searches with them, while maintaining a desired search frequency or level of connection saturation by using `sleep()` delays in the loop.
 
 Second, you can also *turn streams into signals*, by passing them to `cached()`.  So if you want a signal that tracks the current mouse position or modifier keys' state, just use `cached(fromDomEvent(...))` or `pipe(fromDomEvent(...), map(...), cached)`, and off you go!  As long as the resulting signal is observed by a rule (directly or indirectly) it subscribes to the stream and returns the most recent value.  And as soon as all its observers go away, the underlying source is unsubscribed, so there are no dangling event listeners.
 
@@ -175,7 +175,7 @@ Also unlike other frameworks, you can have rules that run on different schedules
 
 Schedulers also let you appropriately debounce or sample changes for some of your rules so you can avoid unnecessary updates.  Instead of requiring an immediate response to every change of an observable value, or explicit batching declarations, Uneventful just marks dependencies dirty, and queues affected rules to be run by their corresponding scheduler(s).
 
-(This means, for example, that you can have rules that update data models immediately, other rules that update visible UI in the next animation frame, and still others that update a server or database every few seconds, without needing anything more complicated than using rule functions tied to different schedulers when creating them.)
+(This means, for example, that you can have rules that update data models immediately, other rules that update visible UI in the next animation frame, and still others that update a server or database every few seconds, without needing anything more complicated than using rule factories tied to different schedulers when creating them.)
 
 #### What's Next
 So far, we've highlighted just a handful of Uneventful's coolest and most impactful features, showing how you can:

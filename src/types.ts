@@ -250,7 +250,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * though TypeScript will act as if they are present at compile time.  This
      * is because the only way to copy all overloads of a function signature is
      * to copy the exact type (as TypeScript has no way to generically say,
-     * "this a function with all the same overloads, but none of the
+     * "this is a function with all the same overloads, but none of the
      * properties").
      *
      * @category Execution Control
