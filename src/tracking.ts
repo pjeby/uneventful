@@ -5,7 +5,7 @@ import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
-import { Source, Sink, Inlet, Connection } from "./streams.ts";
+import { Stream, Sink, Inlet, Connection } from "./streams.ts";
 
 /**
  * Is the given value a function?
@@ -213,7 +213,7 @@ class _Job<T> implements Job<T> {
         }
     }
 
-    connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection {
+    connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Inlet): Connection {
         return this.start(job => void src(sink, job, inlet));
     }
 

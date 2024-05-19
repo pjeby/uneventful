@@ -2,7 +2,6 @@ import { pulls } from "./scheduling.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { current } from "./ambient.ts";
-import { type Signal, type Writable } from "./signals.ts";
 
 /**
  * A backpressure controller: returns true if downstream is ready to accept
@@ -86,7 +85,7 @@ export interface Throttle extends Inlet {
 export type Connection = Job<void>;
 
 /**
- * A Producer is a function that can be called to arrange for data to be
+ * A Source is a function that can be called to arrange for data to be
  * produced and sent to a {@link Sink} function for consumption, until the
  * associated {@link Connection} is closed (either by the source or the sink,
  * e.g. if the sink doesn't want more data or the source has no more to send).
@@ -100,21 +99,36 @@ export type Connection = Job<void>;
  *
  * @category Types and Interfaces
  */
-export interface Producer<T> {
+export interface Source<T> {
     /** Subscribe sink to receive values */
     (sink: Sink<T>, conn?: Connection, inlet?: Throttle | Inlet): typeof IsStream;
 }
 
 /**
- * A Source is either a {@link Producer} or a {@link Signal}.  (Signals actually
- * implement the {@link Producer} interface as an overload, but TypeScript gets
- * confused about that sometimes, so we generally declare our stream *inputs* as
- * `Source<T>` and our stream *outputs* as {@link Producer}, so that TypeScript
- * knows what's what.
+ * An uneventful stream is either a {@link Source} or a {@link SignalSource}.
+ * (Signals actually implement the {@link Source} interface as an overload, but
+ * TypeScript gets confused about that sometimes, so we generally declare our
+ * stream *inputs* as `Stream<T>` and our stream *outputs* as {@link Source}, so
+ * that TypeScript knows what's what.
  *
  * @category Types and Interfaces
  */
-export type Source<T> = Producer<T> | Signal<T>;
+export type Stream<T> = Source<T> | SignalSource<T>;
+
+/**
+ * The call signatures implemented by signals.  (They can be used as sources, or
+ * called with no arguments to return a value.)
+ *
+ * This type is needed because TypeScript won't infer the overloads of
+ * {@link Signal} correctly otherwise. (Specifically, it won't allow it to be
+ * used as a zero-agument function.)
+ *
+ * @category Types and Interfaces
+*/
+export type SignalSource<T> = Source<T> & {
+    /** A signal object can be called to get its current value */
+    (): T
+}
 
 /**
  * A specially-typed string used to verify that a function supports uneventful's
@@ -126,29 +140,29 @@ export type Source<T> = Producer<T> | Signal<T>;
 export const IsStream = "uneventful/is-stream" as const;
 
 /**
- * A `Sink` is a function that receives data from a {@link Source}.
+ * A `Sink` is a function that receives data from a {@link Stream}.
  *
  * @category Types and Interfaces
  */
 export type Sink<T> = (val: T) => void;
 
 /**
- * A `Transformer` is a function that takes one source and returns another,
+ * A `Transformer` is a function that takes one stream and returns another,
  * possibly one that produces data of a different type.  Most operator functions
  * return a transformer, allowing them to be combined via {@link pipe}().
  *
  * @category Types and Interfaces
  */
-export type Transformer<T, V=T> = (input: Source<T>) => Producer<V>;
+export type Transformer<T, V=T> = (input: Stream<T>) => Source<V>;
 
 type Flush = () => any
 
 
 /**
- * Subscribe a sink to a source, returning a nested job. (Shorthand for
+ * Subscribe a sink to a stream, returning a nested job. (Shorthand for
  * {@link getJob}().{@link Job.connect connect}(...).)
  *
- * @param src An event source or finite data stream
+ * @param src An event source or signal
  * @param sink A callback that will receive the events
  * @param inlet Optional - a {@link throttle}() to control backpressure
  *
@@ -157,7 +171,7 @@ type Flush = () => any
  *
  * @category Stream Consumers
  */
-export function connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection {
+export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection {
     return getJob().connect(src, sink, inlet);
 }
 

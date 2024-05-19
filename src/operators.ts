@@ -1,5 +1,5 @@
 import { fromIterable } from "./sources.ts";
-import { Connection, IsStream, Producer, Sink, Source, Transformer, backpressure, throttle } from "./streams.ts";
+import { Connection, IsStream, Source, Sink, Stream, Transformer, backpressure, throttle } from "./streams.ts";
 import { isValue, noop } from "./results.ts";
 import { start } from "./jobutils.ts";
 
@@ -16,7 +16,7 @@ import { start } from "./jobutils.ts";
  *
  * @category Stream Operators
  */
-export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<T> {
+export function concat<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T> {
     return concatAll(fromIterable(sources))
 }
 
@@ -33,10 +33,10 @@ export function concat<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<
  *
  * @category Stream Operators
  */
-export function concatAll<T>(sources: Source<Source<T>>): Producer<T> {
+export function concatAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
         let inner: Connection;
-        const inputs: Source<T>[] = [], t = throttle();
+        const inputs: Stream<T>[] = [], t = throttle();
         let outer = conn.connect(sources, s => {
             inputs.push(s); startNext(); t.pause();
         }, t).do(r => {
@@ -64,7 +64,7 @@ export function concatAll<T>(sources: Source<Source<T>>): Producer<T> {
  *
  * @category Stream Operators
  */
-export function concatMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transformer<T,R> {
+export function concatMap<T,R>(mapper: (v: T, idx: number) => Stream<R>): Transformer<T,R> {
     return src => concatAll(map(mapper)(src))
 }
 
@@ -112,7 +112,7 @@ export function map<T,R>(mapper: (v: T, idx: number) => R): Transformer<T,R> {
  *
  * @category Stream Operators
  */
-export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<T> {
+export function merge<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T> {
     return mergeAll(fromIterable(sources));
 }
 
@@ -124,7 +124,7 @@ export function merge<T>(sources: Source<T>[] | Iterable<Source<T>>): Producer<T
  *
  * @category Stream Operators
  */
-export function mergeAll<T>(sources: Source<Source<T>>): Producer<T> {
+export function mergeAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
         const uplinks: Set<Connection> = new Set;
         let outer = conn.connect(sources, (s) => {
@@ -151,7 +151,7 @@ export function mergeAll<T>(sources: Source<Source<T>>): Producer<T> {
  *
  * @category Stream Operators
  */
-export function mergeMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transformer<T,R> {
+export function mergeMap<T,R>(mapper: (v: T, idx: number) => Stream<R>): Transformer<T,R> {
     return src => mergeAll(map(mapper)(src));
 }
 
@@ -174,7 +174,7 @@ export function skip<T>(n: number): Transformer<T> {
  *
  * @category Stream Operators
  */
-export function skipUntil<T>(notifier: Source<any>): Transformer<T> {
+export function skipUntil<T>(notifier: Stream<any>): Transformer<T> {
     return src => (sink, conn=start(), inlet) => {
         let taking = false;
         const c = conn.connect(notifier, () => { taking = true; c.end(); });
@@ -264,7 +264,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
  *
  * @category Stream Operators
  */
-export function switchAll<T>(sources: Source<Source<T>>): Producer<T> {
+export function switchAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
         let inner: Connection;
         let outer = conn.connect(sources, s => {
@@ -292,7 +292,7 @@ export function switchAll<T>(sources: Source<Source<T>>): Producer<T> {
  *
  * @category Stream Operators
  */
-export function switchMap<T,R>(mapper: (v: T, idx: number) => Source<R>): Transformer<T,R> {
+export function switchMap<T,R>(mapper: (v: T, idx: number) => Stream<R>): Transformer<T,R> {
     return src => switchAll(map(mapper)(src))
 }
 
@@ -315,7 +315,7 @@ export function take<T>(n: number): Transformer<T> {
  *
  * @category Stream Operators
  */
-export function takeUntil<T>(notifier: Source<any>): Transformer<T> {
+export function takeUntil<T>(notifier: Stream<any>): Transformer<T> {
     return src => (sink, conn=start(), inlet) => {
         conn.connect(notifier, () => conn.return());
         return src(sink, conn, inlet);

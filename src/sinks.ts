@@ -1,6 +1,6 @@
 import { Job, Request, Suspend, Yielding } from "./types.ts"
 import { defer } from "./defer.ts";
-import { Connection, Inlet, Producer, Sink, Source, connect, pipe, throttle } from "./streams.ts";
+import { Connection, Inlet, Source, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
 import { reject, resolve, isError, markHandled, isValue } from "./results.ts";
 import { restarting, start } from "./jobutils.ts";
 import { getJob, isFunction } from "./tracking.ts";
@@ -58,7 +58,7 @@ export type Each<T> = IterableIterator<EachResult<T>>
  *
  * @category Stream Consumers
  */
-export function *each<T>(src: Source<T>): Yielding<Each<T>> {
+export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
     let yielded = false, waiter: Request<void>;
     const result: IteratorYieldResult<EachResult<T>> = {value: {item: undefined as T, next}, done: false};
     const t = throttle(), conn = getJob().connect(src, v => {
@@ -141,11 +141,11 @@ export interface NextMethod<T> {
  * - A {@link Signal}, or a zero-argument function returning a value based on
  *   signals (in which case the job resumes as soon as the result is truthy,
  *   perhaps immediately)
- * - A {@link Producer} (in which case the job resumes on the next truthy value
+ * - A {@link Source} (in which case the job resumes on the next truthy value
  *   it produces
  *
  * (Note: if the supplied source is a function with a non-zero `.length`, it is
- * assumed to be a {@link Producer}.)
+ * assumed to be a {@link Source}.)
  *
  * @returns a Yieldable that when processed with `yield *` in a job, will return
  * the triggered event, or signal value.  An error is thrown if event stream
@@ -154,7 +154,7 @@ export interface NextMethod<T> {
  * @category Signals
  * @category Scheduling
  */
-export function until<T>(source: UntilMethod<T> | Source<T> | (() => T)): Yielding<T> {
+export function until<T>(source: UntilMethod<T> | Stream<T> | (() => T)): Yielding<T> {
     return callOrWait<T>(source, "uneventful.until", waitTruthy, recache);
 }
 function recache<T>(s: () => T) { return until(cached(s)); }
@@ -172,11 +172,11 @@ function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }
  * @param source The source to wait on, which can be:
  * - An object with an `"uneventful.next"` method returning a {@link Yielding}
  *   (in which case the result will be the the result of calling that method)
- * - A {@link Signal} or {@link Producer} (in which case the job resumes on the
+ * - A {@link Signal} or {@link Source} (in which case the job resumes on the
  *  next value it produces)
  *
  * (Note: if the supplied source has a non-zero `.length`, it is assumed to be a
- * {@link Producer}.)
+ * {@link Source}.)
  *
  * @returns a Yieldable that when processed with `yield *` in a job, will return
  * the triggered event, or signal value.  An error is thrown if event stream
@@ -185,7 +185,7 @@ function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }
  * @category Stream Consumers
  * @category Scheduling
  */
-export function next<T>(source: NextMethod<T> | Source<T>): Yielding<T> {
+export function next<T>(source: NextMethod<T> | Stream<T>): Yielding<T> {
     return callOrWait<T>(source, "uneventful.next", waitAny, mustBeSourceOrSignal);
 }
 
@@ -198,7 +198,7 @@ function callOrWait<T>(
     if (isFunction(source)) return (
         source.length === 0 ? noArgs(source) : false
     ) || start<T>(job => {
-        connect(source as Producer<T>, v => handler(job, v)).do(r => {
+        connect(source as Source<T>, v => handler(job, v)).do(r => {
             if(isValue(r)) job.throw(new Error("Stream ended"));
             else if (isError(r)) job.throw(markHandled(r));
         });
@@ -220,7 +220,7 @@ function mustBeSourceOrSignal() { throw new TypeError("not a source or signal");
  * and if the "loop body" (callback job) is still running when a new value
  * arrives, forEach() restarts the job instead of dropping the value.
  *
- * @param src An event source (i.e. a {@link Producer} or {@link Signal})
+ * @param src An event source (i.e. a {@link Source} or {@link Signal})
  * @param sink A callback that receives values from the source
  * @param inlet An optional throttle or inlet that will be used to pause the
  * source (if it's a signal or supports backpressure)
@@ -229,7 +229,7 @@ function mustBeSourceOrSignal() { throw new TypeError("not a source or signal");
  *
  * @category Stream Consumers
  */
-export function forEach<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connection;
+export function forEach<T>(src: Stream<T>, sink: Sink<T>, inlet?: Inlet): Connection;
 /**
  * When called without a source, return a callback suitable for use w/{@link pipe}().
  * e.g.:
@@ -239,13 +239,13 @@ export function forEach<T>(src: Source<T>, sink: Sink<T>, inlet?: Inlet): Connec
  * ```
  *
  */
-export function forEach<T>(sink: Sink<T>, inlet?: Inlet): (src: Source<T>) => Connection;
+export function forEach<T>(sink: Sink<T>, inlet?: Inlet): (src: Stream<T>) => Connection;
 export function forEach<T>(
-    src: Source<T>|Sink<T>, sink?: Sink<T>|Inlet, inlet?: Inlet
-): Connection | ((src: Source<T>) => Connection) {
+    src: Stream<T>|Sink<T>, sink?: Sink<T>|Inlet, inlet?: Inlet
+): Connection | ((src: Stream<T>) => Connection) {
     if (isFunction(sink)) return start(j => {
-        (src as Source<T>)(restarting(sink as Sink<T>), j, inlet)
+        (src as Stream<T>)(restarting(sink as Sink<T>), j, inlet)
     });
     inlet = sink as Inlet; sink = src as Sink<T>;
-    return (src: Source<T>) => forEach(src, sink as Sink<T>, inlet);
+    return (src: Stream<T>) => forEach(src, sink as Sink<T>, inlet);
 }

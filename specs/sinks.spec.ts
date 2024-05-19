@@ -1,10 +1,10 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
-import { each, Source, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, Producer, pipe } from "../mod.ts";
+import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, Source, pipe } from "../mod.ts";
 
 describe("each()", () => {
     useRoot();
     useClock();
-    function iterStream<T>(src: Source<T>) {
+    function iterStream<T>(src: Stream<T>) {
         return start(function*(){
             try {
                 for(const {item, next} of yield *each(src)) {

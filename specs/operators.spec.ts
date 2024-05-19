@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Source, must, slack, mockSource, each, sleep, start, isValue, Connection, isHandled, throttle } from "../src/mod.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Stream, must, slack, mockSource, each, sleep, start, isValue, Connection, isHandled, throttle } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -44,7 +44,7 @@ describe("Operators", () => {
     describe("concatAll()", () => {
         it("should buffer newer streams while older ones are active", () => {
             // Given a concatAll() of an emitter source
-            const e = emitter<Source<number>>(), s = concatAll(e.source);
+            const e = emitter<Stream<number>>(), s = concatAll(e.source);
             // When it's connected to a sink
             connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
@@ -60,7 +60,7 @@ describe("Operators", () => {
         });
         it("shouldn't end while a stream is still active", () => {
             // Given a concatAll() of an emitter source
-            const e = emitter<Source<number>>(), s = concatAll(e.source), t = throttle();
+            const e = emitter<Stream<number>>(), s = concatAll(e.source), t = throttle();
             // When it's connected to a paused sink
             const c = connect(s, log.emit, t).do(logClose); t.pause();
             // And a source is pushed followed by a close and a resume of the sink
@@ -171,7 +171,7 @@ describe("Operators", () => {
     describe("mergeAll()", () => {
         it("closes when the outer stream does (if no pending substreams)", () => {
             // Given a mergeAll() of an emitter
-            const e = emitter<Source<number>>(), s = mergeAll(e.source);
+            const e = emitter<Stream<number>>(), s = mergeAll(e.source);
             // When it's connected to a sink
             connect(s, log.emit).do(logClose);
             // And multiple sources are pushed
@@ -427,7 +427,7 @@ describe("Operators", () => {
     describe("switchAll()", () => {
         it("switches to its latest input stream", () => {
             // Given a subscribed switchAll of an emitter
-            const input = emitter<Source<number>>();
+            const input = emitter<Stream<number>>();
             const s = switchAll(input.source);
             connect(s, log.emit).do(logClose);
             // When a source is pushed

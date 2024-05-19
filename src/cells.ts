@@ -2,7 +2,7 @@ import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
 import { OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
-import { Connection, Inlet, IsStream, Sink, Producer, backpressure } from "./streams.ts";
+import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
 import { isCancel } from "./results.ts";
 import { nullCtx } from "./internals.ts";
@@ -343,7 +343,7 @@ export class Cell {
         return cell;
     }
 
-    static mkStream<T>(src: Producer<T>, val?: T) {
+    static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();

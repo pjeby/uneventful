@@ -1,5 +1,5 @@
 import { JobResult } from "./results.ts";
-import { Connection, Inlet, Sink, Source, Throttle } from "./streams.ts";
+import { Connection, Inlet, Sink, Stream, Throttle } from "./streams.ts";
 
 /**
  * An undefined or null value
@@ -213,15 +213,15 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * This is basically shorthand for `start<void>(job => void src(sink, job,
      * inlet))` -- i.e. a quick way to subscribe to a finite and/or pausable stream.
      *
-     * @param src An event source or finite data stream
-     * @param sink A callback that will receive the events
+     * @param src An event source or signal
+     * @param sink A callback that will receive the events or values
      * @param inlet Optional - a {@link throttle}() to control backpressure
      * @returns A job that can be aborted to end the subscription, and which will
      * end naturally (with a void return or error) if the stream ends itself.
      *
      * @category Execution Control
      */
-    connect<T>(src: Source<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection
+    connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection
 
     /**
      * Invoke a function with this job as the active one, so that calling the
