@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logU
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
     IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob,
-    CancelError, throttle
+    CancelError, throttle, next
 } from "../src/mod.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
@@ -636,6 +636,82 @@ describe("Async Ops", () => {
         });
     });
 
+    describe("next()", () => {
+        it("calls `uneventful.next` methods and returns their value", () => {
+            // Given an object with an uneventful.next method
+            const o = {"uneventful.next"() { log("called"); return 42; }}
+            // When next() is called on it
+            log(next(o as any))
+            // Then it should call the method and return the result
+            see("called", "42");
+        });
+        describe("handles streams", () => {
+            it("returning the first value", () => {
+                // When a suspended next() on a stream is run
+                suspendOn(next(fromIterable([22,23,24]))); clock.runAll();
+                // Then it should resume with the first value from the stream
+                runPulls(); see("22");
+            });
+            it("throwing on throw", () => {
+                let conn: Connection;
+                // When a suspended next() on a throwing stream is run
+                suspendOn(next((_,c) => { backpressure(throttle(conn = c))(() => c.throw("boom")); return IsStream; }));
+                conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
+                clock.runAll();
+                // Then the job should throw once pulls run (and mark the error handled)
+                runPulls(); see("false", "true", "err: boom");
+            });
+            it("throwing on early end", () => {
+                // When a suspended next() on an empty stream is run
+                suspendOn(next(fromIterable([]))); clock.runAll();
+                // Then it should throw a stream-ended error
+                runPulls(); see("err: Error: Stream ended");
+            });
+        });
+        describe("handles signals", () => {
+            it("deferring until the next value", () => {
+                // When a suspended next() is run on a truthy signal
+                const v = value(42)
+                suspendOn(next(v)); clock.runAll(); runRules();
+                // Then it should remain suspended
+                see();
+                // Until the value *changes*, even if false
+                v.set(0); runRules(); see("0")
+
+            });
+            it("asynchronously resuming when signal changes", () => {
+                // Given an arbitrary value and an next() suspended on it
+                const v = value(42);
+                suspendOn(next(v)); clock.runAll(); runRules(); see();
+                // When the changes and rules run
+                v.set(55); see(); runRules();
+                // Then the next should resume with the new value
+                see("55");
+            });
+            it("throwing when a signal throws synchronously", () => {
+                // When a suspended next() is run on an immediately throwing signal
+                suspendOn(next(cached(() => {throw "boom"}))); clock.runAll(); runRules()
+                // Then it should immediately throw
+                see("err: boom");
+            });
+            it("asynchronously throwing when a signal throws later", () => {
+                // Given an async-throwing signal and an next() suspended on it
+                const v = value(20), c = cached(() => { if (v()) throw "boom!";});
+                suspendOn(next(c)); clock.runAll(); see();
+                // When the signal recomputes as an error
+                v.set(55); see(); runRules();
+                // Then the next should reject with the error
+                see("err: boom!");
+            });
+        });
+        it("throws on non-Waitables", () => {
+            // When next() is called on an invalid value
+            // Then it throws
+            expect(() => next(42 as any)).to.throw("not a source or signal");
+            expect(() => next("42" as any)).to.throw("not a source or signal");
+        });
+    });
+
     describe("until()", () => {
         it("calls `uneventful.until` methods and returns their value", () => {
             // Given an object with an uneventful.until method
@@ -644,9 +720,6 @@ describe("Async Ops", () => {
             log(until(o as any))
             // Then it should call the method and return the result
             see("called", "42");
-        });
-        describe("handles thenables like to()", () => {
-            checkAsyncResume(until);
         });
         describe("handles streams", () => {
             it("returning the first value", () => {
@@ -706,8 +779,8 @@ describe("Async Ops", () => {
         it("throws on non-Waitables", () => {
             // When until() is called on an invalid value
             // Then it throws
-            expect(() => until(42 as any)).to.throw(/must be/);
-            expect(() => until("42" as any)).to.throw(/must be/);
+            expect(() => until(42 as any)).to.throw("not a source or signal");
+            expect(() => until("42" as any)).to.throw("not a source or signal");
         });
     });
 });

@@ -93,6 +93,17 @@ export class SignalImpl<T> extends CallableObject<Producer<T> & Returns<T>> {
         return Object.assign(new WritableImpl<T>(this._c), {set});
     }
 
+    *"uneventful.next"(): Yielding<T> {
+        return yield (r => {
+            let seen = false, res: T;
+            rule(stop => {
+                try { res = this(); } catch(e) { stop(); reject(r, e); }
+                if (seen) { stop(); resolve(r, res); }
+                seen = true;
+            })
+        });
+    }
+
     *"uneventful.until"(): Yielding<T> {
         return yield (r => {
             let res: T;

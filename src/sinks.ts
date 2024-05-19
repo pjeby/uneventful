@@ -1,10 +1,10 @@
-import { Job, Request, Suspend, Yielding} from "./types.ts"
-import { to } from "./async.ts";
+import { Job, Request, Suspend, Yielding } from "./types.ts"
 import { defer } from "./defer.ts";
 import { Connection, Inlet, Producer, Sink, Source, connect, pipe, throttle } from "./streams.ts";
-import { reject, resolve, isError, markHandled } from "./results.ts";
+import { reject, resolve, isError, markHandled, isValue } from "./results.ts";
 import { restarting, start } from "./jobutils.ts";
 import { getJob, isFunction } from "./tracking.ts";
+import { Signal, cached } from "./signals.ts";
 
 /**
  * The result type returned from calls to {@link Each}.next()
@@ -101,57 +101,112 @@ export function *each<T>(src: Source<T>): Yielding<Each<T>> {
 }
 
 /**
- * An object that can be waited on with `yield *until()`.
- *
- * @category Types and Interfaces
- */
-export type Waitable<T> = UntilMethod<T> | Source<T> | Promise<T> | PromiseLike<T>;
-
-/**
  * An object that can be waited on with `yield *until()`, by calling its
- * "uneventful.until" method.
+ * "uneventful.until" method.  (This mostly exists to allow Signals to optimize
+ * their until() implementation, but is also open for extensions.)
  *
  * @category Types and Interfaces
  */
 export interface UntilMethod<T> {
+    /** Return an async op to resume once a truthy value is available */
     "uneventful.until"(): Yielding<T>
 }
 
 /**
- * Wait for and return next value (or error) from a data source when processed
- * with `yield *` within a {@link Job}.
+ * An object that can be waited on with `yield *next()`, by calling its
+ * "uneventful.next" method.  (This mostly exists to allow Signals to optimize
+ * their next() implementation, but is also open for extensions.)
  *
- * @param source A {@link Waitable} data source, which can be any of:
- * - A {@link Signal} (in which case the job will resume when the value is
- *   truthy - perhaps immediately!)
- * - A {@link Source}
- * - A promise, or promise-like object with a `.then()` method
+ * @category Types and Interfaces
+ */
+export interface NextMethod<T> {
+    /** Return an async op to resume with the "next" (i.e. not current) value produced */
+    "uneventful.next"(): Yielding<T>
+};
+
+/**
+ * Wait for and return the next truthy value (or error) from a data source (when
+ * processed with `yield *` within a {@link Job}).
+ *
+ * This differs from {@link next}() in that it waits for the next "truthy" value
+ * (i.e., not null, false, zero, empty string, etc.), and when used with signals
+ * or a signal-using function, it can resume *immediately* if the result is
+ * already truthy.  (It also supports zero-argument signal-using functions,
+ * automatically wrapping them with {@link cached}(), as the common use case for
+ * until() is to wait for an arbitrary condition to be satisfied.)
+ *
+ * @param source The source to wait on, which can be:
  * - An object with an `"uneventful.until"` method returning a {@link Yielding}
- *   (in which case the result will be the the result of that method)
+ *   (in which case the result will be the the result of calling that method)
+ * - A {@link Signal}, or a zero-argument function returning a value based on
+ *   signals (in which case the job resumes as soon as the result is truthy,
+ *   perhaps immediately)
+ * - A {@link Producer} (in which case the job resumes on the next truthy value
+ *   it produces
+ *
+ * (Note: if the supplied source is a function with a non-zero `.length`, it is
+ * assumed to be a {@link Producer}.)
  *
  * @returns a Yieldable that when processed with `yield *` in a job, will return
- * the triggered event, promise resolution, or signal value.  An error is thrown
- * if the promise rejects or the event stream throws or closes early, or the
- * signal throws.
+ * the triggered event, or signal value.  An error is thrown if event stream
+ * throws or closes early, or the signal throws.
  *
+ * @category Signals
  * @category Scheduling
  */
-export function until<T>(source: Waitable<T>): Yielding<T> {
-    if (isFunction((source as UntilMethod<T>)["uneventful.until"])) {
-        return (source as UntilMethod<T>)["uneventful.until"]();
-    }
-    if (isFunction((source as PromiseLike<T>)["then"])) {
-        return to(source as PromiseLike<T>);
-    }
-    if (isFunction(source)) {
-        return start(job => {
-            connect(source, e => job.return(e))
-            .onError(e => job.throw(e))
-            .onValue(() => job.throw(new Error("Stream ended")))
-        })
-    }
-    throw new TypeError("until(): must be signal, source, or then-able");
+export function until<T>(source: UntilMethod<T> | Source<T> | (() => T)): Yielding<T> {
+    return callOrWait<T>(source, "uneventful.until", waitTruthy, recache);
 }
+function recache<T>(s: () => T) { return until(cached(s)); }
+function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }
+
+/**
+ * Wait for and return the next value (or error) from a data source (when
+ * processed with `yield *` within a {@link Job}).
+ *
+ * This differs from {@link until}() in that it waits for the *next* value
+ * (truthy or not!), and it never resumes immediately for signals, but instead waits
+ * for the signal to *change*.  (Also, it does not support zero-argument functions,
+ * unless you wrap them with {@link cached}() first.)
+ *
+ * @param source The source to wait on, which can be:
+ * - An object with an `"uneventful.next"` method returning a {@link Yielding}
+ *   (in which case the result will be the the result of calling that method)
+ * - A {@link Signal} or {@link Producer} (in which case the job resumes on the
+ *  next value it produces)
+ *
+ * (Note: if the supplied source has a non-zero `.length`, it is assumed to be a
+ * {@link Producer}.)
+ *
+ * @returns a Yieldable that when processed with `yield *` in a job, will return
+ * the triggered event, or signal value.  An error is thrown if event stream
+ * throws or closes early, or the signal throws.
+ *
+ * @category Stream Consumers
+ * @category Scheduling
+ */
+export function next<T>(source: NextMethod<T> | Source<T>): Yielding<T> {
+    return callOrWait<T>(source, "uneventful.next", waitAny, mustBeSourceOrSignal);
+}
+
+function waitAny<T>(job: Job<T>, v: T) { job.return(v); }
+
+function callOrWait<T>(
+    source: any, method: string, handler: (job: Job<T>, val: T) => void, noArgs: (f?: any) => Yielding<T>|void
+) {
+    if (source && isFunction(source[method])) return source[method]() as Yielding<T>;
+    if (isFunction(source)) return (
+        source.length === 0 ? noArgs(source) : false
+    ) || start<T>(job => {
+        connect(source as Producer<T>, v => handler(job, v)).do(r => {
+            if(isValue(r)) job.throw(new Error("Stream ended"));
+            else if (isError(r)) job.throw(markHandled(r));
+        });
+    })
+    mustBeSourceOrSignal();
+}
+
+function mustBeSourceOrSignal() { throw new TypeError("not a source or signal"); }
 
 /**
  * Run a {@link restarting}() callback for each value produced by a source.
