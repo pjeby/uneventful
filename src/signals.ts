@@ -1,5 +1,5 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
-import { PlainFunction, Yielding, RecalcSource } from "./types.ts";
+import { PlainFunction, Yielding, RecalcSource, AnyFunction } from "./types.ts";
 import { Cell } from "./cells.ts";
 import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
@@ -190,6 +190,11 @@ export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T
  * You can also pass in any arguments the function takes, and the function's
  * return value is returned.
  *
+ * (Note: Typed overloads are not supported: TypeScript will use the function's
+ * *last* overload for argument-typing purposes.  If you need to call a function
+ * with a specific overload, wrap the function with {@link action}() instead, and
+ * then TypeScript will be able to detect which overload you're using.)
+ *
  * @returns The result of calling `fn(..args)`
  *
  * @category Signals
@@ -250,4 +255,64 @@ export function recalcWhen(src: RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
     current.cell?.recalcWhen<T>(fnOrKey as T, fn);
+}
+
+/**
+ * Wrap a function (or decorate a method) so that signals it reads are not added
+ * as dependencies to the current rule (if any).  (Basically, it's shorthand for
+ * wrapping the function or method body in a giant call to {@link peek}().)
+ *
+ * So, instead of writing an action function like this:
+ *
+ * ```ts
+ * function outer(arg1, arg2) {
+ *     return peek(() => {
+ *         // reactive values used here will not be added to the running rule
+ *     })
+ * }
+ * ```
+ * you can just write this:
+ * ```ts
+ * const outer = action((arg1, arg2) => {
+ *     // reactive values used here will not be added to the running rule
+ * });
+ * ```
+ * or this:
+ * ```ts
+ * class Something {
+ *     ⁣⁣@action  // auto-detects TC39 or legacy decorators
+ *     someMethod(arg1) {
+ *         // reactive values used here will not be added to the running rule
+ *     }
+ * }
+ * ```
+ *
+ * @param fn The function to wrap.  It can take any arguments or return value,
+ * and overloads are supported.  However, any non-standard properties the
+ * function may have had will *not* be present on the wrapped function, even if
+ * TypeScript will act as if they are!
+ *
+ * @returns A wrapped version of the function that passes through its arguments
+ * to the original function, while running with dependency tracking suppressed
+ * (as with {@link peek}()).
+ *
+ * @category Signals
+ */
+export function action<F extends AnyFunction>(fn: F): F;
+
+/** @hidden TC39 Decorator protocol */
+export function action<F extends AnyFunction>(fn: F, ctx: {kind: "method"}): F;
+
+/** @hidden Legacy Decorator protocol */
+export function action<F extends AnyFunction, D extends {value?: F}>(
+    clsOrProto: any, name: string|symbol, desc: D
+): D
+
+export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx?: any, desc?: D): D | F {
+    if (desc) return {...desc, value: action(desc.value)};
+    return <F> function (this: ThisParameterType<F>) {
+        if (!current.cell) return fn.apply(this, arguments as any);
+        const old = swapCtx(makeCtx(current.job));
+        try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
+    }
 }

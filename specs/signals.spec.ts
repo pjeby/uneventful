@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, must, recalcWhen,
     DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob,
-    SignalImpl, WritableImpl
+    SignalImpl, WritableImpl, action
 } from "../mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
@@ -246,6 +246,55 @@ describe("Dependency tracking", () => {
                 expect(runRules).to.throw(WriteConflict);
             });
         })
+    });
+    describe("action()", () => {
+        it("passes arguments+this, returning result", () => {
+            // Given an action-wrapped function
+            const that = {};
+            const t = action(function (this: {}, a: number, b: string) {
+                log(this === that);
+                log(a);
+                log(b);
+                log(!!current.cell);
+                return 42;
+            });
+            // When called w/args and a `this`
+            const res = cached(() => t.call(that, 99, "foo"))();
+
+            // Then the inner function should be called without tracking,
+            // with the given args and `this`
+            see("true", "99", "foo", "false");
+
+            // And the wrapped function's return value should be
+            // the value from the inner function return
+            expect(res).to.equal(42);
+        });
+        it("works as a decorator", () => {
+            // Given an instance of a class w/an @action-decorated method
+            // (experimental/legacy mode)
+            class X {
+                @action
+                method(a: number, b: string) {
+                    log(this === that);
+                    log(a);
+                    log(b);
+                    log(!!current.cell);
+                    return 42;
+                }
+            }
+            const that = new X;
+            // When the method is called w/args
+            const res = cached(() => that.method(99, "foo"))();
+
+            // Then the method should be called in a new job
+            // that's the same as the return value, with the
+            // object as its `this`
+            see("true", "99", "foo", "false");
+
+            // And the wrapped function's eventual return
+            // goes to the enclosing job
+            expect(res).to.equal(42);
+        });
     });
     describe("recalcWhen()", () => {
         useRoot()
