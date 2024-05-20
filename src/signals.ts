@@ -127,20 +127,50 @@ export interface Writable<T> extends Signal<T>  {
 export class WritableImpl<T> extends SignalImpl<T> implements Writable<T> {
     get value() { return this(); }
     set value(val: T) { this.set(val); }
-    set = (val: T) => { this._c.setValue(val); }
+    set = (val: T) => { this._c.setValue(val, false); }
     asReadonly(): Signal<T> {
         return new SignalImpl<T>(this._c);
     }
 }
 
 /**
- * Create a {@link Writable} signal with the given inital value
+ * A writable signal that can be set to either a value or an expression.
+ *
+ * Like a spreadsheet cell, a configurable signal can contain either a value or
+ * a formula.  If you .set() a value or change the .value property of the
+ * signal, the formula is cleared.  Conversely, if you set a formula with
+ * .setf(), then the value is calculated using that formula from then on, until
+ * another formula is set, or the value is changed directly again.
+ *
+ * @category Types and Interfaces
+ */
+export interface Configurable<T> extends Writable<T>  {
+    /**
+     * Set a formula that will be used to calculate the signal's value. If it
+     * uses the value of other signals, this signal's value will be recalculated
+     * when they change.
+     *
+     * @category Writing
+     */
+    setf(expr: () => T): this;
+}
+
+/** @internal */
+export class ConfigurableImpl<T> extends WritableImpl<T> implements Configurable<T> {
+    setf(expr: () => T): this {
+        this._c.setCalc(expr);
+        return this;
+    }
+}
+
+/**
+ * Create a {@link Configurable} signal with the given inital value
  *
  * @category Signals
  */
-export function value<T>(val?: T): Writable<T> {
+export function value<T>(val?: T): Configurable<T> {
     const cell = Cell.mkValue(val);
-    return new WritableImpl<T>(cell);
+    return new ConfigurableImpl<T>(cell);
 }
 
 /**

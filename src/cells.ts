@@ -37,16 +37,26 @@ const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {
     // We don't set validThrough here because that's how we tell the cell's been read/depended on
-    const latestSource = cell.lastChanged = cell.latestSource = timestamp;
+    const latestSource = cell.latestSource = timestamp;
     for(; cell; cell = dirtyStack.pop()) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
             const tgt = sub.tgt;
-            if (tgt.latestSource >= latestSource || tgt.latestSource === 0) continue;
+            if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
             if (tgt.flags & Is.Rule) (tgt.value.q as RuleQueue).add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
+}
+
+// The .compute for a cell whose value has been explicitly set
+function returnValue(this: Cell) {
+    return this.value;
+}
+
+// The compute for a cell whose value is an explicit error
+function throwValue(this: Cell) {
+    throw this.value;
 }
 
 /**
@@ -58,14 +68,14 @@ function markDependentsDirty(cell: Cell) {
 const notCaughtUp = [] as Cell[];
 
 const enum Is {
-    Rule = 1 << 0,
-    Lazy   = 1 << 2,
-    Dead   = 1 << 3,
-    Error  = 1 << 4,
-    Running = 1 << 5,
-    Stream  = 1 << 6,
-    Mutable = 1 << 7,
-    Computed = Rule | Lazy,
+    Rule     = 1 << 0,
+    Calc     = 1 << 2,
+    Dead     = 1 << 3,
+    Error    = 1 << 4,
+    Running  = 1 << 5,
+    Stream   = 1 << 6,
+    Mutable  = 1 << 7,
+    Computed = Rule | Calc,
     Variable = Computed | Mutable,
 }
 
@@ -106,7 +116,7 @@ function mksub(source: Cell, target: Cell) {
     // track that this source has had a subscription added during this calculation
     source.adding = sub;
     // Set up reciprocal subscription if needed
-    (target.latestSource === 0) || source.subscribe(sub);  // XXX
+    if (target.subscribers || target.flags & Is.Rule) source.subscribe(sub);
 }
 
 function delsub(sub: Subscription) {
@@ -124,7 +134,7 @@ export class Cell {
     value: any = undefined // the value, or, for a rule, the `{q, rm}` struct
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
-    latestSource = timestamp; // max lastChanged of this cell or any ancestor source (0 = Infinity)
+    latestSource = timestamp; // max lastChanged of this cell or any ancestor source
     flags = 0;
     ctx: Context = undefined;
     /** The subscription being added during the current calculation - used for uniqueness */
@@ -134,7 +144,7 @@ export class Cell {
     /** Linked list of targets */
     subscribers: Subscription = undefined;
 
-    compute: () => any = undefined;
+    compute: () => any = returnValue;
 
     stream<T>(sink: Sink<T>, _conn?: Connection, inlet?: Inlet) {
         let lastValue = sentinel;
@@ -181,21 +191,52 @@ export class Cell {
         return this.value;
     }
 
-    setValue(val: any) {
+    shouldWrite(changed: boolean) {
         const cell = current.cell || currentRule;
         if (cell) {
-            if (cell.flags & Is.Lazy) throw new WriteConflict("Side-effects not allowed in cached functions");
+            // When a cell changes within a sweep (i.e. from an active rule or other
+            // cell), we need to check if it's not a circular update or disallowed
+            // side-effect.  In such a case we bail out with an error, even if the
+            // change is idempotent.  (To avoid hiding value-dependent errors.)
+            if (cell.flags & Is.Calc) throw new WriteConflict("Side-effects not allowed in cached functions");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
             if (this.validThrough === timestamp || this.hasBeenRead()) throw new WriteConflict("Value already used");
-        } else {
-            // Skip update if unchanged
-            if (val === this.value) return;
-            // If we might have had readers this timestamp, bump it so they'll run again
+        } else if (changed) {
+            // We are *not* in a sweep, but *did* have a change.  So we may need to advance
+            // the timestamp, if we might have had readers in the current one.
             if (this.validThrough === timestamp || notCaughtUp.length) { ++timestamp; notCaughtUp.length = 0; }
+        } else {
+            // Not in a sweep and no change -- no need to actually write anything
+            return false;
         }
         // If we changed as of the current timestamp, we're already dirty
+        // Otherwise, we should flag our subscribers as such.
         (this.lastChanged === timestamp) || markDependentsDirty(this);
-        this.value = val;
+        // If we have sources, reset the subscription timestamp of the first one
+        // to force a recalculation on our next catchUp().
+        if (this.sources) this.sources.ts = 0;
+        return true;
+    }
+
+    setValue(val: any, isErr: boolean) {
+        if (this.shouldWrite(val !== this.value || isErr !== !!(this.flags & Is.Error))) {
+            this.value = val;
+            this.lastChanged = timestamp;
+            this.flags = isErr ? this.flags | Is.Error : this.flags & ~Is.Error;
+        }
+        // We always reset the compute here because we might have been in the
+        // Calc state.  But we don't clear the Calc flag because we might need
+        // any previous sources to be released or unsubscribed.  (Which will
+        // happen on our next recalc.)
+        this.compute = returnValue;
+    }
+
+    setCalc(compute: () => any) {
+        if (this.shouldWrite(compute !== this.compute)) {
+            this.flags |= Is.Calc;
+            this.compute = compute;
+            this.ctx ||= makeCtx(null, this);
+        }
     }
 
     hasBeenRead() {
@@ -214,10 +255,13 @@ export class Cell {
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
-                // if source is clean, skip it (most should be)
-                if (s.latestSource !== 0 && s.latestSource <= validThrough) continue;
                 // changed since our last compute? we're definitely dirty
                 if (sub.ts !== s.lastChanged) return this.doRecalc();
+                // if source is clean, skip it (most should be)
+                // (note: only cells w/subscribers can be trusted as to their
+                // latestSource, as cacheds with no subscribers don't get
+                // notified by their upstreams)
+                if (s.subscribers && s.latestSource <= validThrough) continue;
                 // not a simple yes or no -- "it's complicated" -- so recurse
                 s.catchUp();
                 if (s.lastChanged > validThrough) {
@@ -250,14 +294,14 @@ export class Cell {
         }
         this.flags |= Is.Running;
         try {
-            if (this.flags & Is.Lazy) {
-                this.flags &= ~Is.Error
+            if (this.flags & Is.Calc) {
                 try {
                     const future = this.compute();
-                    if (future !== this.value || !this.lastChanged) {
+                    if (future !== this.value || !this.lastChanged || this.flags & Is.Error) {
                         this.value = future;
                         this.lastChanged = timestamp;
                     }
+                    this.flags &= ~Is.Error;
                 } catch(e) {
                     this.flags |= Is.Error
                     this.value = e;
@@ -290,7 +334,7 @@ export class Cell {
             if (!head) {
                 // without sources, we can never change or be invalidated, so
                 // revert to settable value() or permanent constant
-                this.flags &= ~Is.Lazy;
+                this.flags &= ~Is.Calc;
             }
             if (this.flags & Is.Dead) this.disposeRule();
         }
@@ -309,8 +353,7 @@ export class Cell {
 
     subscribe(sub: Subscription) {
         if (!this.subscribers) {
-            if (this.flags & Is.Lazy) {
-                this.latestSource = timestamp;
+            if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
             }
             if (this.flags & Is.Stream) this.compute();  // subscribe to source
@@ -327,8 +370,7 @@ export class Cell {
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
         if (!this.subscribers) {
-            if (this.flags & Is.Lazy) {
-                this.latestSource = 0;
+            if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
             }
             if (this.flags & Is.Stream) this.ctx.job?.restart();  // unsubscribe from source
@@ -347,8 +389,8 @@ export class Cell {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();
-        const write = cell.setValue.bind(cell);
-        cell.compute = () => {
+        const write = (v: T) => { cell.setValue(v, false); cell.compute = compute; };
+        const compute = cell.compute = () => {
             cell.ctx.job ||= makeJob()
                 .asyncCatch(e => detached.asyncThrow(e))
                 .must(r => { cell.value = val; isCancel(r) || (cell.ctx.job = undefined); })
@@ -388,8 +430,7 @@ export class Cell {
         const cell = new Cell;
         cell.compute = compute;
         cell.ctx = makeCtx(null, cell);
-        cell.flags = Is.Lazy;
-        cell.latestSource = 0;
+        cell.flags = Is.Calc;
         return cell;
     }
 

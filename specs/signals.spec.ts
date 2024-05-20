@@ -2,10 +2,11 @@ import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, must, recalcWhen,
     DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob,
-    SignalImpl, WritableImpl, action
+    SignalImpl, ConfigurableImpl, action
 } from "../mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
+import { defaultQ } from "../src/scheduling.ts";
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {
@@ -28,7 +29,7 @@ describe("Signal Constructors/Interfaces", () => {
     describe("value()", () => {
         it("implements the Signal interface", () => { verifyMulti(value); });
         it("is a Writable instance", () => {
-            expect(value(27)).to.be.instanceOf(WritableImpl);
+            expect(value(27)).to.be.instanceOf(ConfigurableImpl);
         })
         it("can be set()", () => {
             const val = value();
@@ -119,6 +120,70 @@ describe("Signal Constructors/Interfaces", () => {
             v.set(true); runRules();
             // Then the resolve should be in a canceled job (rule)
             see("true");
+        });
+    });
+    describe(".setf()", () => {
+        it("triggers recalculation, but detects changes", () => {
+            // Given a value observed by a rule
+            const v = value(42);
+            const r = rule(() => { log(`v: ${v()}`); });
+            runRules(); see("v: 42");
+            expect(defaultQ.isEmpty()).to.be.true;
+            // When it's setf() to a function returning the same value
+            v.setf(() => { log("calc"); return 42; });
+            // Then the rule should be queued
+            expect(defaultQ.isEmpty()).to.be.false; see();
+            // And when rules are run, the function should be called
+            // but the rule should be skipped:
+            runRules(); see("calc");
+            // And changing the function to return a different value
+            // should run the rule
+            v.setf(() => 23); runRules(); see("v: 23");
+            // But setting the value to the same value should not
+            v.set(23); runRules(); see();
+            r();
+        });
+        it("has its dependencies cleared post-set()", () => {
+            // Given a value observed by a rule
+            const v = value(42);
+            const r = rule(() => { log(`v: ${v()}`); });
+            runRules(); see("v: 42");
+            // When setf to a function depending on a second value
+            const v2 = value(20);
+            v.setf(() => { log("recalc"); return v2()*2; });
+            runRules(); see("recalc", "v: 40");
+            // And the second value changes
+            v2.set(21);
+            // Then the function should rerun and trigger the rule
+            runRules(); see("recalc", "v: 42");
+            // But once the first value is set() to a constant again
+            v.set(99); runRules(); see("v: 99");
+            // Then changing the second value should not schedule anything
+            // (because the dependency should no longer exist)
+            v2.set(67); expect(defaultQ.isEmpty()).to.be.true;
+            r();
+        });
+        it("has its errors cleared by set() or setf()", () => {
+            // Given a value set to an error-throwing function
+            const v = value<any>(42).setf(() => { throw "boom!"});
+            expect(v).to.throw("boom!");
+            expect(v).to.throw("boom!");
+            // When set() to  value, Then the error should be gone
+            v.set(51); expect(v()).to.equal(51);
+            // And if set to an error function
+            v.setf(() => { throw "bang"; });
+            expect(v).to.throw("bang");
+            // And then to the same value as the error
+            v.set("bang");
+            // Then it should no longer be an error
+            expect(v()).to.equal("bang");
+            // Until set to a throw again
+            v.setf(() => { throw "bang"; });
+            expect(v).to.throw("bang");
+            // And when replaced by a value-returning funciton
+            v.setf(() => 99);
+            // Then afterward it should return values again
+            expect(v()).to.equal(99);
         });
     });
     describe("cached()", () => {
@@ -316,6 +381,18 @@ describe("Dependency tracking", () => {
             end()
             // Then the source should be unsubscribed
             see("unsub");
+            // And then resubscribed if new rules are added
+            const e2 = rule(() => { recalcWhen(src); log("ping"); });
+            runRules(); see("sub", "ping");
+            changed(); runRules(); see("ping");
+            // Without a second subscribe for subsequent rules
+            const e3 = rule(() => { recalcWhen(src); log("pong"); });
+            runRules(); see("pong");
+            // And changes propagate to all rules
+            changed(); runRules(); see("pong", "ping");
+            // With a final unsubscribe when there are no longer any observing rules
+            e2(); see();
+            e3(); see("unsub");
         });
         it("supports key+factory for creating sources on the fly", () => {
             // Given rules keyed to different sources
