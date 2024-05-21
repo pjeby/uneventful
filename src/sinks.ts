@@ -163,18 +163,18 @@ function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }
  * processed with `yield *` within a {@link Job}).
  *
  * This differs from {@link until}() in that it waits for the *next* value
- * (truthy or not!), and it never resumes immediately for signals, but instead waits
- * for the signal to *change*.  (Also, it does not support zero-argument functions,
- * unless you wrap them with {@link cached}() first.)
+ * (truthy or not!), and it never resumes immediately for signals, but instead
+ * waits for the signal to *change*.  (Also, it does not support zero-argument
+ * functions, unless you wrap them with {@link cached}() first.)
  *
  * @param source The source to wait on, which can be:
  * - An object with an `"uneventful.next"` method returning a {@link Yielding}
  *   (in which case the result will be the the result of calling that method)
  * - A {@link Signal} or {@link Source} (in which case the job resumes on the
- *  next value it produces)
+ *   next value it produces)
  *
- * (Note: if the supplied source has a non-zero `.length`, it is assumed to be a
- * {@link Source}.)
+ * (Note: if the supplied source is a function with a non-zero `.length`, it is
+ * assumed to be a {@link Source}.)
  *
  * @returns a Yieldable that when processed with `yield *` in a job, will return
  * the triggered event, or signal value.  An error is thrown if event stream

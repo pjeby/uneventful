@@ -167,7 +167,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * In order to ensure that all such "child" jobs, resources, and activities
      * are marked as canceled *before* any side effects (such as events,
      * callbacks or I/O operations) can occur, Uneventful prioritizes *all*
-     * release callbacks to run before *any* other callbacks of any kind.  since
+     * release callbacks to run before *any* other callbacks of any kind.  Since
      * release callbacks are used for child jobs, this means that the entire job
      * subtree is notified immediately of cancellation, before any other actions
      * are taken.  This ensures that no "stray" operations can continue, unaware

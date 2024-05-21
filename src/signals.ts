@@ -259,7 +259,7 @@ export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): Re
  * on every call to recalcWhen().
  *
  * If the source needs to reference some object, it's best to use the 2-argument
- * version (i.e. `changesWhen(someObj, factory)`, where `factory` is a function
+ * version (i.e. `recalcWhen(someObj, factory)`, where `factory` is a function
  * that takes `someObj` and returns a suitable {@link RecalcSource}.)
  *
  * @remarks

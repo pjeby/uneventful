@@ -2,7 +2,7 @@ import { Request, Yielding } from "./types.ts";
 import { rejecter, resolve, resolver } from "./results.ts"
 
 /**
- * Convert a promise to something you can `yield *to()` in a job
+ * Convert a (possible) promise to something you can `yield *to()` in a job
  *
  * Much like `await valueOrPromiseLike` in an async function, using `yield
  * *to(valueOrPromiseLike)` in a {@link Job}'s generator function will return
