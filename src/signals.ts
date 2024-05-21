@@ -195,15 +195,20 @@ export function cached<T>(compute: () => T): Signal<T>;
  * The source will be subscribed *only* while the signal is subscribed as a
  * stream, or observed (directly or indirectly) by a rule.  While subscribed,
  * the signal will update itself with the most recent value produced by the
- * source, triggering rules or events as appropriate if the value changes. When
- * the signal is once again unobserved, it will revert to the supplied inital
- * value.
+ * source, triggering rules or events as appropriate if the value changes.  When
+ * the signal is once again unobserved (or if the source ends without an error),
+ * its value will revert to the supplied default.
  *
- * @param source A {@link Source} providing data which will become this signal's value
- * @param initVal The value to use when the signal is unobserved or waiting for the
- * first item from the source.
+ * If the source ends *with* an error, however, then the cached function will
+ * throw that error whenever called, until/unless it becomes unobserved again.
+ * (And thus reverts to the default value once more.)
+ *
+ * @param source A {@link Source} providing data which will become this signal's
+ * value
+ * @param defaultVal The value to use when the signal is unobserved or waiting for
+ * the first item from the source.
  */
-export function cached<T>(source: Source<T>, initVal?: T): Signal<T>;
+export function cached<T>(source: Source<T>, defaultVal?: T): Signal<T>;
 export function cached<T extends Signal<any>>(signal: T): T
 export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T> {
     if (compute instanceof SignalImpl) return compute;

@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
-import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, Source, pipe } from "../mod.ts";
+import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, pipe } from "../mod.ts";
 
 describe("each()", () => {
     useRoot();
@@ -52,6 +52,25 @@ describe("each()", () => {
         // And the connection error should be marked handled
         clock.tick(1); see("false", "true", "err: boom");
         expect(isValue(job.result())).to.be.true;
+    });
+    it("throws if stream is canceled", () => {
+        // Given an emitter and a job iterating over it
+        const e = mockSource<number>();
+        let c: Connection
+        const s = (sink: Sink<number>, conn: Connection) => { c = conn; return e.source(sink, conn); }
+        start(function*() {
+            for (const {item, next} of yield *each(s)) {
+                log(item);
+                try { yield next; } catch (e) { log(`err: ${e}`); }
+            }
+            log("done");
+        })
+        clock.tick(1);
+        e(1); see("1"); e(2); see("2");
+        // When the stream is ended by a cancel
+        c.end(); clock.tick(0);
+        // Then the waiting point should throw
+        see("err: Error: Job canceled", "done")
     });
     it("throws if stream starts with error", () => {
         // Given an emitter and a job iterating over it

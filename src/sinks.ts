@@ -1,7 +1,7 @@
 import { Job, Request, Suspend, Yielding } from "./types.ts"
 import { defer } from "./defer.ts";
 import { Connection, Inlet, Source, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
-import { reject, resolve, isError, markHandled, isValue } from "./results.ts";
+import { resolve, isError, markHandled, isValue, fulfillPromise, rejecter, resolver } from "./results.ts";
 import { restarting, start } from "./jobutils.ts";
 import { getJob, isFunction } from "./tracking.ts";
 import { Signal, cached } from "./signals.ts";
@@ -90,9 +90,7 @@ export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
         if (conn.result()) {
             result.value = undefined;
             (result as IteratorResult<any>).done = true;
-            // We don't need to markHandled here - if it wasn't handled by the `do`,
-            // it's already too late.
-            isError(conn.result()) ? reject(r, conn.result().err) : resolve(r, void 0);
+            fulfillPromise(resolver(r), rejecter(r), conn.result())
         } else {
             waiter = r;
             t.resume();

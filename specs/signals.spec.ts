@@ -273,6 +273,41 @@ describe("Signal Constructors/Interfaces", () => {
             // And the value should revert to the initial value
             expect(c()).to.equal("unobserved");
         });
+        it("Resets to default when stream ends", () => {
+            // Given a mock source wrapped in a cached() and subscribed
+            const e = mockSource<string>();
+            const s = lazy(() => {
+                log("subscribe"); must(()=>log("unsubscribe")); return e.source;
+            });
+            const c = cached(s, "unobserved");
+            const r = rule(() => log(c())); runRules();
+            see("subscribe", "unobserved");
+            e("42"); runRules(); see("42")
+            // When the source ends and rules run
+            e.end(); see("unsubscribe"); runRules();
+            // Then its value should revert to the default
+            see("unobserved");
+            r();
+        });
+        it("Becomes an error if the source throws (and resets on unsub)", () => {
+            // Given a mock source wrapped in a cached() and subscribed
+            const e = mockSource<string>();
+            const s = lazy(() => {
+                log("subscribe"); must(()=>log("unsubscribe")); return e.source;
+            });
+            const c = cached(s, "unobserved");
+            const r = rule(() => log(c())); runRules();
+            see("subscribe", "unobserved");
+            e("42"); runRules(); see("42")
+            // When the source throws and rules run
+            e.throw("boom!"); see("unsubscribe");
+            // Then its value should become an error
+            expect(runRules).to.throw("boom!");
+            // And once there are no more observers
+            r();
+            // Then it should revert to the default again.
+            expect(c()).to.equal("unobserved");
+        });
     });
 });
 
@@ -414,14 +449,15 @@ describe("Dependency tracking", () => {
             r2(); see("unsub 2");
             r1(); see("unsub 1");
         });
-        it("async-throws and kills its job on setup error", () => {
+        it("throws and kills its job on setup error", () => {
             // Given a source that throws and a rule that references it
             const src: RecalcSource = () => { log("sub"); must(()=> log("unsub")); throw "boom"; }
             const end = rule(() => { recalcWhen(src); log("ping"); });
             // When the rule is run
-            runRules();
-            // Then the error should async-throw and the subscription should be rolled back
-            see("sub", "Uncaught: boom", "unsub", "ping");
+            // Then the error should throw
+            expect(runRules).to.throw("boom");
+            // and the subscription should be rolled back
+            see("sub", "unsub");
             runRules(); see();
             end(); see();
         });

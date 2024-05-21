@@ -1,10 +1,10 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
-import { OptionalCleanup, RecalcSource } from "./types.ts"
+import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
-import { isCancel } from "./results.ts";
+import { isError, isValue, markHandled } from "./results.ts";
 import { nullCtx } from "./internals.ts";
 
 /**
@@ -144,7 +144,11 @@ export class Cell {
     /** Linked list of targets */
     subscribers: Subscription = undefined;
 
-    compute: () => any = returnValue;
+    /**
+     * The computation to be performed (if {@link Is.Calc} or {@link Is.Rule})
+     * or the setup/teardown for {@link Is.Stream}.
+     */
+    compute: (sub?: boolean) => any = returnValue;
 
     stream<T>(sink: Sink<T>, _conn?: Connection, inlet?: Inlet) {
         let lastValue = sentinel;
@@ -228,7 +232,7 @@ export class Cell {
         // Calc state.  But we don't clear the Calc flag because we might need
         // any previous sources to be released or unsubscribed.  (Which will
         // happen on our next recalc.)
-        this.compute = returnValue;
+        this.compute = isErr ? throwValue : returnValue;
     }
 
     setCalc(compute: () => any) {
@@ -356,7 +360,7 @@ export class Cell {
             if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
             }
-            if (this.flags & Is.Stream) this.compute();  // subscribe to source
+            if (this.flags & Is.Stream) this.compute(true);  // subscribe to source
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
             sub.nT = this.subscribers;
@@ -373,7 +377,7 @@ export class Cell {
             if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
             }
-            if (this.flags & Is.Stream) this.ctx.job?.restart();  // unsubscribe from source
+            if (this.flags & Is.Stream) this.compute(false);  // unsubscribe from source
         }
     }
 
@@ -390,18 +394,30 @@ export class Cell {
         cell.flags |= Is.Stream;
         cell.ctx = makeCtx();
         const write = (v: T) => { cell.setValue(v, false); cell.compute = compute; };
-        const compute = cell.compute = () => {
-            cell.ctx.job ||= makeJob()
-                .asyncCatch(e => detached.asyncThrow(e))
-                .must(r => { cell.value = val; isCancel(r) || (cell.ctx.job = undefined); })
-            ;
+        let job: Job<void>;
+        const compute = cell.compute = (sub: boolean) => {
+            if (!sub) {
+                // Last subscriber is gone, so reset to default value
+                cell.value = val; cell.flags &= ~Is.Error;
+                job?.end();  // unsubscribe from source
+                return
+            }
+            if (job) return;
+            job = cell.ctx.job = makeJob<void>().do(r => {
+                if (isError(r)) {
+                    cell.setValue(markHandled(r), true);
+                } else if (isValue(r)) {
+                    cell.setValue(val, false);
+                }
+                cell.compute = compute;
+                cell.ctx.job = job = undefined;
+            });
             const old = swapCtx(cell.ctx);
             try {
-                src(write);
+                src(write, job);
             } catch(e) {
-                detached.asyncThrow(e);
-                cell.ctx.job.end();
-                cell.ctx.job = undefined;
+                job.end();
+                throw e;
             } finally {
                 swapCtx(old);
             }
