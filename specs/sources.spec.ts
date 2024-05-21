@@ -356,13 +356,13 @@ describe("Sources", () => {
         it("delegates to its factory's result on subscribe", () => {
             // Given a lazy()-wrapped factory
             const src = spy(), factory = spy(() => src);
-            const s = lazy(factory);
+            const s = lazy(factory), t = throttle();
             // When it's subscribed
-            const c = connect(s, log.emit);
+            const c = connect(s, log.emit, t);
             // Then it should call the factory
             expect(factory).to.have.been.calledOnceWithExactly()
             // And pass the connection and sink to the result
-            expect(src).to.have.been.calledOnceWithExactly(log.emit, c);
+            expect(src).to.have.been.calledOnceWithExactly(log.emit, c, t);
         });
     });
     describe("mock()", () => {

@@ -219,7 +219,7 @@ export function interval(ms: number): Source<number> {
  * @category Stream Producers
  */
 export function lazy<T>(factory: () => Stream<T>): Source<T> {
-    return (sink, conn) => factory()(sink, conn)
+    return (sink, conn, inlet) => factory()(sink, conn, inlet)
 }
 
 /**
