@@ -1,7 +1,7 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
 import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { detached, getJob, makeJob } from "./tracking.ts";
+import { getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
 import { isError, isValue, markHandled } from "./results.ts";
@@ -11,7 +11,7 @@ import { nullCtx } from "./internals.ts";
  * Error indicating a rule has attempted to write a value it indirectly
  * depends on, or which has already been read by another rule in the current
  * batch. (Also thrown when a cached function attempts to write a value at all,
- * directly or inidirectly.)
+ * directly or indirectly.)
  *
  * @category Errors
  */
@@ -373,6 +373,7 @@ export class Cell {
         if (sub.nT) sub.nT.pT = sub.pT;
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
+        sub.nT = sub.pT = undefined;
         if (!this.subscribers) {
             if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);

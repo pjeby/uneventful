@@ -100,6 +100,25 @@ describe("Consistent updates", () => {
         runRules(); see("43, 45");
         common();
     })
+    it("handles conditional indirect resubscribes", () => {
+        // Given two rules conditionally subscribed indirectly to the same value
+        const condition = value(false), commonVal = value(42);
+        const indirect = cached(() => void log(commonVal()));
+        rule(() => { if (condition()) commonVal(); });
+        rule(() => { if (condition()) indirect()});
+        runRules(); see();
+        // When the condition is turned on...
+        condition.set(true); runRules(); see("42");
+        commonVal.set(66); runRules(); see("66");
+        commonVal.set(17); runRules(); see("17");
+        // off...
+        condition.set(false); runRules(); see();
+        commonVal.set(42); runRules(); see();
+        // and on again
+        condition.set(true); runRules(); see("42");
+        // Then the indirect calculation should be subscribed again
+        commonVal.set(66); runRules(); see("66");
+    });
     it("with different-length paths to common element", () => {
         const start = value(22);
         const indirect = cached(() => start() * 1.5);
