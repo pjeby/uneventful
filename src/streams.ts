@@ -46,7 +46,7 @@ export interface Inlet {
     /** Is the main connection open?  (i.e. is the creating job not closed yet?) */
     isOpen(): boolean
 
-    /** Is the conduit currently ready to receive data? */
+    /** Is the connection ready to receive data? */
     isReady(): boolean
 
     /**
@@ -199,7 +199,7 @@ class _Throttle implements Throttle {
 
     isOpen(): boolean { return !this._job?.result(); }
 
-    /** Is the conduit currently ready to receive data? */
+    /** Is the connection ready to receive data? */
     isReady(): boolean { return this.isOpen() && this._isReady; }
 
     _isReady = true;

@@ -116,7 +116,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * Convert an iterable to a synchronous event source
  *
  * Each time the resulting source is subscribed to, it will emit an event for
- * each item in the iterator, then close the conduit.  Pause/resume is
+ * each item in the iterator, then close the connection.  Pause/resume is
  * supported.
  *
  * @category Stream Producers
@@ -145,10 +145,10 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  * Convert a Promise to an event source
  *
  * Each time the resulting source is subscribed to, it will emit an event for
- * the result of the promise, then close the conduit.  (Unless the promise is
- * rejected, in which case the conduit throws and closes each time the source is
- * subscribed.)  Non-native promises and non-promise values are converted using
- * Promise.resolve().
+ * the result of the promise, then close the connection.  (Unless the promise is
+ * rejected, in which case the connection throws and closes each time the source
+ * is subscribed.)  Non-native promises and non-promise values are converted
+ * using Promise.resolve().
  *
  * @category Stream Producers
  */
