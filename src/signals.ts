@@ -6,6 +6,7 @@ import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
 import { SignalSource, Source } from "./streams.ts";
 import { CallableObject } from "./utils.ts";
+import { defer } from "./defer.ts";
 
 export { rule, runRules, type GenericMethodDecorator, type RuleFactory } from "./rules.ts"
 export { WriteConflict, CircularDependency } from "./cells.ts";
@@ -82,8 +83,8 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
         return yield (r => {
             let seen = false, res: T;
             rule(stop => {
-                try { res = this(); } catch(e) { stop(); reject(r, e); }
-                if (seen) { stop(); resolve(r, res); }
+                try { res = this(); } catch(e) { stop(); defer(reject.bind(null, r,e)); }
+                if (seen) { stop(); defer(resolve.bind(null, r, res)); }
                 seen = true;
             })
         });
@@ -95,8 +96,8 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
             try { res = this(); } catch(e) { reject(r, e); return; }
             if (res) return resolve(r, res);
             rule(stop => {
-                try { res = this(); } catch(e) { stop(); reject(r,e); }
-                if (res) { stop(); resolve(r, res); }
+                try { res = this(); } catch(e) { stop(); defer(reject.bind(null, r,e)); }
+                if (res) { stop(); defer(resolve.bind(null, r, res)); }
             });
         });
     }

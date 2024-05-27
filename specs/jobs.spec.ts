@@ -676,7 +676,7 @@ describe("Async Ops", () => {
                 // Then it should remain suspended
                 see();
                 // Until the value *changes*, even if false
-                v.set(0); runRules(); see("0")
+                v.set(0); runRules(); clock.tick(0); see("0")
 
             });
             it("asynchronously resuming when signal changes", () => {
@@ -685,23 +685,23 @@ describe("Async Ops", () => {
                 suspendOn(next(v)); clock.runAll(); runRules(); see();
                 // When the changes and rules run
                 v.set(55); see(); runRules();
-                // Then the next should resume with the new value
-                see("55");
+                // Then the next should resume asynchronously with the new value
+                clock.tick(0); see("55");
             });
             it("throwing when a signal throws synchronously", () => {
                 // When a suspended next() is run on an immediately throwing signal
                 suspendOn(next(cached(() => {throw "boom"}))); clock.runAll(); runRules()
-                // Then it should immediately throw
-                see("err: boom");
+                // Then it should asynchronously throw
+                see(); clock.tick(0); see("err: boom");
             });
             it("asynchronously throwing when a signal throws later", () => {
                 // Given an async-throwing signal and an next() suspended on it
                 const v = value(20), c = cached(() => { if (v()) throw "boom!";});
                 suspendOn(next(c)); clock.runAll(); see();
                 // When the signal recomputes as an error
-                v.set(55); see(); runRules();
-                // Then the next should reject with the error
-                see("err: boom!");
+                v.set(55); see(); runRules(); see();
+                // Then the next should asynchronously reject with the error
+                clock.tick(0); see("err: boom!");
             });
         });
         it("throws on non-Waitables", () => {
@@ -756,7 +756,7 @@ describe("Async Ops", () => {
                 const v = value(0);
                 suspendOn(until(v)); clock.runAll(); see();
                 // When the value becomes true and rules run
-                v.set(55); see(); runRules();
+                v.set(55); see(); runRules(); clock.tick(0);
                 // Then the until should resume with the new value
                 see("55");
             });
@@ -771,7 +771,7 @@ describe("Async Ops", () => {
                 const v = value(0), c = cached(() => { if (v()) throw "boom!";});
                 suspendOn(until(c)); clock.runAll(); see();
                 // When the signal recomputes as an error
-                v.set(55); see(); runRules();
+                v.set(55); see(); runRules(); clock.tick(0)
                 // Then the until should reject with the error
                 see("err: boom!");
             });

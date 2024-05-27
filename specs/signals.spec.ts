@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep, isCancel, getJob,
+    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep,
     SignalImpl, ConfigurableImpl, action
 } from "../mod.ts";
 import { current } from "../src/ambient.ts";
@@ -110,16 +110,16 @@ describe("Signal Constructors/Interfaces", () => {
             // Then the subscriber should be run in the null context
             see("true"); c.end();
         });
-        it("cleans up its until() rules", () => {
+        it("doesn't resume until() inside a rule", () => {
             // Given a falsy value
             const v = value(false);
             // When it's waited for via until and then goes truthy
             for(const cb of v["uneventful.until"]()) {
-                cb(() => { log(isCancel(getJob().result())); });
+                cb(() => { log(!!current.cell); });
             }
-            v.set(true); runRules();
-            // Then the resolve should be in a canceled job (rule)
-            see("true");
+            v.set(true); runRules(); see();
+            // Then the resolve should occur asynchronously without being in a rule
+            clock.tick(0); see("false");
         });
     });
     describe(".setf()", () => {
