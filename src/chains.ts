@@ -93,7 +93,7 @@ class Node<T, V=T, U=DisposeFn> {
     /** The previous node (or the end node if this is a chain head) */
     p: Node<T> = this as Node<T, any>;
     /** The value held by the node (or the chain length if this is a chain head) */
-    v: V = 0 as any;
+    v: V = undefined;
     /** The most recently created undo callback for this node */
     u: U = undefined;
 }
