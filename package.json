@@ -53,7 +53,7 @@
         "chai": "^4.3.10",
         "chai-as-promised": "^7.1.1",
         "mocha": "^10.2.0",
-        "monkey-around": "^2.3.0",
+        "monkey-around": "^3",
         "onchange": "^7.1.0",
         "pkgroll": "^2.1",
         "sinon": "^17.0.1",
