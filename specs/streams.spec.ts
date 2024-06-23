@@ -16,17 +16,17 @@ describe("connect()", () => {
         expect(src).to.have.been.calledOnceWithExactly(sink, c, undefined);
     });
     it("is linked to the running job", () => {
-        // Given a conduit opened by connect in the context of a job
+        // Given a connection opened by connect in the context of a job
         const src = spy(), sink = spy();
         const job = start(() => {
             connect(src, sink).do(logClose);
         });
         // When the job is ended
         see(); job.end();
-        // Then the conduit should be closed
+        // Then the connection should be closed
         see("closed");
     });
-    it("calls the source with the conduit's job active", () => {
+    it("calls the source with the connection's job active", () => {
         // Given a source and a sink
         function sink() { return true; }
         function src(_sink: Sink<any>) { must(() => log("cleanup")); return IsStream; }
@@ -67,7 +67,7 @@ describe("backpressure()", () => {
 
     describe(".isReady()", () => {
         it("is false after pause(), true after resume() (if open)", () => {
-            // Given a conduit and throttle
+            // Given a connection and throttle
             const c = start<void>(), t = throttle(c), ready = backpressure(t);
             // When it's paused, Then it shoud be unready
             t.pause(); expect(ready()).to.be.false;
@@ -83,37 +83,37 @@ describe("backpressure()", () => {
     describe(".resume()", () => {
         let c: Connection, t: Throttle;
         beforeEach(() => {
-            // Given a paused conduit with an onReady
+            // Given a paused connection with an onReady
             c = start<void>(); t = throttle(c); t.pause(); backpressure(t)(() => log("resumed"));
         });
         describe("does nothing if", () => {
-            it("conduit is already closed", () => {
-                // Given a paused conduit with an onReady
-                // When the conduit is closed and resume()ed
+            it("connection is already closed", () => {
+                // Given a paused connection with an onReady
+                // When the connection is closed and resume()ed
                 see(); c.end(); t.resume();
                 // Then the callback is not invoked
                 runPulls(); see();
             });
             it("no onReady() is set", () => {
-                // Given a conduit without an onReady
+                // Given a connection without an onReady
                 c = start<void>(); t = throttle(c); t.pause();
-                // When the conduit is resume()d
+                // When the connection is resume()d
                 t.resume();
                 // Then nothing happens
                 runPulls();
                 see();
             });
             it("after the onReady() was used", () => {
-                // Given a paused conduit with an onReady
-                // When the conduit is resume()d twice
+                // Given a paused connection with an onReady
+                // When the connection is resume()d twice
                 // Then nothing should happen the second time
                 t.resume(); runPulls(); see("resumed");
                 t.resume(); runPulls(); see();
             });
         });
         it("synchronously runs callbacks", () => {
-            // Given a paused conduit with an onReady
-            // When the conduit is resume()d
+            // Given a paused connection with an onReady
+            // When the connection is resume()d
             // Then the onReady callback should be invoked
             t.resume(); see("resumed");
             // And When a new onReady() is set
@@ -123,10 +123,10 @@ describe("backpressure()", () => {
             runPulls(); see("resumed again");
         });
         it("doesn't run duplicate onReady callbacks", () => {
-            // Given a paused conduit with added duplicate functions
+            // Given a paused connection with added duplicate functions
             const c = start<void>(), t = throttle(); t.pause(); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
             const r = backpressure(t); r(f1); r(f2); r(f1); r(f2);
-            // When the conduit is resumed
+            // When the connection is resumed
             t.resume();
             // Then it should run each function only once
             see("f1", "f2");

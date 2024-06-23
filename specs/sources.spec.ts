@@ -295,6 +295,15 @@ describe("Sources", () => {
             // And the stream should be closed
             see(); await Promise.resolve(); await Promise.resolve(); see("42", "closed");
         });
+        it("should take no action if closed", async () => {
+            // Given fromPromise()s of a plain value and rejection
+            const s1 = fromPromise(42), s2 = fromPromise(Promise.reject("some reason"));
+            // When the streams are connected amd closed
+            connect(s1, log.emit).do(logClose).end(); see("closed");
+            connect(s2, log.emit).do(logClose).end(); see("closed");
+            // Then there should be no effect even after Promise propagation
+            see(); await Promise.resolve(); see();
+        });
     });
     describe("fromSubscribe()", () => {
         useClock();

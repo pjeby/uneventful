@@ -326,8 +326,10 @@ export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.creat
  * used to run code that expects to create a child job, and detached.bind() can
  * wrap a function to work without a parent job.
  *
- * (Note that in all cases, a child job of `detached` *must* be stopped
- * explicitly, or it may "run" forever, never running its cleanup callbacks.)
+ * (Note that such `detached` child jobs *must* exit themselves or be stopped
+ * explicitly from outside, or else they may "run" forever, never running their
+ * cleanup callbacks.  Unlike other jobs, they don't end when their parent does
+ * because the `detached` job never "ends".)
  *
  * The detached job has a few special features and limitations:
  *

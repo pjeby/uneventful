@@ -2,6 +2,8 @@
 
 ### 0.0.6 (unreleased)
 
+- Changed when streams-as-signals and `recalcWhen()` handle subscribes and unsubscribes so that they don't thrash on and off when there's a single subscriber that's synchronously removed and re-added.
+
 ### 0.0.5
 
 - Fix: `next()` and `until()` should not resume job with the rule still active
