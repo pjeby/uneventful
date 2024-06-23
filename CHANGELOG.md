@@ -2,6 +2,10 @@
 
 ### 0.0.6 (unreleased)
 
+- Expanded and enhanced the `RuleFactory` interface:
+  - `rule.stop` can now be saved and then called from outside a rule
+  - `rule.detached(...)` is a new shorthand for `detached.run(rule, ...)`
+  - `rule.setScheduler()` lets you change how a rule will be scheduled (from inside it)
 - Changed when streams-as-signals and `recalcWhen()` handle subscribes and unsubscribes so that they don't thrash on and off when there's a single subscriber that's synchronously removed and re-added.
 
 ### 0.0.5

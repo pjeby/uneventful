@@ -8,7 +8,8 @@ import { SignalSource, Source } from "./streams.ts";
 import { CallableObject } from "./utils.ts";
 import { defer } from "./defer.ts";
 
-export { rule, runRules, type GenericMethodDecorator, type RuleFactory } from "./rules.ts"
+export type * from "./rules.ts"
+export { rule, runRules } from "./rules.ts"
 export { WriteConflict, CircularDependency } from "./cells.ts";
 
 /**

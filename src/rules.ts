@@ -3,6 +3,7 @@ import { RuleQueue, currentRule, defaultQ, ruleQueue } from "./scheduling.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
 import { Cell } from "./cells.ts";
 import { CallableObject, setMap } from "./utils.ts";
+import { detached } from "./tracking.ts";
 
 /**
  * A decorator function that supports both TC39 and "legacy" decorator protocols
@@ -34,17 +35,22 @@ export interface RuleFactory {
     (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn;
 
     /**
-     * Stop the currently-executing rule, or throw an error if no rule is
-     * currently running.
+     * A function that will stop the currently-executing rule.  (Accessing this
+     * attribute will throw an error if no rule is currently running.)
+     *
+     * Note: this returns the stop for the current rule regardless of its
+     * scheduler, so you can access `rule.stop` even if the rule was created
+     * with a different scheduler.
      */
-    stop(): void
+    readonly stop: DisposeFn;
 
     /**
      * Observe a condition and apply an action.
      *
-     * This is roughly equivalent to `rule(() => { if (condition()) return
+     * For a given {@link RuleFactory} `r` (such as `rule`), `r.if(condition,
+     * action)` is roughly equivalent to `r(() => { if (condition()) return
      * action(); })`, except that the rule is *only* rerun if the `action`'s
-     * dependencies change, *or* the truthiness of `condition()` changes. It
+     * dependencies change, *or* the **truthiness** of `condition()` changes. It
      * will *not* be re-run if only the dependencies of `condition()` have
      * changed, without affecting its truthiness.
      *
@@ -52,11 +58,15 @@ export interface RuleFactory {
      * cleanups, fire off tasks, etc., as it may be wasteful to constantly tear
      * them down and set them back up if the enabling condition is a calculation
      * with frequently-changing dependencies.
+     *
+     * @remarks This is just a shortcut for wrapping `condition` as a signal
+     * that converts it to boolean. So if you already *have* a boolean signal,
+     * you can get the same effect with just `if (condition()) { ... }`.
      */
     if(condition: () => any, action: () => OptionalCleanup): DisposeFn
 
     /**
-     * Decorate a method to behave as a rule, e.g.
+     * Decorate a method or function to behave as a rule, e.g.
      *
      * ```ts
      * const animate = rule.factory(requestAnimationFrame);
@@ -73,6 +83,10 @@ export interface RuleFactory {
      * // Start running the method in an animation frame for every change to
      * // lastMouseEvent, until the current job ends:
      * someDraggable.trackPosition(top, left);
+     * ```
+     * or:
+     * ```ts
+     * const logger = rule.method((formatString, signal) => { log(formatString, signal()); });
      * ```
      *
      * Each time it's (explicitly) called, the decorated method will start a new
@@ -121,19 +135,52 @@ export interface RuleFactory {
      * same scheduling function more than once, it returns the same factory.
      *
      */
-    factory(scheduleFn: (cb: () => unknown) => unknown): RuleFactory
+    factory(scheduleFn: SchedulerFn): RuleFactory
+
+    /**
+     * Create a "detached" or standalone rule, that is not attached to any job.
+     *
+     * `r.detached(fn)` is shorthand for calling `detached.run(r, fn)`.  (Where
+     * `r` is a {@link RuleFactory} such as `rule`.)
+     *
+     * Note that since the created rule isn't attached to a job, it *must* be
+     * explicitly stopped, either by calling the returned disposal function or
+     * by the rule function arranging to stop itself via {@link rule.stop}() or
+     * its stop parameter.
+     */
+    detached(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn;
+
+    /**
+     * Change the scheduler used for the currently-executing rule.  Throws an
+     * error if no rule is running.
+     *
+     * @param scheduleFn Optional: The {@link SchedulerFn scheduling function}
+     * to use; the default microtask scheduler will be used if none is given or
+     * the given value is falsy.
+     *
+     * @remarks It's best to only use scheduling functions that were created
+     * *outside* the current rule, otherwise you'll be creating a new scheduling
+     * queue object on every run of the rule.  (These will get garbage collected
+     * with the scheduling functions, but you'll be creating more memory
+     * pressure and using more GC time if the rule runs frequently.)
+     */
+    setScheduler(scheduleFn?: SchedulerFn): void;
 }
 
-class RF extends CallableObject<(fn: (stop: DisposeFn) => OptionalCleanup) => DisposeFn> implements RuleFactory {
+type RuleFunction = (fn: ActionFunction) => DisposeFn
+type ActionFunction = (stop: DisposeFn) => OptionalCleanup
+
+class RF extends CallableObject<RuleFunction> implements RuleFactory {
 
     constructor(q: RuleQueue) {
-        super((fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn => Cell.mkRule(fn, q))
+        super((fn: ActionFunction) => Cell.mkRule(fn, q))
     }
 
-    stop() {
-        if (currentRule) return currentRule.disposeRule();
+    get stop() {
+        if (currentRule) return currentRule.disposeRule.bind(currentRule);
         throw new Error("No rule active");
     }
+
     if(condition: () => any, action: () => OptionalCleanup): DisposeFn {
         const cond = Cell.mkCached(() => !!condition());
         return this(() => cond.getValue() ? action() : undefined);
@@ -153,8 +200,17 @@ class RF extends CallableObject<(fn: (stop: DisposeFn) => OptionalCleanup) => Di
         }
     }
 
-    factory(scheduleFn: (cb: () => unknown) => unknown): RuleFactory {
+    factory(scheduleFn: SchedulerFn): RuleFactory {
         return factories.get(scheduleFn) || setMap(factories, scheduleFn, new RF(ruleQueue(scheduleFn)));
+    }
+
+    detached(fn: ActionFunction) {
+        return detached.run(this as RuleFunction, fn);
+    }
+
+    setScheduler(scheduleFn?: SchedulerFn): void {
+        if (currentRule) currentRule.value.q = scheduleFn ? ruleQueue(scheduleFn) : defaultQ;
+        else throw new Error("No rule active");
     }
 }
 
@@ -175,8 +231,7 @@ const factories = new WeakMap<Function, RuleFactory>();
  * `rule()`.
  *
  * Note: this function will throw an error if called without an active job. If
- * you need a standalone rule, use {@link detached}.run to wrap the
- * call to rule.
+ * you need a standalone rule, use {@link RuleFactory.detached rule.detached}().
  *
  * @param fn The function that will be run each time its dependencies change.
  * The function will be run in a restarted job each time, with any resources
@@ -204,12 +259,23 @@ export const rule: ((action: (stop: DisposeFn) => OptionalCleanup) => DisposeFn)
  * rules need to be able to cancel a synchronous event or continue an IndexedDB
  * transaction.  (Otherwise, this is really only useful for testing.)
  *
- * @param scheduleFn The scheduler used to create the rule factory you wish to
- * run pending rules for.  If not given, the default {@link rule}() factory is
- * targeted.
+ * @param scheduleFn The {@link SchedulerFn scheduler} used to create the rule
+ * factory you wish to run pending rules for.  If not given, the default
+ * {@link rule}() factory is targeted.
  *
  * @category Signals
  */
-export function runRules(scheduleFn?: (cb: () => unknown) => unknown) {
+export function runRules(scheduleFn?: SchedulerFn) {
     (scheduleFn ? ruleQueue(scheduleFn) : defaultQ).flush();
 }
+
+/**
+ * A single-argument scheduling function (such as requestAnimationFrame,
+ * setImmediate, or queueMicrotask).  The rule scheduler will call it from time
+ * to time with a single callback.  The scheduling function should then arrange
+ * for that callback to be invoked *once* at some future point, when it is the
+ * desired time for all pending rules on that scheduler to run.
+ *
+ * @category Types and Interfaces
+ */
+export type SchedulerFn = (cb: () => unknown) => unknown;

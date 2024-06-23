@@ -1,5 +1,5 @@
 import { log, see, describe, it, useRoot, msg, expect } from "./dev_deps.ts";
-import { runRules, value, rule, must, DisposeFn, detached, GenericMethodDecorator } from "../mod.ts";
+import { runRules, value, rule, must, DisposeFn, detached, SchedulerFn } from "../mod.ts";
 
 describe("@rule.method", () => {
     useRoot();
@@ -32,6 +32,29 @@ describe("@rule.method", () => {
     });
 });
 
+describe("rule.setScheduler()", () => {
+    it("assigns the scheduler of the rule", () => {
+        // Given a rule that sets its scheduler
+        let cb: () => unknown;
+        const s = value<SchedulerFn|undefined>(f => cb = f)
+        const r = rule.detached(() => {
+            rule.setScheduler(s());
+            log("run");
+        });
+        // When the rule is run
+        runRules(); see("run"); expect(cb).to.be.undefined;
+        // And then rescheduled
+        s.set(undefined); see();
+        // Then the scheduler should be called
+        expect(cb).to.be.a("function");
+        // But the rule should not re-run until the new callback is invoked
+        runRules(); see(); cb(); see("run");
+        // And now it should be back on the default scheduler (due to setting undefined)
+        s.set(f => cb = f); runRules(); see("run");
+        r();
+    });
+});
+
 describe("rule.stop()", () => {
     it("throws outside a rule", () => {
         expect(() => rule.stop()).to.throw("No rule active");
@@ -39,22 +62,30 @@ describe("rule.stop()", () => {
     it("stops the running rule", () => {
         // Given a rule that conditionally stops itself
         const v = value(42)
-        detached.start(() => {
-            rule(() => {
-                if (v() !== 42) {
-                    must(msg("stopped"));
-                    rule.stop();
-                } else {
-                    log("ok");
-                }
-            })
-        })
+        rule.detached(() => {
+            if (v() !== 42) {
+                must(msg("stopped"));
+                rule.stop();
+            } else {
+                log("ok");
+            }
+        });
         runRules(); see("ok");
         // When that condition occurs
         // Then the rule should be stopped
         v.set(99); runRules(); see("stopped");
         // And not run again, even if the condition changes
         v.set(42); runRules(); see();
+    });
+    it("is bound to the rule where it was retrieved", () => {
+        // Given a rule that saves rule.stop
+        let f: DisposeFn
+        rule.detached(() => { f = rule.stop; return msg("stopped"); })
+        runRules(); see();
+        // When the function is called outside the rule
+        f();
+        // Then the rule should be stopped
+        see("stopped");
     });
 });
 
