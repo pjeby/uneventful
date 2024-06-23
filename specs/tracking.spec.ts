@@ -399,6 +399,7 @@ describe("Job instances", () => {
     });
     describe(".result()", () => {
         useRoot();
+        useClock();
         it("can be observed by a rule or signal", () => {
             // Given a rule observing a pending job
             const j = makeJob();
@@ -408,8 +409,8 @@ describe("Job instances", () => {
             });
             // When rules are run, it should see the undefined result
             runRules(); see("loading...");
-            // And when the job finishes it should see the final result
-            j.return(42); runRules(); see("done: 42");
+            // And after the job finishes it should see the final result
+            j.return(42); clock.runAll(); runRules(); see("done: 42");
             end(); see();
         });
     });

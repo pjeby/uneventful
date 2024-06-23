@@ -1,11 +1,12 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
 import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { getJob, makeJob } from "./tracking.ts";
+import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { setMap } from "./utils.ts";
-import { isError, isValue, markHandled } from "./results.ts";
+import { isError, markHandled } from "./results.ts";
 import { nullCtx } from "./internals.ts";
+import { defer } from "./defer.ts";
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
@@ -32,6 +33,9 @@ const fntrackers = new WeakMap<Function, () => number>();
 
 /** recalcWhen(key, factory): map factory -> key -> signal */
 const obtrackers = new WeakMap<Function, WeakMap<WeakKey, () => number>>();
+
+/** stream controllers for stream+recalcWhen signals */
+const streamtrackers = new WeakMap<Cell, ()=>void>();
 
 const dirtyStack: Cell[] = [];
 
@@ -75,6 +79,8 @@ const enum Is {
     Running  = 1 << 5,
     Stream   = 1 << 6,
     Mutable  = 1 << 7,
+    Demanded = 1 << 8,            // Stream has been queued for demand update
+    Demand   = Stream | Demanded, // Mask for checking if stream + unqueued
     Computed = Rule | Calc,
     Variable = Computed | Mutable,
 }
@@ -360,7 +366,8 @@ export class Cell {
             if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
             }
-            if (this.flags & Is.Stream) this.compute(true);  // subscribe to source
+            // subscribe to source
+            if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
             sub.nT = this.subscribers;
@@ -378,7 +385,8 @@ export class Cell {
             if (this.flags & Is.Calc) {
                 for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
             }
-            if (this.flags & Is.Stream) this.compute(false);  // unsubscribe from source
+            // unsubscribe from source
+            if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
         }
     }
 
@@ -390,39 +398,45 @@ export class Cell {
         return cell;
     }
 
+    updateDemand() {
+        this.flags |= Is.Demanded;
+        defer(streamtrackers.get(this));
+    }
+
     static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stream;
-        cell.ctx = makeCtx();
-        const write = (v: T) => { cell.setValue(v, false); cell.compute = compute; };
+        const ctx = makeCtx();
+        const write = (v: T) => { cell.setValue(v, false);  };
         let job: Job<void>;
-        const compute = cell.compute = (sub: boolean) => {
-            if (!sub) {
+        streamtrackers.set(cell, () => {
+            if (!(cell.flags & Is.Demanded)) return;
+            cell.flags &= ~(Is.Demanded);
+            if (!cell.subscribers) {
                 // Last subscriber is gone, so reset to default value
-                cell.value = val; cell.flags &= ~Is.Error;
+                write(val);
                 job?.end();  // unsubscribe from source
                 return
             }
             if (job) return;
-            job = cell.ctx.job = makeJob<void>().do(r => {
+            job = ctx.job = makeJob<void>().do(r => {
                 if (isError(r)) {
                     cell.setValue(markHandled(r), true);
-                } else if (isValue(r)) {
+                } else {
                     cell.setValue(val, false);
                 }
-                cell.compute = compute;
-                cell.ctx.job = job = undefined;
+                ctx.job = job = undefined;
             });
-            const old = swapCtx(cell.ctx);
+            const old = swapCtx(ctx);
             try {
                 src(write, job);
             } catch(e) {
                 job.end();
-                throw e;
+                detached.asyncThrow(e);
             } finally {
                 swapCtx(old);
             }
-        }
+        });
         return cell;
     }
 
