@@ -1,5 +1,7 @@
 import { JobResult } from "./results.ts";
 import { Connection, Inlet, Sink, Stream, Throttle } from "./streams.ts";
+import { start } from "./jobutils.ts";
+import { peek } from "./signals.ts";
 
 /**
  * An undefined or null value
@@ -29,7 +31,7 @@ export type AnyFunction = (...args: any[]) => any;
  *
  * @category Types and Interfaces
  */
-export type CleanupFn<T=any> = (res: JobResult<T>) => unknown;
+export type CleanupFn<T=unknown> = (res: JobResult<T>) => unknown;
 
 /**
  * A function that can be called to dispose of something or unsubscribe
@@ -44,7 +46,7 @@ export type DisposeFn = () => void;
  *
  * @category Types and Interfaces
  */
-export type OptionalCleanup<T=any> = CleanupFn<T> | Nothing;
+export type OptionalCleanup<T=unknown> = CleanupFn<T> | Nothing;
 
 /**
  * An asynchronous start function is called immediately in the new job and must
@@ -119,8 +121,8 @@ export type StartObj<T> = Yielding<T> | Promise<T> | PromiseLike<T>
  * canceled (using {@link Job.end \.end()} or
  * {@link Job.restart \.restart()}).
  *
- * Jobs can be created and accessed using {@link start}(),
- * {@link detached}.start(), {@link makeJob}(), and {@link getJob}().
+ * Jobs can be created using {@link start}(), {@link detached}.start(), and
+ * {@link makeJob}().
  *
  * @category Types and Interfaces
  */
@@ -147,7 +149,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @category Resource Tracking
      */
-    must(cleanup?: OptionalCleanup<T>): this;
+    must(cleanup?: OptionalCleanup): this;
 
     /**
      * Create a mutual-cleanup link with a resource that might be stopped or
@@ -194,7 +196,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @category Resource Tracking
      */
-    release(cleanup: CleanupFn<T>): DisposeFn;
+    release(cleanup: CleanupFn): DisposeFn;
 
     /**
      * Start a nested job using the given function (or {@link Yielding},
@@ -226,8 +228,9 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
     /**
      * Invoke a function with this job as the active one, so that calling the
      * global {@link must} function will add cleanup callbacks to it,
-     * {@link getJob} will return it, etc.  (Note: signal dependency tracking is
-     * disabled for the duration of the call.)
+     * {@link start} will create child jobs of it, etc.  (Note: signal
+     * dependency tracking is disabled for the duration of the call, as if it
+     * had been wrapped with {@link peek}().)
      *
      * @param fn The function to call
      * @param args The arguments to call it with, if any
@@ -243,7 +246,9 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * @param fn The function to wrap
      *
      * @returns A function with the same signature(s), but will have this job
-     * active when called.
+     * active when called.  (Note: signal dependency tracking will be disabled
+     * for the duration of the call, as if it had been wrapped with
+     * {@link peek}().)
      *
      * @remarks Note that if the supplied function has any custom properties,
      * they will *not* be available on the returned function at runtime, even

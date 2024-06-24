@@ -43,10 +43,10 @@ var inProcess = new Set<_Job<any>>;
 
 class _Job<T> implements Job<T> {
     /** @internal */
-    static create<T,R>(parent?: Job<R>, stop?: CleanupFn<R>): Job<T> {
+    static create<T>(parent?: Job, stop?: CleanupFn): Job<T> {
         const job = new _Job<T>;
         if (parent || stop) {
-            job.must((parent ||= getJob() as Job<R>).release(stop || job.end));
+            job.must((parent ||= getJob()).release(stop || job.end));
             owners.set(job, parent);
         }
         return job;
@@ -232,12 +232,12 @@ class _Job<T> implements Job<T> {
         }
     }
 
-    must(cleanup?: OptionalCleanup<T>) {
+    must(cleanup?: OptionalCleanup) {
         if (isFunction(cleanup)) push(this._chain(), cleanup);
         return this;
     }
 
-    release(cleanup: CleanupFn<T>): () => void {
+    release(cleanup: CleanupFn): () => void {
         if (this === detached) return noop;
         let cbs = this._chain();
         if (!this._done || cbs.u) cbs = cbs.u ||= chain();
@@ -283,8 +283,7 @@ const promises = new WeakMap<Job<any>, Promise<any>>();
  * reasons to just use one directly.  (Like when Uneventful uses this function
  * to implement jobs' promise methods!)
  *
- * @param job Optional: the job to get a native promise for.  If none is given,
- * the active job is used.
+ * @param job The job to get a native promise for.
  *
  * @returns A {@link Promise} that resolves or rejects according to whether the
  * job returns or throws.  If the job is canceled, the promise is rejected with
@@ -292,7 +291,7 @@ const promises = new WeakMap<Job<any>, Promise<any>>();
  *
  * @category Jobs
  */
-export function nativePromise<T>(job = getJob<T>()): Promise<T> {
+export function nativePromise<T>(job: Job<T>): Promise<T> {
     if (!promises.has(job)) {
         promises.set(job, new Promise((res, rej) => {
             const toPromise = (fulfillPromise<T>).bind(null, res, rej);
@@ -319,7 +318,7 @@ export function nativePromise<T>(job = getJob<T>()): Promise<T> {
  *
  * @category Jobs
  */
-export const makeJob: <T,R=unknown>(parent?: Job<R>, stop?: CleanupFn<R>) => Job<T> = _Job.create;
+export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.create;
 
 /**
  * A special {@link Job} with no parents, that can be used to create standalone

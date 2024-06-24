@@ -1,21 +1,21 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { getJob, makeJob } from "./tracking.ts";
-import { AnyFunction, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
+import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
 
 /**
  * Add a cleanup function to the active job. Non-function values are ignored.
- * Equivalent to {@link getJob}().{@link Job.must must}() -- see
- * {@link Job.must}() for more details.
+ * Equivalent to calling .{@link Job.must must}() on the current job.  (See
+ * {@link Job.must}() for more details.)
  *
  * @category Jobs
  */
-export function must<T>(cleanup?: OptionalCleanup<T>): Job<T> {
-    return (getJob() as Job<T>).must(cleanup);
+export function must(cleanup?: OptionalCleanup): void {
+    getJob().must(cleanup);
 }
 
 /**
  * Start a nested job within the currently-active job.  (Shorthand for
- * {@link getJob}().{@link Job.start start}(...).)
+ * calling .{@link Job.start start}(...) on the active job.)
  *
  * This function can be called with zero, one, or two arguments:
  *
@@ -141,7 +141,7 @@ export function abortSignal(job: Job = getJob()) {
     if (!signal) {
         const ctrl = new AbortController;
         signal = ctrl.signal;
-        job.do(() => { abortSignals.set(job, null); ctrl.abort(); });
+        job.must(() => { abortSignals.set(job, null); ctrl.abort(); });
         abortSignals.set(job, signal);
         if (job.result()) ctrl.abort();
     }
@@ -174,10 +174,10 @@ export function abortSignal(job: Job = getJob()) {
  * @category Jobs
  */
 export function restarting<F extends AnyFunction>(task: F): F
-export function restarting(): (task: () => OptionalCleanup<never>) => void
+export function restarting(): (task: () => OptionalCleanup) => void
 export function restarting<F extends AnyFunction>(task?: F): F {
     const outer = getJob(), inner = makeJob<never>(outer), {end} = inner;
-    task ||= <F>((f: () => OptionalCleanup<never>) => { inner.must(f()); });
+    task ||= <F>((f: () => OptionalCleanup) => { inner.must(f()); });
     inner.asyncCatch(e => outer.asyncThrow(e));
     return <F>function(this: any) {
         inner.restart().must(outer.release(end));

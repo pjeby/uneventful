@@ -3,7 +3,7 @@ import { defer } from "./defer.ts";
 import { Connection, Inlet, Source, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
 import { resolve, isError, markHandled, isValue, fulfillPromise, rejecter, resolver } from "./results.ts";
 import { restarting, start } from "./jobutils.ts";
-import { getJob, isFunction } from "./tracking.ts";
+import { isFunction } from "./tracking.ts";
 import { Signal, cached } from "./signals.ts";
 
 /**
@@ -61,7 +61,7 @@ export type Each<T> = IterableIterator<EachResult<T>>
 export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
     let yielded = false, waiter: Request<void>;
     const result: IteratorYieldResult<EachResult<T>> = {value: {item: undefined as T, next}, done: false};
-    const t = throttle(), conn = getJob().connect(src, v => {
+    const t = throttle(), conn = connect(src, v => {
         t.pause();
         if (!waiter || conn.result()) return;
         result.value.item = v;

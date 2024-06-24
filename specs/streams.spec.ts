@@ -56,7 +56,7 @@ describe("backpressure()", () => {
     it("closes(+unready) when its enclosing job is cleaned up", () => {
         // Given a job and a connection it's attached to
         detached.start(job => {
-            const c = start<void>().must(logClose);
+            const c = start<void>().do(logClose);
             // When the job ends
             job.end();
             // Then the connection should be closed and the limiter unready

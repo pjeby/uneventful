@@ -227,7 +227,7 @@ describe("Job API", () => {
         afterEach(() => { current.job = undefined; });
         it("must()", () => {
             const m = spy(t1, "must");
-            expect(must(cb)).to.equal(t1);
+            must(cb);
             expect(m).to.have.been.calledOnceWithExactly(cb).and.returned(t1);
         })
     });

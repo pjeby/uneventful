@@ -160,7 +160,7 @@ type Flush = () => any
 
 /**
  * Subscribe a sink to a stream, returning a nested job. (Shorthand for
- * {@link getJob}().{@link Job.connect connect}(...).)
+ * .{@link Job.connect connect}(...) on the active job.)
  *
  * @param src An event source or signal
  * @param sink A callback that will receive the events
