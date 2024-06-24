@@ -20,6 +20,13 @@ module.exports = {
         "Errors",
         "Other",
     ],
+    plugin: ["@knodes/typedoc-plugin-pages"],
+    pluginPages: {
+        "source": "guides",
+        "pages": [
+            {name: "Changelog", source: "./CHANGELOG.md"}
+        ]
+    },
     hideGenerator: true,
     excludeInternal: true,
     excludePrivate: true,
