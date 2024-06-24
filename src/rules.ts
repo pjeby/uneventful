@@ -2,7 +2,7 @@ import { defer } from "./defer.ts";
 import { RuleQueue, currentRule, defaultQ, ruleQueue } from "./scheduling.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
 import { Cell } from "./cells.ts";
-import { CallableObject, setMap } from "./utils.ts";
+import { CallableObject, apply, setMap } from "./utils.ts";
 import { detached } from "./tracking.ts";
 
 /**
@@ -195,7 +195,7 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
         ) => {
             if (desc) return void (desc.value = this.method(desc.value));
             return function (this: any, ...args: any[]): DisposeFn {
-                return self(() => (fn as any).apply(this, args));
+                return self(() => apply(fn as any, this, args));
             };
         }
     }

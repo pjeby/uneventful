@@ -3,7 +3,7 @@ import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.t
 import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
-import { setMap } from "./utils.ts";
+import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { nullCtx } from "./internals.ts";
 import { defer } from "./defer.ts";
@@ -169,7 +169,7 @@ export class Cell {
     }
 
     getValue() {
-        if (arguments.length) return this.stream.apply(this, arguments as any);
+        if (arguments.length) return apply(this.stream, this, arguments);
         this.catchUp();
         const dep = current.cell;
         // Only create a dependency if our value can change

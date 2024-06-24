@@ -5,7 +5,7 @@ import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
 import { SignalSource, Source } from "./streams.ts";
-import { CallableObject } from "./utils.ts";
+import { CallableObject, apply } from "./utils.ts";
 import { defer } from "./defer.ts";
 
 export type * from "./rules.ts"
@@ -238,7 +238,7 @@ export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T
 export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     if (!current.cell) return fn(...args);
     const old = swapCtx(makeCtx(current.job));
-    try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
+    try { return fn(...args); } finally { freeCtx(swapCtx(old)); }
 }
 
 /**
@@ -347,8 +347,8 @@ export function action<F extends AnyFunction, D extends {value?: F}>(
 export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx?: any, desc?: D): D | F {
     if (desc) return {...desc, value: action(desc.value)};
     return <F> function (this: ThisParameterType<F>) {
-        if (!current.cell) return fn.apply(this, arguments as any);
+        if (!current.cell) return apply(fn, this, arguments);
         const old = swapCtx(makeCtx(current.job));
-        try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
+        try { return apply(fn, this, arguments); } finally { freeCtx(swapCtx(old)); }
     }
 }

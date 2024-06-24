@@ -1,6 +1,7 @@
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
 import { getJob, makeJob } from "./tracking.ts";
 import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
+import { apply } from "./utils.ts";
 
 /**
  * Add a cleanup function to the active job. Non-function values are ignored.
@@ -179,10 +180,10 @@ export function restarting<F extends AnyFunction>(task?: F): F {
     const outer = getJob(), inner = makeJob<never>(outer), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup) => { inner.must(f()); });
     inner.asyncCatch(e => outer.asyncThrow(e));
-    return <F>function(this: any) {
+    return <F>function(this: ThisParameterType<F>) {
         inner.restart().must(outer.release(end));
         const old = swapCtx(makeCtx(inner));
-        try { return task.apply(this, arguments as any); }
+        try { return apply(task, this, arguments); }
         catch(e) { inner.restart(); throw e; }
         finally { freeCtx(swapCtx(old)); }
     };
@@ -259,6 +260,6 @@ export function task<T, A extends any[], C, D extends {value?: (this:C, ...args:
 ): D | ((this: C, ...args: A) => Job<T>) {
     if (desc) return {...desc, value: task(desc.value)};
     return function (this: C, ...args: A) {
-        return start<T>(() => fn.apply(this, args));
+        return start<T>(fn.bind(this, ...args as any[]));
     }
 }

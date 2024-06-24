@@ -6,6 +6,7 @@ import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, i
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 import { Stream, Sink, Inlet, Connection } from "./streams.ts";
+import { apply } from "./utils.ts";
 
 /**
  * Is the given value a function?
@@ -221,14 +222,14 @@ class _Job<T> implements Job<T> {
 
     run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
         const old = swapCtx(makeCtx(this));
-        try { return fn.apply(null, args); } finally { freeCtx(swapCtx(old)); }
+        try { return fn(...args); } finally { freeCtx(swapCtx(old)); }
     }
 
     bind<F extends (...args: any[]) => any>(fn: F): F {
         const job = this;
         return <F> function (this: any) {
             const old = swapCtx(makeCtx(job));
-            try { return fn.apply(this, arguments as any); } finally { freeCtx(swapCtx(old)); }
+            try { return apply(fn, this, arguments); } finally { freeCtx(swapCtx(old)); }
         }
     }
 

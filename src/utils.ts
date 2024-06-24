@@ -33,3 +33,5 @@ export function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.
 
 // No need to have extra prototypes in the chain
 CallableObject.prototype = Function.prototype as any;
+
+export const {apply} = Reflect;
