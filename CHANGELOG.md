@@ -1,6 +1,6 @@
 # Changelog
 
-### 0.0.6 (unreleased)
+### 0.0.6
 
 - Moved main signals API to a separate export (`uneventful/signals`) and exposed the utils module as an export (`uneventful/utils`).
 - Expanded and enhanced the `RuleFactory` interface:
