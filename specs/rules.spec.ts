@@ -42,7 +42,7 @@ describe("rule.setScheduler()", () => {
             log("run");
         });
         // When the rule is run
-        runRules(); see("run"); expect(cb).to.be.undefined;
+        runRules(); see("run");
         // And then rescheduled
         s.set(undefined); see();
         // Then the scheduler should be called

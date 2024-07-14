@@ -1,5 +1,5 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
-import { type RuleQueue, currentRule, ruleQueue, defaultQ } from "./scheduling.ts";
+import { type RuleQueue, currentRule, ruleQueue, defaultQ, ruleStops } from "./scheduling.ts";
 import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
@@ -47,7 +47,7 @@ function markDependentsDirty(cell: Cell) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource) continue;
             tgt.latestSource = latestSource;
-            if (tgt.flags & Is.Rule) (tgt.value.q as RuleQueue).add(tgt);
+            tgt.queue?.add(tgt);
             if (tgt.subscribers) dirtyStack.push(tgt);
         }
     }
@@ -72,17 +72,14 @@ function throwValue(this: Cell) {
 const notCaughtUp = [] as Cell[];
 
 const enum Is {
-    Rule     = 1 << 0,
-    Calc     = 1 << 2,
-    Dead     = 1 << 3,
+    Compute  = 1 << 2,
     Error    = 1 << 4,
     Running  = 1 << 5,
     Stream   = 1 << 6,
     Mutable  = 1 << 7,
     Demanded = 1 << 8,            // Stream has been queued for demand update
     Demand   = Stream | Demanded, // Mask for checking if stream + unqueued
-    Computed = Rule | Calc,
-    Variable = Computed | Mutable,
+    Variable = Compute | Mutable,
 }
 
 type Subscription = {
@@ -122,7 +119,7 @@ function mksub(source: Cell, target: Cell) {
     // track that this source has had a subscription added during this calculation
     source.adding = sub;
     // Set up reciprocal subscription if needed
-    if (target.subscribers || target.flags & Is.Rule) source.subscribe(sub);
+    if (target.subscribers || target.queue) source.subscribe(sub);
 }
 
 function delsub(sub: Subscription) {
@@ -134,10 +131,20 @@ function delsub(sub: Subscription) {
     freesubs = sub;
 }
 
+function subscribeAll(s: Subscription) {
+    if (s) while (s.pS) s = s.pS; else return;
+    for(; s; s = s.nS) s.src.subscribe(s);
+}
+
+function unsubscribeAll(s: Subscription) {
+    if (s) while (s.pS) s = s.pS; else return;
+    for(; s; s = s.nS) s.src.unsubscribe(s);
+}
+
 const sentinel = {}  // a unique value for uniqueness checking
 
 export class Cell {
-    value: any = undefined // the value, or, for a rule, the `{q, rm}` struct
+    value: any = undefined // the value
     validThrough = 0; // timestamp of most recent validation or recalculation
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
@@ -149,10 +156,11 @@ export class Cell {
     sources: Subscription = undefined;
     /** Linked list of targets */
     subscribers: Subscription = undefined;
+    queue: RuleQueue = undefined;
 
     /**
-     * The computation to be performed (if {@link Is.Calc} or {@link Is.Rule})
-     * or the setup/teardown for {@link Is.Stream}.
+     * The computation to be performed (if {@link Is.Compute}) or the
+     * setup/teardown for {@link Is.Stream}.
      */
     compute: (sub?: boolean) => any = returnValue;
 
@@ -208,7 +216,7 @@ export class Cell {
             // cell), we need to check if it's not a circular update or disallowed
             // side-effect.  In such a case we bail out with an error, even if the
             // change is idempotent.  (To avoid hiding value-dependent errors.)
-            if (cell.flags & Is.Calc) throw new WriteConflict("Side-effects not allowed in cached functions");
+            if (!cell.queue) throw new WriteConflict("Side-effects not allowed outside rules");
             if (this.adding && this.adding.tgt === cell) throw new CircularDependency("Can't update direct dependency");
             if (this.validThrough === timestamp || this.hasBeenRead()) throw new WriteConflict("Value already used");
         } else if (changed) {
@@ -243,7 +251,7 @@ export class Cell {
 
     setCalc(compute: () => any) {
         if (this.shouldWrite(compute !== this.compute)) {
-            this.flags |= Is.Calc;
+            this.flags |= Is.Compute;
             this.compute = compute;
             this.ctx ||= makeCtx(null, this);
         }
@@ -261,7 +269,7 @@ export class Cell {
         const {validThrough} = this;
         if (validThrough === timestamp) return;
         this.validThrough = timestamp;
-        if (!(this.flags & Is.Computed)) return;
+        if (!(this.flags & Is.Compute)) return;
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
@@ -304,29 +312,18 @@ export class Cell {
         }
         this.flags |= Is.Running;
         try {
-            if (this.flags & Is.Calc) {
-                try {
-                    const future = this.compute();
-                    if (future !== this.value || !this.lastChanged || this.flags & Is.Error) {
-                        this.value = future;
-                        this.lastChanged = timestamp;
-                    }
-                    this.flags &= ~Is.Error;
-                } catch(e) {
-                    this.flags |= Is.Error
-                    this.value = e;
+            try {
+                const future = this.compute();
+                if (future !== this.value || !this.lastChanged || this.flags & Is.Error) {
+                    this.value = future;
                     this.lastChanged = timestamp;
                 }
-            } else {
-                const {job} = this.ctx;
-                job.restart();
-                try {
-                    job.must(this.compute());
-                    this.lastChanged = timestamp;
-                } catch (e) {
-                    this.disposeRule();
-                    throw e;
-                }
+                this.flags &= ~Is.Error;
+            } catch(e) {
+                this.flags |= Is.Error
+                this.value = e;
+                this.lastChanged = timestamp;
+                if (currentRule === this) throw e;
             }
         } finally {
             this.flags &= ~Is.Running;
@@ -344,28 +341,36 @@ export class Cell {
             if (!head) {
                 // without sources, we can never change or be invalidated, so
                 // revert to settable value() or permanent constant
-                this.flags &= ~Is.Calc;
+                this.flags &= ~Is.Compute;
             }
-            if (this.flags & Is.Dead) this.disposeRule();
         }
     }
 
-    disposeRule() {
-        this.ctx.job.end();
-        this.flags |= Is.Dead;
-        (this.value.q as RuleQueue).delete(this);
-        this.value.rm();
-        if (current !== this.ctx) {
-            for(let s=this.sources; s;) { let nS = s.nS; delsub(s); s = nS; }
-            this.sources = undefined;
+    stop() {
+        this.setQ(null);
+        ruleStops.get(this)?.();
+    }
+
+    setQ(queue = defaultQ) {
+        // Don't unsubscribe if we have subscribers or there's going to be a queue
+        queue || this.subscribers || unsubscribeAll(this.sources);
+        if (this.queue) {
+            // Only add to new queue if queued on old
+            if (this.queue.has(this)) queue?.add(this);
+            this.queue.delete(this);
+            queue || this.ctx.job?.restart();
+        } else if (queue) {
+            // initial queue or re-enable, schedule it
+            queue.add(this);
+            // If we already have subscribers, we're already subscribed
+            this.subscribers || subscribeAll(this.sources);
         }
+        this.queue = queue;
     }
 
     subscribe(sub: Subscription) {
         if (!this.subscribers) {
-            if (this.flags & Is.Calc) {
-                for(let s=this.sources; s; s = s.nS) s.src.subscribe(s);
-            }
+            this.queue || subscribeAll(this.sources);
             // subscribe to source
             if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
         }
@@ -382,9 +387,7 @@ export class Cell {
         if (this.subscribers === sub) this.subscribers = sub.nT;
         sub.nT = sub.pT = undefined;
         if (!this.subscribers) {
-            if (this.flags & Is.Calc) {
-                for(let s=this.sources; s; s = s.nS) s.src.unsubscribe(s);
-            }
+            this.queue || unsubscribeAll(this.sources);
             // unsubscribe from source
             if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
         }
@@ -461,18 +464,25 @@ export class Cell {
         const cell = new Cell;
         cell.compute = compute;
         cell.ctx = makeCtx(null, cell);
-        cell.flags = Is.Calc;
+        cell.flags = Is.Compute;
         return cell;
     }
 
     static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RuleQueue) {
-        var cell = new Cell, job = makeJob();
-        const stop = cell.disposeRule.bind(cell);
-        cell.value = {q, rm: getJob().release(stop)};
-        cell.compute = fn.bind(null, stop);
+        const cell = new Cell, outer = getJob(), job = makeJob(), stop = cell.stop.bind(cell);
+        outer === detached || ruleStops.set(cell, outer.release(stop));
+        cell.compute = () => {
+            try {
+                job.restart().must(fn(stop));
+                cell.lastChanged = timestamp;
+            } catch (e) {
+                stop();
+                throw e;
+            }
+        }
         cell.ctx = makeCtx(job, cell);
-        cell.flags = Is.Rule;
-        q.add(cell);
+        cell.flags = Is.Compute;
+        cell.setQ(q);
         return stop;
     }
 }

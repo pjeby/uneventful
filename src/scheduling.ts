@@ -1,5 +1,6 @@
 import { type Cell } from "./cells.ts";
 import { defer } from "./defer.ts";
+import { DisposeFn } from "./types.ts";
 
 /** Scheduler state flags */
 const enum Is {
@@ -51,6 +52,10 @@ export class RunQueue<K> {
         this.q.delete(subject);
     }
 
+    has(subject: any) {
+        return this.q.has(subject);
+    }
+
     protected _sched() {
         this._flags |= Is.Scheduled;
         this.sched(this._run);
@@ -83,6 +88,7 @@ export var currentRule: Cell;
 var currentQueue: RuleQueue;
 
 const ruleQueues = new WeakMap<Function, RuleQueue>();
+export const ruleStops = new WeakMap<Cell, DisposeFn>();
 
 export class RuleQueue extends RunQueue<Cell> {
     constructor(sched: (cb: () => unknown) => unknown) {
@@ -111,9 +117,9 @@ export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
 export const defaultQ = /* @__PURE__ */ ruleQueue(defer);
 
 /** @internal */
-export const pulls = new RunQueue<{doPull(): void}>(defer, pulls => {
+export const pulls = /* @__PURE__ */ new RunQueue<{doPull(): void}>(defer, pulls => {
     for (const conn of pulls) { pulls.delete(conn); conn.doPull(); }
 })
 
 /** @internal For testing only */
-export const runPulls  = pulls.flush;
+export const runPulls  = /* @__PURE__ */ (() => pulls.flush)();

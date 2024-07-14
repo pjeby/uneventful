@@ -177,7 +177,7 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
     }
 
     get stop() {
-        if (currentRule) return currentRule.disposeRule.bind(currentRule);
+        if (currentRule) return currentRule.stop.bind(currentRule);
         throw new Error("No rule active");
     }
 
@@ -209,7 +209,7 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
     }
 
     setScheduler(scheduleFn?: SchedulerFn): void {
-        if (currentRule) currentRule.value.q = scheduleFn ? ruleQueue(scheduleFn) : defaultQ;
+        if (currentRule) currentRule.setQ(scheduleFn ? ruleQueue(scheduleFn) : defaultQ);
         else throw new Error("No rule active");
     }
 }
