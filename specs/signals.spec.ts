@@ -1,9 +1,9 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
 import {
-    runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, must, recalcWhen,
-    DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep,
-    SignalImpl, ConfigurableImpl, action
-} from "../mod.ts";
+    runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl, action
+} from "../src/signals.ts";
+import { recalcWhen } from "../src/sinks.ts";
+import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
 import { defaultQ } from "../src/scheduling.ts";

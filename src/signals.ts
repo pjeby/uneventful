@@ -1,12 +1,20 @@
+/**
+ * The Signals API for uneventful.
+ *
+ * @module uneventful/signals
+ */
+
 import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
-import { PlainFunction, Yielding, RecalcSource, AnyFunction } from "./types.ts";
+import { PlainFunction, Yielding, AnyFunction, Job } from "./types.ts";
 import { Cell } from "./cells.ts";
 import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
-import { SignalSource, Source } from "./streams.ts";
+import { SignalSource, Source, Stream } from "./streams.ts";
+import { callOrWait } from "./call-or-wait.ts";
 import { CallableObject, apply } from "./utils.ts";
 import { defer } from "./defer.ts";
+import { next } from "./sinks.ts";  // needed for documentation link
 
 export type * from "./rules.ts"
 export { rule, runRules } from "./rules.ts"
@@ -242,58 +250,6 @@ export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): Re
 }
 
 /**
- * Arrange for the current signal or rule to recalculate on demand
- *
- * This lets you interop with systems that have a way to query a value and
- * subscribe to changes to it, but not directly produce a signal.  (Such as
- * querying the DOM state and using a MutationObserver.)
- *
- * By calling this with a {@link Source} or {@link RecalcSource}, you arrange
- * for it to be subscribed, if and when the call occurs in a rule or a cached
- * function that's in use by a rule (directly or indirectly).  When the source
- * emits a value, the signal machinery will invalidate the caching of the
- * function or rule, forcing a recalculation and subsequent rule reruns, if
- * applicable.
- *
- * Note: you should generally only call the 1-argument version of this function
- * with "static" sources - i.e. ones that won't change on every call. Otherwise,
- * you will end up creating new signals each time, subscribing and unsubscribing
- * on every call to recalcWhen().
- *
- * If the source needs to reference some object, it's best to use the 2-argument
- * version (i.e. `recalcWhen(someObj, factory)`, where `factory` is a function
- * that takes `someObj` and returns a suitable {@link RecalcSource}.)
- *
- * @remarks
- * recalcWhen is specifically designed so that using it does not pull in any
- * part of Uneventful's signals framework, in the event a program doesn't
- * already use it.  This means you can use it in library code to provide signal
- * compatibility, without adding bundle bloat to code that doesn't use signals.
- *
- * @category Signals
- */
-export function recalcWhen(src: RecalcSource): void;
-/**
- * Two-argument variant of recalcWhen
- *
- * In certain circumstances, you may wish to use recalcWhen with a source
- * related to some object.  You could call recalcWhen with a closure, but that
- * would create and discard signals on every call.  So this 2-argument version
- * lets you avoid that by allowing the use of an arbitrary object as a key,
- * along with a factory function to turn the key into a {@link RecalcSource}.
- *
- * @param key an object to be used as a key
- *
- * @param factory a function that will be called with the key to obtain a
- * {@link RecalcSource}.  (Note that this factory function must also be a static
- * function, not a closure, or the same memory thrash issue will occur!)
- */
-export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
-export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
-    current.cell?.recalcWhen<T>(fnOrKey as T, fn);
-}
-
-/**
  * Wrap a function (or decorate a method) so that signals it reads are not added
  * as dependencies to the current rule (if any).  (Basically, it's shorthand for
  * wrapping the function or method body in a giant call to {@link peek}().)
@@ -352,3 +308,40 @@ export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx
         try { return apply(fn, this, arguments); } finally { freeCtx(swapCtx(old)); }
     }
 }
+
+/**
+ * Wait for and return the next truthy value (or error) from a data source (when
+ * processed with `yield *` within a {@link Job}).
+ *
+ * This differs from {@link next}() in that it waits for the next "truthy" value
+ * (i.e., not null, false, zero, empty string, etc.), and when used with signals
+ * or a signal-using function, it can resume *immediately* if the result is
+ * already truthy.  (It also supports zero-argument signal-using functions,
+ * automatically wrapping them with {@link cached}(), as the common use case for
+ * until() is to wait for an arbitrary condition to be satisfied.)
+ *
+ * @param source The source to wait on, which can be:
+ * - An object with an `"uneventful.until"` method returning a {@link Yielding}
+ *   (in which case the result will be the the result of calling that method)
+ * - A {@link Signal}, or a zero-argument function returning a value based on
+ *   signals (in which case the job resumes as soon as the result is truthy,
+ *   perhaps immediately)
+ * - A {@link Source} (in which case the job resumes on the next truthy value
+ *   it produces
+ *
+ * (Note: if the supplied source is a function with a non-zero `.length`, it is
+ * assumed to be a {@link Source}.)
+ *
+ * @returns a Yieldable that when processed with `yield *` in a job, will return
+ * the triggered event, or signal value.  An error is thrown if event stream
+ * throws or closes early, or the signal throws.
+ *
+ * @category Signals
+ * @category Scheduling
+ */
+
+export function until<T>(source: UntilMethod<T> | Stream<T> | (() => T)): Yielding<T> {
+    return callOrWait<T>(source, "uneventful.until", waitTruthy, recache);
+}
+function recache<T>(s: () => T) { return until(cached(s)); }
+function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }

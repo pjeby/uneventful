@@ -1,9 +1,10 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logUncaught } from "./dev_deps.ts";
 import {
-    start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, until, fromIterable,
-    IsStream, value, cached, runRules, backpressure, sleep, isHandled, Connection, detached, makeJob,
+    start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, fromIterable,
+    IsStream, backpressure, sleep, isHandled, Connection, detached, makeJob,
     CancelError, throttle, next
 } from "../src/mod.ts";
+import { value, cached, runRules, until } from "../src/signals.ts";
 import { runPulls } from "../src/scheduling.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
 

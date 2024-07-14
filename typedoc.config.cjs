@@ -4,7 +4,12 @@ if (OS==="Windows_NT" && TYPEDOC_GIT_DIR !== undefined) process.env.PATH=`${TYPE
 
 /** @type {import('typedoc').TypeDocOptions} */
 module.exports = {
-    entryPoints: ["./src/mod.ts"],
+    entryPoints: [
+        "./src/mod.ts",
+        "./src/signals.ts",
+        "./src/utils.ts",
+    ],
+    name: "Uneventful",
     customCss: ["./typedoc/custom.css"],
     categorizeByGroup: false,
     categoryOrder: [

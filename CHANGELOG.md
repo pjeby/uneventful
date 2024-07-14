@@ -2,6 +2,7 @@
 
 ### 0.0.6 (unreleased)
 
+- Moved main signals API to a separate export (`uneventful/signals`) and exposed the utils module as an export (`uneventful/utils`).
 - Expanded and enhanced the `RuleFactory` interface:
   - `rule.stop` can now be saved and then called from outside a rule
   - `rule.detached(...)` is a new shorthand for `detached.run(rule, ...)`

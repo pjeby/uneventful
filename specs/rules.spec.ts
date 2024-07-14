@@ -1,5 +1,6 @@
 import { log, see, describe, it, useRoot, msg, expect } from "./dev_deps.ts";
-import { runRules, value, rule, must, DisposeFn, detached, SchedulerFn } from "../mod.ts";
+import { must, DisposeFn, detached } from "../mod.ts";
+import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
 describe("@rule.method", () => {
     useRoot();

@@ -15,11 +15,28 @@
     "homepage": "https://uneventful.js.org",
     "license": "ISC",
     "type": "module",
-    "files": ["./dist/*"],
+    "types": "./dist/mod.d.ts",
+    "files": [
+        "./dist/*"
+    ],
     "exports": {
-        "import": {
-            "types": "./dist/mod.d.ts",
-            "default": "./dist/mod.mjs"
+        ".": {
+            "import": {
+                "types": "./dist/mod.d.ts",
+                "default": "./dist/mod.mjs"
+            }
+        },
+        "./signals": {
+            "import": {
+                "types": "./dist/signals.d.ts",
+                "default": "./dist/signals.mjs"
+            }
+        },
+        "./utils": {
+            "import": {
+                "types": "./dist/utils.d.ts",
+                "default": "./dist/utils.mjs"
+            }
         }
     },
     "scripts": {

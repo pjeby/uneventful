@@ -7,15 +7,7 @@ import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 import { Stream, Sink, Inlet, Connection } from "./streams.ts";
 import { apply } from "./utils.ts";
-
-/**
- * Is the given value a function?
- *
- * @category Types and Interfaces
- */
-export function isFunction(f: any): f is Function {
-    return typeof f === "function";
-}
+import { isFunction } from "./utils.ts";
 
 /**
  * Return the currently-active Job, or throw an error if none is active.

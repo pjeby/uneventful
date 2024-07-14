@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
-import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../mod.ts";
+import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { current } from "../src/ambient.ts";
 

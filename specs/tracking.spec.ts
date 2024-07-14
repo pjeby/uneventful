@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { rule, runRules, noop, CleanupFn, Job, start, isJobActive, must, detached, makeJob, getJob, isCancel, isValue, restarting, isHandled, JobResult, nativePromise, Suspend, getResult } from "../mod.ts";
+import {
+    CleanupFn, Job, JobResult, Suspend, detached, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
+    must, nativePromise, noop, restarting, start
+} from "../mod.ts";
+import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
 
 describe("makeJob()", () => {
