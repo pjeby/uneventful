@@ -72,6 +72,6 @@ export interface CallableObject<T extends AnyFunction> extends T {
 export const CallableObject = /* @__PURE__ */ ( () => <typeof CallableObject> Object.assign(
     function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.target.prototype); },
     {prototype: Function.prototype }  // No need to have extra prototypes in the chain
-));
+))();
 
 export const {apply} = Reflect;

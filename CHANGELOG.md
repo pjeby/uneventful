@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.0.7
+
+- Fix build process not running tests
+
 ### 0.0.6
 
 - Moved main signals API to a separate export (`uneventful/signals`) and exposed the utils module as an export (`uneventful/utils`).
