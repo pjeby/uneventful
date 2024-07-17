@@ -74,4 +74,6 @@ export const CallableObject = /* @__PURE__ */ ( () => <typeof CallableObject> Ob
     {prototype: Function.prototype }  // No need to have extra prototypes in the chain
 ))();
 
+export { batch, Batch } from "./scheduling.ts";
+
 export const {apply} = Reflect;

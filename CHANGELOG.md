@@ -1,5 +1,10 @@
 # Changelog
 
+### 0.0.8 (Unreleased)
+
+- `uneventful/utils`: Expose `batch()` factory for creating generic batch processors
+- Refactor scheduling internals to remove subclassing
+
 ### 0.0.7
 
 - Fix build process not running tests

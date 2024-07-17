@@ -1,6 +1,6 @@
 import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
 import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Stream, must, slack, mockSource, each, sleep, start, isValue, Connection, isHandled, throttle } from "../src/mod.ts";
-import { runPulls } from "../src/scheduling.ts";
+import { runPulls } from "./dev_deps.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
     switchAll, switchMap, take, takeUntil, takeWhile

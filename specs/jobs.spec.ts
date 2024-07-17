@@ -5,7 +5,7 @@ import {
     CancelError, throttle, next
 } from "../src/mod.ts";
 import { value, cached, runRules, until } from "../src/signals.ts";
-import { runPulls } from "../src/scheduling.ts";
+import { runPulls } from "./dev_deps.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
 
 const noop = () => ({ *[Symbol.iterator]() {} });

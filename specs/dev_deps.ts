@@ -59,6 +59,10 @@ import { detached, isCancel, makeJob } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
+import { pulls } from "../src/internals.ts";
+
+/** Flush pulls queue */
+export const runPulls = pulls.flush;
 
 /** Arrange for each test in the current suite to be wrapped in a root job */
 export function useRoot() {

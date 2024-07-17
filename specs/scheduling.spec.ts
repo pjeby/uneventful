@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, spy } from "./dev_deps.ts";
-import { RunQueue } from "../src/scheduling.ts";
+import { batch, Batch } from "../src/scheduling.ts";
 
 function noop() {}
 
@@ -7,11 +7,11 @@ function runCallbacks(items: Set<() => any>) {
     for (let cb of items) { items.delete(cb); cb(); };
 }
 
-describe("RunQueue", () => {
+describe("Batch", () => {
     describe(".isEmpty()", () => {
-        // Given a new RunQueue
-        let q: RunQueue<any>;
-        beforeEach(() => q = new RunQueue<any>(noop, noop));
+        // Given a new Batch
+        let q: Batch<any>;
+        beforeEach(() => q = batch<any>(noop, noop));
         it("is true by default", () => {
             // When .isEmpty() is called, Then it should be false
             expect(q.isEmpty()).to.be.true;
@@ -31,8 +31,8 @@ describe("RunQueue", () => {
     });
     describe(".isRunning()", () => {
         it("reflects whether flush() is running", () => {
-            // Given a RunQueue
-            const q: RunQueue<any> = new RunQueue<any>(noop, _ => log(q.isRunning()));
+            // Given a Batch
+            const q: Batch<any> = batch<any>(_ => log(q.isRunning()), noop);
             // When isRunning() is called outside of flush
             // Then it should be false
             expect(q.isRunning()).to.be.false;
@@ -43,8 +43,8 @@ describe("RunQueue", () => {
     });
     describe(".add()", () => {
         it("calls the scheduling function on transition from empty", () => {
-            // Given a RunQueue that reaps its items
-            const sched = spy(), q = new RunQueue<any>(sched, q => q.clear());
+            // Given a Batch that reaps its items
+            const sched = spy(), q = batch<any>(q => q.clear(), sched);
             // When an item is added to the scheduler
             q.add(42);
             // Then the scheduling function should be called with a function
@@ -63,7 +63,7 @@ describe("RunQueue", () => {
         });
         it("won't reschedule itself if it hasn't been called back", () => {
             // Given a scheduler with an item
-            const q = new RunQueue<any>(() => log("scheduled"), q => q.clear());
+            const q = batch<any>(q => q.clear(), () => log("scheduled"));
             q.add(42);
             see("scheduled");
             // When the item is removed and another added
@@ -80,9 +80,9 @@ describe("RunQueue", () => {
         it("won't reschedule itself if called while flushing", () => {
             // Given a queue that reaps and runs callbacks
             var scheduledFlush: () => unknown;
-            const q = new RunQueue<() => void>(
-                f => { scheduledFlush = f; log("scheduled")},
-                runCallbacks
+            const q = batch<() => void>(
+                runCallbacks,
+                f => { scheduledFlush = f; log("scheduled")}
             );
             // With a callback that adds another callback
             q.add(() => { log("adding"); q.add(() => {}); });
@@ -97,9 +97,9 @@ describe("RunQueue", () => {
     });
     describe(".flush()", () => {
         it("calls the reap function with added items", () => {
-            // Given an RunQueue with some added items
+            // Given an Batch with some added items
             let items: Set<any>
-            const q = new RunQueue<any>(noop, q => { items = q; });
+            const q = batch<any>(q => { items = q; }, noop);
             q.add(52); q.add(47);
             // When flush is called
             q.flush();
@@ -109,8 +109,8 @@ describe("RunQueue", () => {
             expect(Array.from(items)).to.deep.equal([52, 47]);
         });
         it("doesn't call the reaper with an empty queue", () => {
-            // Given an empty RunQueue
-            const q = new RunQueue<any>(noop, _ => log("ran"));
+            // Given an empty Batch
+            const q = batch<any>(_ => log("ran"), noop);
             // When flush is called
             q.flush();
             // Then the reaper should not run
@@ -118,9 +118,9 @@ describe("RunQueue", () => {
         });
         it("won't run while already flushing", () => {
             // Given a queue that reaps and runs callbacks
-            const q = new RunQueue<() => void>(
+            const q = batch<() => void>(
+                items => { log("reaping"); runCallbacks(items); },
                 noop,
-                items => { log("reaping"); runCallbacks(items); }
             );
             // With a callback that reruns flush()
             q.add(() => { log("first"); q.flush(); log(q.isEmpty()); log("done"); });
@@ -134,9 +134,9 @@ describe("RunQueue", () => {
         it("will reschedule itself after reap if items are still queued", () => {
             // Given a queue that reaps and runs callbacks
             var scheduledFlush: () => unknown;
-            const q = new RunQueue<() => void>(
+            const q = batch<() => void>(
+                runCallbacks,
                 f => { scheduledFlush = f; log("scheduled")},
-                runCallbacks
             );
             // With two callbacks, the first of which throws an error
             q.add(() => {throw new Error});

@@ -1,7 +1,6 @@
 import { defer } from "./defer.ts";
-import { RuleQueue, currentRule, defaultQ, ruleQueue } from "./scheduling.ts";
+import { Cell, RuleQueue, currentRule, defaultQ, ruleQueue } from "./cells.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
-import { Cell } from "./cells.ts";
 import { CallableObject, apply, setMap } from "./utils.ts";
 import { detached } from "./tracking.ts";
 

@@ -6,7 +6,7 @@ import { recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
-import { defaultQ } from "../src/scheduling.ts";
+import { defaultQ } from "../src/cells.ts";
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {

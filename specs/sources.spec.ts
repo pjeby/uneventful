@@ -1,7 +1,7 @@
 import {
     log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
 } from "./dev_deps.ts";
-import { runPulls } from "../src/scheduling.ts";
+import { runPulls } from "./dev_deps.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise,
     fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource,

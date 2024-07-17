@@ -1,4 +1,4 @@
-import { pulls } from "./scheduling.ts";
+import { pulls } from "./internals.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
 import { current } from "./ambient.ts";

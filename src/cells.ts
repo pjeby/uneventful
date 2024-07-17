@@ -1,12 +1,39 @@
 import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
-import { type RuleQueue, currentRule, ruleQueue, defaultQ, ruleStops } from "./scheduling.ts";
-import { Job, OptionalCleanup, RecalcSource } from "./types.ts"
+import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { nullCtx } from "./internals.ts";
 import { defer } from "./defer.ts";
+import { Batch, batch } from "./scheduling.ts";
+
+const ruleQueues = new WeakMap<Function, RuleQueue>();
+export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
+    ruleQueues.has(scheduleFn) || ruleQueues.set(scheduleFn, batch<Cell>(runRules, scheduleFn));
+    return ruleQueues.get(scheduleFn);
+}
+
+export type RuleQueue = Batch<Cell>;
+export var currentRule: Cell;
+export const ruleStops = new WeakMap<Cell, DisposeFn>();
+export const defaultQ = /* @__PURE__ */ ruleQueue(defer);
+
+var currentQueue: RuleQueue;
+function runRules(this: RuleQueue, q: Set<Cell>) {
+    // another queue is running? reschedule for later
+    if (currentQueue) return;
+    currentQueue = this;
+    try {
+        // run rules marked dirty by value changes
+        for (currentRule of q) {
+            currentRule.catchUp();
+            q.delete(currentRule);
+        }
+    } finally {
+        currentQueue = currentRule = undefined;
+    }
+}
 
 /**
  * Error indicating a rule has attempted to write a value it indirectly
