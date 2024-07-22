@@ -62,7 +62,10 @@ const fntrackers = new WeakMap<Function, () => number>();
 const obtrackers = new WeakMap<Function, WeakMap<WeakKey, () => number>>();
 
 /** stream controllers for stream+recalcWhen signals */
-const streamtrackers = new WeakMap<Cell, ()=>void>();
+const monitors = new WeakMap<Cell, ()=>void>();
+
+/** Cells whose demand has changed and need to start/stop jobs, etc. */
+export const demandChanges = batch<Cell>(q => { for(const cell of q) cell.updateDemand(); });
 
 const dirtyStack: Cell[] = [];
 
@@ -102,10 +105,8 @@ const enum Is {
     Compute  = 1 << 2,
     Error    = 1 << 4,
     Running  = 1 << 5,
-    Stream   = 1 << 6,
+    Monitor  = 1 << 6,  // monitor demand and trigger callback
     Mutable  = 1 << 7,
-    Demanded = 1 << 8,            // Stream has been queued for demand update
-    Demand   = Stream | Demanded, // Mask for checking if stream + unqueued
     Variable = Compute | Mutable,
 }
 
@@ -187,7 +188,7 @@ export class Cell {
 
     /**
      * The computation to be performed (if {@link Is.Compute}) or the
-     * setup/teardown for {@link Is.Stream}.
+     * setup/teardown for {@link Is.Monitor}.
      */
     compute: (sub?: boolean) => any = returnValue;
 
@@ -258,7 +259,8 @@ export class Cell {
         // Otherwise, we should flag our subscribers as such.
         (this.lastChanged === timestamp) || markDependentsDirty(this);
         // If we have sources, reset the subscription timestamp of the first one
-        // to force a recalculation on our next catchUp().
+        // to force a recalculation on our next catchUp().  (It should be safe
+        // because if we were running, we'd have thrown "value already used" above.)
         if (this.sources) this.sources.ts = 0;
         return true;
     }
@@ -375,17 +377,21 @@ export class Cell {
 
     stop() {
         this.setQ(null);
+        this.updateDemand();  // force immediate stop
         ruleStops.get(this)?.();
     }
 
     setQ(queue = defaultQ) {
-        // Don't unsubscribe if we have subscribers or there's going to be a queue
-        queue || this.subscribers || unsubscribeAll(this.sources);
+        if (!this.subscribers) {
+            // Without subscribers, adding/removing a queue will change demand:
+            if (this.flags & Is.Monitor && !queue !== !this.queue) demandChanges.add(this);
+            // And we'll need to unsubscribe from sources if removing the queue:
+            queue || unsubscribeAll(this.sources);
+        }
         if (this.queue) {
             // Only add to new queue if queued on old
             if (this.queue.has(this)) queue?.add(this);
             this.queue.delete(this);
-            queue || this.ctx.job?.restart();
         } else if (queue) {
             // initial queue or re-enable, schedule it
             queue.add(this);
@@ -396,10 +402,10 @@ export class Cell {
     }
 
     subscribe(sub: Subscription) {
-        if (!this.subscribers) {
-            this.queue || subscribeAll(this.sources);
-            // subscribe to source
-            if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
+        if (!this.subscribers && !this.queue) {
+            // 0->1 subs, engage demand (unless we already have it via queue)
+            subscribeAll(this.sources);
+            if (this.flags & Is.Monitor) demandChanges.add(this);
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
             sub.nT = this.subscribers;
@@ -413,10 +419,10 @@ export class Cell {
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
         sub.nT = sub.pT = undefined;
-        if (!this.subscribers) {
-            this.queue || unsubscribeAll(this.sources);
-            // unsubscribe from source
-            if ((this.flags & Is.Demand) === Is.Stream) this.updateDemand();
+        if (!this.subscribers && !this.queue) {
+            // 1->0 subs, remove demand (unless we still have it via queue)
+            unsubscribeAll(this.sources);
+            if (this.flags & Is.Monitor && !this.queue) demandChanges.add(this);
         }
     }
 
@@ -429,19 +435,23 @@ export class Cell {
     }
 
     updateDemand() {
-        this.flags |= Is.Demanded;
-        defer(streamtrackers.get(this));
+        demandChanges.delete(this);
+        if (monitors.has(this)) {
+            monitors.get(this)();
+        } else if (this.queue || this.subscribers) {
+        } else {
+            // no demand: restart job if active
+            this.ctx?.job?.restart();
+        }
     }
 
     static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
-        cell.flags |= Is.Stream;
+        cell.flags |= Is.Monitor;
         const ctx = makeCtx();
         const write = (v: T) => { cell.setValue(v, false);  };
         let job: Job<void>;
-        streamtrackers.set(cell, () => {
-            if (!(cell.flags & Is.Demanded)) return;
-            cell.flags &= ~(Is.Demanded);
+        monitors.set(cell, () => {
             if (!cell.subscribers) {
                 // Last subscriber is gone, so reset to default value
                 write(val);

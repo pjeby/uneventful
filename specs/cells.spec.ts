@@ -2,6 +2,63 @@ import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
 import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { current } from "../src/ambient.ts";
+import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
+import { IsStream } from "../mod.ts";
+
+describe("Demand management", () => {
+    describe("Subscriber changes", () => {
+        it("shouldn't trigger updates if cell has a queue", () => {
+            // Given a monitored cell with a queue
+            const c = Cell.mkStream(() => IsStream);
+            c.setQ(defaultQ); demandChanges.flush();
+            // When the cell is subscribed
+            const r = rule.detached(() => c.getValue()); runRules();
+            // Then an update should not be queued
+            expect(demandChanges.has(c)).to.be.false;
+            // And when it is unsubscribed
+            r(); runRules();
+            // Then an update should still not be queued
+            expect(demandChanges.has(c)).to.be.false;
+        });
+    });
+    describe("Queue changes", () => {
+        it("should trigger demand updates", () => {
+            // Given a monitored cell that's not subscribed
+            const c = Cell.mkStream(() => IsStream);
+            expect(demandChanges.isEmpty()).to.be.true;
+            // When it's given a queue
+            c.setQ(defaultQ);
+            // Then it should be scheduled for a demand update
+            expect(demandChanges.isEmpty()).to.be.false;
+            demandChanges.flush();
+            expect(demandChanges.isEmpty()).to.be.true;
+            // And when the queue is removed again
+            c.setQ(null);
+            // Then it should be scheduled again
+            expect(demandChanges.isEmpty()).to.be.false;
+            demandChanges.flush();
+            expect(demandChanges.isEmpty()).to.be.true;
+        });
+        it("should trigger subscribe and unsubscribe", () => {
+            // Given a cell with a source
+            const s = Cell.mkValue(42), c = Cell.mkCached(() => s.getValue());
+            c.getValue(); expect(c.sources.src).to.equal(s);
+            expect(s.subscribers).to.be.undefined;
+            // When it's given a queue
+            c.setQ(defaultQ);
+            // Then it should arrange for its source to subscribe to it
+            expect(s.subscribers.tgt).to.equal(c);
+            // And when the queue is changed
+            c.setQ(ruleQueue(() => {}));
+            // Then the subscription state should not change
+            expect(s.subscribers.tgt).to.equal(c);
+            // Until the queue is removed entirely
+            c.setQ(null);
+            // And then it should be unsubscribed
+            expect(s.subscribers).to.be.undefined;
+        });
+    });
+});
 
 describe("Cycles and Side-Effects", () => {
     useRoot();

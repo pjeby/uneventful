@@ -6,7 +6,9 @@ import { recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
-import { defaultQ } from "../src/cells.ts";
+import { defaultQ, demandChanges } from "../src/cells.ts";
+
+function updateDemand() { demandChanges.flush(); }
 
 // Verify a signal of a given value returns the right things from its methods
 function verifySignal<T>(f: (v: T) => Signal<T>, v: T) {
@@ -25,8 +27,8 @@ function verifyMulti(f: <T>(v: T) => Signal<T>) {
 
 describe("Signal Constructors/Interfaces", () => {
     useRoot();
-    useClock();
     describe("value()", () => {
+        useClock();
         it("implements the Signal interface", () => { verifyMulti(value); });
         it("is a Writable instance", () => {
             expect(value(27)).to.be.instanceOf(ConfigurableImpl);
@@ -187,6 +189,7 @@ describe("Signal Constructors/Interfaces", () => {
         });
     });
     describe("cached()", () => {
+        useClock();
         it("implements the Signal interface", () => { verifyMulti((v) => cached(() => v)); });
         it("is a Signal instance", () => {
             expect(cached(() => 27)).to.be.instanceOf(SignalImpl);
@@ -262,14 +265,14 @@ describe("Signal Constructors/Interfaces", () => {
             // But after the signal is observed by a rule
             const r = rule(() => log(c())); runRules(); see("unobserved");
             // The source should be susbcribed asynchronously
-            clock.tick(0); see("subscribe");
+            updateDemand(); see("subscribe");
             // And emitting values should update the signal and fire the rule
             e("test 1"); runRules(); see("test 1"); expect(c()).to.equal("test 1");
             e("test 2"); runRules(); see("test 2"); expect(c()).to.equal("test 2");
             // But duplicate values should not fire the rule
             e("test 2"); runRules(); see(); expect(c()).to.equal("test 2");
             // And after the rule is disposed of, the source should unsubscribe
-            r(); clock.tick(0); see("unsubscribe");
+            r(); updateDemand(); see("unsubscribe");
             // And the value should revert to the initial value
             expect(c()).to.equal("unobserved");
         });
@@ -281,7 +284,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); clock.tick(0); see("subscribe");
+            see("unobserved"); updateDemand(); see("subscribe");
             e("42"); runRules(); see("42")
             // When the source ends and rules run
             e.end(); see("unsubscribe"); runRules();
@@ -297,7 +300,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); clock.tick(0); see("subscribe");
+            see("unobserved"); updateDemand(); see("subscribe");
             e("42"); runRules(); see("42")
             // When the rule is ended and a new one created and run
             r(); const r2 = rule(() => log(c())); runRules();
@@ -306,7 +309,7 @@ describe("Signal Constructors/Interfaces", () => {
             // And any future values
             e("99"); runRules(); see("99")
             // And not unsubscribe until after the second rule ends
-            r2(); clock.tick(0); see("unsubscribe");
+            r2(); updateDemand(); see("unsubscribe");
             // At which point the cached should revert to the default value
             expect(c()).to.equal("unobserved");
         });
@@ -318,14 +321,14 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); clock.tick(0); see("subscribe");
+            see("unobserved"); updateDemand(); see("subscribe");
             e("42"); runRules(); see("42")
             // When the source throws and rules run
             e.throw("boom!"); see("unsubscribe");
             // Then its value should become an error
             expect(runRules).to.throw("boom!");
             // And once there are no more observers
-            r(); clock.tick(0);
+            r(); updateDemand();
             // Then it should revert to the default again.
             expect(c()).to.equal("unobserved");
         });
@@ -419,7 +422,6 @@ describe("Dependency tracking", () => {
     });
     describe("recalcWhen()", () => {
         useRoot()
-        useClock()
         it("subscribes and unsubscribes on demand", () => {
             // Given a rule that depends on a mock source
             let changed: () => void;
@@ -428,7 +430,7 @@ describe("Dependency tracking", () => {
             // When the rule is run
             see(); runRules();
             // Then the source should be subscribed afterward
-            see("ping"); clock.tick(0); see("sub");
+            see("ping"); updateDemand(); see("sub");
             runRules(); see();
             // And when the source produces a value
             changed(); see();
@@ -437,10 +439,10 @@ describe("Dependency tracking", () => {
             // And when the rule is ended
             end()
             // Then the source should be unsubscribed afterward
-            clock.tick(0); see("unsub");
+            updateDemand(); see("unsub");
             // And then resubscribed after new rules are added
             const e2 = rule(() => { recalcWhen(src); log("ping"); });
-            runRules(); see("ping"); clock.tick(0); see("sub");
+            runRules(); see("ping"); updateDemand(); see("sub");
             changed(); runRules(); see("ping");
             // Without a second subscribe for subsequent rules
             const e3 = rule(() => { recalcWhen(src); log("pong"); });
@@ -449,7 +451,7 @@ describe("Dependency tracking", () => {
             changed(); runRules(); see("pong", "ping");
             // With a final unsubscribe after there are no longer any observing rules
             e2(); see();
-            e3(); clock.tick(0); see("unsub");
+            e3(); updateDemand(); see("unsub");
         });
         it("supports key+factory for creating sources on the fly", () => {
             // Given rules keyed to different sources
@@ -463,13 +465,13 @@ describe("Dependency tracking", () => {
             // When they are run
             see(); runRules();
             // Then the sources should each be subscribed afterward
-            see("ping 1", "ping 2"); clock.tick(0); see("sub 1", "sub 2");
+            see("ping 1", "ping 2"); updateDemand(); see("sub 1", "sub 2");
             // And when they are updated, the rules should recalc
             o1.cb(); runRules(); see("ping 1");
             o2.cb(); runRules(); see("ping 2");
             // And when ended, they should unsubscribe afterward
-            r2(); clock.tick(0); see("unsub 2");
-            r1(); clock.tick(0); see("unsub 1");
+            r2(); updateDemand(); see("unsub 2");
+            r1(); updateDemand(); see("unsub 1");
         });
         it("throws and kills its job on setup error", () => {
             // Given a source that throws and a rule that references it
@@ -479,7 +481,7 @@ describe("Dependency tracking", () => {
             runRules(); see("ping");
             // Then the error should throw asynchronously to detached
             // and the subscription should be rolled back
-            clock.tick(0); see("sub", "unsub", "Uncaught: boom");
+            updateDemand(); see("sub", "unsub", "Uncaught: boom");
             runRules(); see();
             end(); see();
         });
