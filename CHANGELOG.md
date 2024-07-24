@@ -2,6 +2,12 @@
 
 ### 0.0.8 (Unreleased)
 
+- Any computed signal (i.e. a `cached()` function or a `value()` with a `.setf()`) can now start jobs or register cleanups for their side-effects.  (Previously, only rules could do this.)
+
+  The jobs are ended (or cleanups run) when the signal ceases to have subscribers, or when the values the signal depends on change. (Unobserved signals with jobs are also recalculated if they gain subscribers later, even if none of their dependencies have changed.  This is so their side-effects will be restored without needing to wait for a change in their dependencies.)
+
+  You can also use the new `isObserved()` function to test whether the current code is running inside of an observed signal or rule, with the side-effect that if the signal is *not* currently observed, then it will be recalculated when it *becomes* observed.  (This lets you avoid setting up jobs or cleanup-needing effects that will be immediately discarded due to a lack of subscribers, but still set them up as soon as there is demand for them.)
+
 - `uneventful/utils`: Expose `batch()` factory for creating generic batch processors
 - Refactor scheduling internals to remove subclassing
 

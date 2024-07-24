@@ -1,9 +1,8 @@
-import { log, see, describe, expect, it, useRoot, spy } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts";
 import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
-import { current } from "../src/ambient.ts";
 import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
-import { IsStream } from "../mod.ts";
+import { IsStream, must } from "../mod.ts";
 
 describe("Demand management", () => {
     describe("Subscriber changes", () => {
@@ -19,6 +18,22 @@ describe("Demand management", () => {
             r(); runRules();
             // Then an update should still not be queued
             expect(demandChanges.has(c)).to.be.false;
+        });
+        it("doesn't double-recalc an observed cell", () => {
+            // Given a cached that does job functions,
+            const c = Cell.mkCached(() => { log("do"); must(msg("undo")); });
+            // That is both stateful
+            c.getValue(); see("do", "undo");  // it's stateful now
+            expect(demandChanges.isEmpty()).to.be.true;
+            // And observed (and queued for demand update)
+            c.setQ(defaultQ);
+            expect(demandChanges.isEmpty()).to.be.false;
+            // When it's recalculated before the demand queue flushes
+            c.shouldWrite(true); c.getValue(); see("do");
+            // Then it should be removed from the queue
+            expect(demandChanges.isEmpty()).to.be.true;
+            // And not scheduled for recalc when the queue flushes
+            demandChanges.flush(); runRules(); see();
         });
     });
     describe("Queue changes", () => {

@@ -17,7 +17,7 @@ import { isFunction } from "./utils.ts";
  * @category Jobs
  */
 export function getJob<T=unknown>() {
-    const {job} = current;
+    const job = current.job || current.cell?.getJob();
     if (job) return job as Job<T>;
     throw new Error("No job is currently active");
 }

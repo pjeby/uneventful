@@ -1,8 +1,8 @@
-import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl, action
 } from "../src/signals.ts";
-import { recalcWhen } from "../src/sinks.ts";
+import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
@@ -249,6 +249,60 @@ describe("Signal Constructors/Interfaces", () => {
             // Then the subscriber should be run in the null context
             see("true"); c.end();
         });
+        describe("Job support", () => {
+            it("works like an on-demand rule", () => {
+                // Given a cached that does job functions
+                const c = cached(() => { log("do"); must(msg("undo")); });
+                // When called without subscription
+                // Then the job should run and immediately restart
+                c(); see("do", "undo");
+                // But when subscribed, and the demand is updated
+                const r1 = rule(() => void c()); runRules(); updateDemand();
+                // Then it should be queued for re-run, but not restart
+                see(); runRules(); see("do");
+                // And when unsubscribed (w/demand update)
+                r1(); updateDemand();
+                // It should restart
+                see("undo");
+                // And when re-subscribed again (w/demand update)
+                const r2 = rule(() => void c()); runRules(); updateDemand();
+                // Then a recalc should be queued again
+                see(); runRules(); see("do");
+                r2(); updateDemand(); see("undo");
+            });
+            it("doesn't roll back during temporary demand dips", () => {
+                // Given an observed cached that does job functions
+                const c = cached(() => { log("do"); must(msg("undo")); });
+                const r1 = rule(() => void c()); runRules(); see("do");
+                updateDemand(); runRules(); see();
+                // When it's unsubscribed
+                r1();  // unsubscribe
+                // Then the rollback is queued
+                expect(demandChanges.isEmpty()).to.be.false;
+                // But if a new subscribe is done before demand update occurs
+                const r2 = rule(() => void c()); runRules();
+                // Then the rollback is unqueued
+                expect(demandChanges.isEmpty()).to.be.true;
+                // And doesn't happen (even if demand updates are run)
+                updateDemand(); see()
+                // Until all subscriptions are ended
+                r2(); updateDemand(); see("undo");
+            });
+            it("rolls back on error", () => {
+                // Given a job-using signal that throws
+                const c = cached(() => {
+                    must(msg("rollback"));
+                    throw "boom!"
+                });
+                // And a rule that catches the error
+                const r = rule(() => { try { c(); } catch(e) { log("caught"); } });
+                // When run
+                runRules();
+                // Then the job should be rolled back with the error
+                see("rollback", "caught");
+                r();
+            });
+        });
     });
     describe("cached(stream, initVal)", () => {
         it("Follows source when observed, initVal otherwise", () => {
@@ -418,6 +472,34 @@ describe("Dependency tracking", () => {
             // And the wrapped function's eventual return
             // goes to the enclosing job
             expect(res).to.equal(42);
+        });
+    });
+    describe("isObserved()", () => {
+        it("returns undefined outside a signal", () => {
+            expect(isObserved()).to.be.undefined;
+        });
+        it("returns the current observation state inside a signal", () => {
+            // Given a cached that returns its observed state
+            const c = cached(() => {
+                const io = isObserved();
+                log(`calculating: ${io}`);
+                return io;
+            });
+            // When called without subscription
+            c();
+            // Then it should run and return false
+            see("calculating: false");
+            // But when subscribed, and the demand is updated
+            const r1 = rule(() => void c()); runRules(); updateDemand();
+            // Then it should be queued for re-run and return true
+            see(); runRules(); see("calculating: true");
+            // And when unsubscribed (w/demand update)
+            r1(); updateDemand();
+            // And then re-subscribed (w/demand update)
+            const r2 = rule(() => void c()); runRules(); updateDemand();
+            // Then a recalc should be queued again
+            see(); runRules(); see("calculating: true");
+            r2(); updateDemand(); see();
         });
     });
     describe("recalcWhen()", () => {

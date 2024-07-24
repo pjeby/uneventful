@@ -60,21 +60,22 @@ describe("rule.stop()", () => {
     it("throws outside a rule", () => {
         expect(() => rule.stop()).to.throw("No rule active");
     });
-    it("stops the running rule", () => {
+    it("stops the running rule w/rollback at end", () => {
         // Given a rule that conditionally stops itself
         const v = value(42)
         rule.detached(() => {
             if (v() !== 42) {
                 must(msg("stopped"));
                 rule.stop();
+                log("after stop");
             } else {
                 log("ok");
             }
         });
         runRules(); see("ok");
         // When that condition occurs
-        // Then the rule should be stopped
-        v.set(99); runRules(); see("stopped");
+        // Then the job should be stopped when the rule returns
+        v.set(99); runRules(); see("after stop", "stopped");
         // And not run again, even if the condition changes
         v.set(42); runRules(); see();
     });

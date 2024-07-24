@@ -103,6 +103,7 @@ const notCaughtUp = [] as Cell[];
 
 const enum Is {
     Observed = 1 << 0,  // Cell has subscribers or a rule queue
+    Stopped  = 1 << 1,  // Stateful cell requested stop
     Compute  = 1 << 2,
     Error    = 1 << 4,
     Running  = 1 << 5,
@@ -189,7 +190,13 @@ function firstSource(c: Cell) {
 }
 
 function toggleDemand(c: Cell) {
+    // We toggle the observed flag to match our current state; if we're also
+    // stateful, we need to toggle our "dirty" status in the demand queue, too.
     if (((c.flags ^= Is.Observed) & Is.Stateful) === Is.Stateful) {
+        // If we were already in the queue, then we were dirty in the old state,
+        // which means we're *clean* in the new state, and vice versa.  This
+        // lets us avoid redundant work in the queue when demand briefly
+        // flip-flops (due to e.g. nested rules being restarted).
         demandChanges.has(c) ? demandChanges.delete(c) : demandChanges.add(c);
     }
 }
@@ -356,7 +363,10 @@ export class Cell {
     }
 
     doRecalc() {
-        const oldCtx = swapCtx(this.ctx);
+        const {ctx} = this, oldCtx = swapCtx(ctx);
+        if (this.flags & Is.Stateful) {
+            ctx.job?.restart();
+        }
         for(let sub = this.sources; sub; sub = sub.nS) {
             sub.ts = -1; // mark stale for possible reuse
             // attach sub to its source, so we can look it up
@@ -381,6 +391,16 @@ export class Cell {
             }
         } finally {
             this.flags &= ~Is.Running;
+            if (this.flags & Is.Stateful) {
+                demandChanges.delete(this);
+                if (this.flags & (Is.Error|Is.Stopped)) {
+                    this.flags &= ~Is.Stopped;
+                    ctx.job?.restart();
+                } else if (this.flags & Is.Observed) {
+                } else {
+                    ctx.job?.restart();
+                }
+            }
             swapCtx(oldCtx);
             // reset this.src to the head of the list, dropping stale subscriptions
             let head: Subscription;
@@ -397,8 +417,10 @@ export class Cell {
     }
 
     becomeConstant() {
-        // Not safe if running, and running cells will do this on exit anyway
-        if (this.flags & Is.Running) return;
+        // Not safe if running, and running cells will do this on exit anyway.
+        // And if we're stateful, we can change by being observed/unobserved, so
+        // aren't really constant.
+        if (this.flags & (Is.Running | Is.Stateful)) return;
 
         this.flags &= ~Is.Compute;
 
@@ -421,11 +443,14 @@ export class Cell {
 
     stop() {
         this.setQ(null);
-        this.updateDemand();  // force immediate stop
+        // force immediate stop unless we're running (in which case doRecalc
+        // will handle it for us, since we have no demand any more):
+        if (this.flags & Is.Running) { this.flags |= Is.Stopped; } else this.updateDemand();
         ruleStops.get(this)?.();
     }
 
-    setQ(queue = defaultQ) {
+    setQ(queue: RuleQueue|null = defaultQ) {
+        if (queue == this.queue) return;  // use `==` to ignore null/undefined
         if (!this.subscribers) {
             // Without subscribers, adding/removing a queue will change demand,
             // so we'll need to unsubscribe from sources if (and ONLY if) we're
@@ -476,14 +501,26 @@ export class Cell {
         return cell;
     }
 
+    isObserved() {
+        // intentional side effect: start state tracking
+        return !!((this.flags|= Is.Stateful) & Is.Observed);
+    }
+
+    getJob() {
+        this.flags |= Is.Stateful;
+        return this.ctx.job ||= makeJob();
+    }
+
     updateDemand() {
         demandChanges.delete(this);
         if (monitors.has(this)) {
             monitors.get(this)();
         } else if (this.flags & Is.Observed) {
+            // Trigger an async update so we run on the right scheduler
+            this.shouldWrite(true);
         } else {
             // no demand: restart job if active
-            this.ctx?.job?.restart();
+            this.ctx.job?.restart();
         }
     }
 
@@ -548,19 +585,17 @@ export class Cell {
     }
 
     static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RuleQueue) {
-        const cell = new Cell, outer = getJob(), job = makeJob(), stop = cell.stop.bind(cell);
-        outer === detached || ruleStops.set(cell, outer.release(stop));
-        cell.compute = () => {
+        const outer = getJob(), cell = Cell.mkCached(() => {
             try {
-                job.restart().must(fn(stop));
+                const cleanup = fn(stop);
+                if (cleanup) (cell.ctx.job || cell.getJob()).must(cleanup);
                 cell.lastChanged = timestamp;
             } catch (e) {
                 stop();
                 throw e;
             }
-        }
-        cell.ctx = makeCtx(job, cell);
-        cell.flags = Is.Compute;
+        }), stop = cell.stop.bind(cell);
+        outer === detached || ruleStops.set(cell, outer.release(stop));
         cell.setQ(q);
         return stop;
     }

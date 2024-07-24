@@ -2,7 +2,7 @@ import { Job, RecalcSource, Request, Suspend, Yielding } from "./types.ts"
 import { defer } from "./defer.ts";
 import { Connection, Inlet, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
 import { resolve, isError, markHandled, fulfillPromise, rejecter, resolver } from "./results.ts";
-import { restarting, start } from "./jobutils.ts";
+import { restarting, start, must } from "./jobutils.ts";
 import { isFunction } from "./utils.ts";
 import { Signal, until } from "./signals.ts";  // the until is needed for documentation link
 import { callOrWait, mustBeSourceOrSignal } from "./call-or-wait.ts";
@@ -248,4 +248,32 @@ export function recalcWhen(src: RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
     current.cell?.recalcWhen<T>(fnOrKey as T, fn);
+}
+
+/**
+ * Find out whether the active signal is being observed, or just queried.
+ *
+ * If the return value is true, the caller is running within a signal
+ * calculation that is being observed by subscribers (such as a rule or stream
+ * listener).  If the return value is false, the caller is running within a
+ * signal calculation that is *not* observed by any subscribers, and the signal
+ * will be recalculated whenever it transitions from unobserved to observed.
+ *
+ * Returns `undefined` if the caller isn't running in a signal calculation.
+ *
+ * @remarks Note that calling this function within a signal calculation even
+ * once adds a *permanent*, implicit dependency to that signal, on whether the
+ * signal is being observed.  (As does using any job APIs directly.)
+ *
+ * The assumption here is that if you're checking whether it's observed, it's
+ * because you only want to do certain things *while* it's being observed, so
+ * the signal needs to be recalculated when it *starts* being observed, so you
+ * can do those things.  (If you need to undo or clean up those things when the
+ * signal is no-longer observed, you can register a cleanup callback via e.g.
+ * {@link must}(), or wrap them in a sub-job with start, connect, etc.)
+ *
+ * @category Signals
+ */
+export function isObserved(): boolean | undefined  {
+    return current.cell?.isObserved();
 }
