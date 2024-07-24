@@ -276,17 +276,38 @@ describe("cached()", () => {
     });
     it("ignores dependency on a cached with no dependencies", () => {
         // Given a cached with no dependencies and another that reads it
-        const c1 = cached(() => {
+        const c1 = Cell.mkCached(() => {
             log("run 1"); return 42;
         });
-        const c2 = cached(() => {
+        const c2 = Cell.mkCached(() => {
             log("run 2");
-            try { return c1(); } finally { log(!!current.cell.sources); }
+            return c1.getValue();
         });
         // When the second is run
-        expect(c2()).to.equal(42);
-        // Then it should not gain a dependency
-        see("run 2", "run 1", "false");
+        expect(c2.getValue()).to.equal(42);
+        // Then it should not have a dependency
+        expect(c2.sources).to.be.undefined;
+        see("run 2", "run 1");
+    });
+    it("unsubscribes listeners if it loses its dependencies", () => {
+        // Given a signal that can become constant
+        let constant = false;
+        const v = value(42), s = Cell.mkCached(() => { if (!constant) return v(); else return 42; });
+        // And various subscribers
+        const c1 = Cell.mkCached(() => s.getValue()), c2 = Cell.mkCached(() => s.getValue());
+        const r = rule.detached(() => c1.getValue()); c2.setQ(defaultQ);
+        runRules();
+        expect(s.subscribers).to.not.be.undefined;
+        expect(c1.subscribers).to.not.be.undefined;
+        expect(c2.sources).to.not.be.undefined;
+        // When the signal becomes constant
+        constant = true; v.set(43); // change value to trigger recalc, but return value is still 42
+        s.getValue(); // recalc and unsubscribe everything
+        // Then the subscribers should be removed (recursively where no other deps exist)
+        expect(s.subscribers).to.be.undefined;
+        expect(c1.subscribers).to.be.undefined;
+        expect(c2.sources).to.be.undefined;
+        r();
     });
 });
 

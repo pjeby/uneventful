@@ -102,10 +102,11 @@ function throwValue(this: Cell) {
 const notCaughtUp = [] as Cell[];
 
 const enum Is {
+    Observed = 1 << 0,  // Cell has subscribers or a rule queue
     Compute  = 1 << 2,
     Error    = 1 << 4,
     Running  = 1 << 5,
-    Monitor  = 1 << 6,  // monitor demand and trigger callback
+    Stateful = 1 << 6,  // Cell has state (e.g. job, stream) that depends on its observed-ness
     Mutable  = 1 << 7,
     Variable = Compute | Mutable,
 }
@@ -147,9 +148,19 @@ function mksub(source: Cell, target: Cell) {
     // track that this source has had a subscription added during this calculation
     source.adding = sub;
     // Set up reciprocal subscription if needed
-    if (target.subscribers || target.queue) source.subscribe(sub);
+    if (target.flags & Is.Observed) source.subscribe(sub);
 }
 
+/** Delete subscription, with recursive constant folding */
+function removeConstListener(sub: Subscription) {
+    const{tgt, nS, pS} = sub;
+    if (sub.src.adding === sub) sub.src.adding = sub.old;
+    delsub(sub);
+    // Recurse if its source list becomes empty
+    if (tgt.sources === sub) (tgt.sources = nS || pS) || tgt.becomeConstant();
+}
+
+/** Delete subscription as part of recalc cleanup only */
 function delsub(sub: Subscription) {
     sub.src.unsubscribe(sub);
     if (sub.nS) sub.nS.pS = sub.pS;
@@ -159,17 +170,29 @@ function delsub(sub: Subscription) {
     freesubs = sub;
 }
 
-function subscribeAll(s: Subscription) {
-    if (s) while (s.pS) s = s.pS; else return;
-    for(; s; s = s.nS) s.src.subscribe(s);
+function subscribeAll(c: Cell) {
+    for(let s = firstSource(c); s; s = s.nS) s.src.subscribe(s);
+    toggleDemand(c);
 }
 
-function unsubscribeAll(s: Subscription) {
-    if (s) while (s.pS) s = s.pS; else return;
-    for(; s; s = s.nS) s.src.unsubscribe(s);
+function unsubscribeAll(c: Cell) {
+    for(let s = firstSource(c); s; s = s.nS) s.src.unsubscribe(s);
+    toggleDemand(c);
 }
 
 const sentinel = {}  // a unique value for uniqueness checking
+
+function firstSource(c: Cell) {
+    let s = c.sources;
+    if (s) while (s.pS) s = s.pS;  // Back up to the start (in case the cell is running)
+    return s;
+}
+
+function toggleDemand(c: Cell) {
+    if (((c.flags ^= Is.Observed) & Is.Stateful) === Is.Stateful) {
+        demandChanges.has(c) ? demandChanges.delete(c) : demandChanges.add(c);
+    }
+}
 
 export class Cell {
     value: any = undefined // the value
@@ -188,7 +211,7 @@ export class Cell {
 
     /**
      * The computation to be performed (if {@link Is.Compute}) or the
-     * setup/teardown for {@link Is.Monitor}.
+     * setup/teardown for {@link Is.Stateful}.
      */
     compute: (sub?: boolean) => any = returnValue;
 
@@ -206,7 +229,6 @@ export class Cell {
 
     getValue() {
         if (arguments.length) return apply(this.stream, this, arguments);
-        this.catchUp();
         const dep = current.cell;
         // Only create a dependency if our value can change
         if (dep && this.flags & Is.Variable) {
@@ -216,6 +238,7 @@ export class Cell {
             if (!s || s.tgt !== dep) {
                 // nope, it's new
                 mksub(this, dep);
+                s = this.adding;
             } else {
                 // Yep, see if it's a hangover from last time
                 if (s.ts === -1) {
@@ -232,7 +255,9 @@ export class Cell {
                 }
                 // else it's already done, no need to do anything.
             }
-        }
+            this.catchUp();
+            if (this.adding === s) s.ts = this.lastChanged;
+        } else this.catchUp();
         if (this.flags & Is.Error) throw this.value;
         return this.value;
     }
@@ -366,12 +391,31 @@ export class Cell {
                 if (sub.ts === -1) delsub(sub); else head = sub;
                 sub = pS;
             }
-            this.sources = head;
-            if (!head) {
-                // without sources, we can never change or be invalidated, so
-                // revert to settable value() or permanent constant
-                this.flags &= ~Is.Compute;
-            }
+            // without sources, we can never change or be invalidated, so flag as uncomputable
+            (this.sources = head) || this.becomeConstant()
+        }
+    }
+
+    becomeConstant() {
+        // Not safe if running, and running cells will do this on exit anyway
+        if (this.flags & Is.Running) return;
+
+        this.flags &= ~Is.Compute;
+
+        // If we're mutable, don't delete subscriptions
+        if (this.flags & Is.Variable) return;
+
+        // It's safe to delete subscriptions in the adding stack, because those
+        // cells are already reading the current value (or not) during their
+        // active recalc.
+        while (this.adding) removeConstListener(this.adding);
+
+        // For any other subscriptions, we only delete ones that match our timestamp,
+        // as they've already read our latest value.  The rest will have to wait
+        // until they recalc, at which point they won't renew their subscription and
+        // it'll get cleared out then.  (And propagate if applicable.)
+        for(let sub = this.subscribers; sub; ) {
+            const {nT} = sub; (sub.ts !== this.lastChanged) || removeConstListener(sub); sub = nT;
         }
     }
 
@@ -383,10 +427,10 @@ export class Cell {
 
     setQ(queue = defaultQ) {
         if (!this.subscribers) {
-            // Without subscribers, adding/removing a queue will change demand:
-            if (this.flags & Is.Monitor && !queue !== !this.queue) demandChanges.add(this);
-            // And we'll need to unsubscribe from sources if removing the queue:
-            queue || unsubscribeAll(this.sources);
+            // Without subscribers, adding/removing a queue will change demand,
+            // so we'll need to unsubscribe from sources if (and ONLY if) we're
+            // removing a *currently active* queue:
+            queue || !this.queue || unsubscribeAll(this);
         }
         if (this.queue) {
             // Only add to new queue if queued on old
@@ -396,7 +440,7 @@ export class Cell {
             // initial queue or re-enable, schedule it
             queue.add(this);
             // If we already have subscribers, we're already subscribed
-            this.subscribers || subscribeAll(this.sources);
+            this.subscribers || subscribeAll(this);
         }
         this.queue = queue;
     }
@@ -404,8 +448,7 @@ export class Cell {
     subscribe(sub: Subscription) {
         if (!this.subscribers && !this.queue) {
             // 0->1 subs, engage demand (unless we already have it via queue)
-            subscribeAll(this.sources);
-            if (this.flags & Is.Monitor) demandChanges.add(this);
+            subscribeAll(this);
         }
         if (this.subscribers !== sub && !sub.pT) { // avoid adding already-added subs
             sub.nT = this.subscribers;
@@ -421,8 +464,7 @@ export class Cell {
         sub.nT = sub.pT = undefined;
         if (!this.subscribers && !this.queue) {
             // 1->0 subs, remove demand (unless we still have it via queue)
-            unsubscribeAll(this.sources);
-            if (this.flags & Is.Monitor && !this.queue) demandChanges.add(this);
+            unsubscribeAll(this);
         }
     }
 
@@ -438,7 +480,7 @@ export class Cell {
         demandChanges.delete(this);
         if (monitors.has(this)) {
             monitors.get(this)();
-        } else if (this.queue || this.subscribers) {
+        } else if (this.flags & Is.Observed) {
         } else {
             // no demand: restart job if active
             this.ctx?.job?.restart();
@@ -447,7 +489,7 @@ export class Cell {
 
     static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
-        cell.flags |= Is.Monitor;
+        cell.flags |= Is.Stateful;
         const ctx = makeCtx();
         const write = (v: T) => { cell.setValue(v, false);  };
         let job: Job<void>;
