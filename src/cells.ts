@@ -585,14 +585,14 @@ export class Cell {
         return cell;
     }
 
-    static mkRule(fn: (stop: () => void) => OptionalCleanup, q: RuleQueue) {
+    static mkRule(fn: () => OptionalCleanup, q: RuleQueue) {
         const outer = getJob(), cell = Cell.mkCached(() => {
             try {
-                const cleanup = fn(stop);
+                const cleanup = fn();
                 if (cleanup) (cell.ctx.job || cell.getJob()).must(cleanup);
                 cell.lastChanged = timestamp;
             } catch (e) {
-                stop();
+                cell.stop();
                 throw e;
             }
         }), stop = cell.stop.bind(cell);

@@ -91,9 +91,9 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
     *"uneventful.next"(): Yielding<T> {
         return yield (r => {
             let seen = false, res: T;
-            rule(stop => {
-                try { res = this(); } catch(e) { stop(); defer(reject.bind(null, r,e)); }
-                if (seen) { stop(); defer(resolve.bind(null, r, res)); }
+            rule(() => {
+                try { res = this(); } catch(e) { rule.stop(); defer(reject.bind(null, r,e)); }
+                if (seen) { rule.stop(); defer(resolve.bind(null, r, res)); }
                 seen = true;
             })
         });
@@ -104,9 +104,9 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
             let res: T;
             try { res = this(); } catch(e) { reject(r, e); return; }
             if (res) return resolve(r, res);
-            rule(stop => {
-                try { res = this(); } catch(e) { stop(); defer(reject.bind(null, r,e)); }
-                if (res) { stop(); defer(resolve.bind(null, r, res)); }
+            rule(() => {
+                try { res = this(); } catch(e) { rule.stop(); defer(reject.bind(null, r,e)); }
+                if (res) { rule.stop(); defer(resolve.bind(null, r, res)); }
             });
         });
     }

@@ -31,7 +31,7 @@ export interface RuleFactory {
      * @inheritdoc rule factory tied to a specific scheduler.  See {@link rule} for
      * more details.
      */
-    (fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn;
+    (fn: () => OptionalCleanup): DisposeFn;
 
     /**
      * A function that will stop the currently-executing rule.  (Accessing this
@@ -144,10 +144,9 @@ export interface RuleFactory {
      *
      * Note that since the created rule isn't attached to a job, it *must* be
      * explicitly stopped, either by calling the returned disposal function or
-     * by the rule function arranging to stop itself via {@link rule.stop}() or
-     * its stop parameter.
+     * by the rule function arranging to stop itself via {@link rule.stop}().
      */
-    detached(fn: (stop: DisposeFn) => OptionalCleanup): DisposeFn;
+    detached(fn: () => OptionalCleanup): DisposeFn;
 
     /**
      * Change the scheduler used for the currently-executing rule.  Throws an
@@ -167,7 +166,7 @@ export interface RuleFactory {
 }
 
 type RuleFunction = (fn: ActionFunction) => DisposeFn
-type ActionFunction = (stop: DisposeFn) => OptionalCleanup
+type ActionFunction = () => OptionalCleanup
 
 class RF extends CallableObject<RuleFunction> implements RuleFactory {
 
@@ -220,29 +219,28 @@ const factories = new WeakMap<Function, RuleFactory>();
  * Subscribe a function to run every time certain values change.
  *
  * The function is run asynchronously, first after being created, then again
- * after there are changes in any of the values or cached functions it read
- * during its previous run.
+ * after there are changes in any of the {@link value}()s or {@link cached}()
+ * functions it read during its previous run.
  *
  * The created subscription is tied to the currently-active job (which may be
  * another rule).  So when that job is ended or restarted, the rule will be
  * terminated automatically.  You can also terminate it early by calling the
- * "stop" function that is both passed to the rule function and returned by
- * `rule()`.
+ * "stop" function that is returned by `rule()`, or by calling
+ * {@link rule.stop}() from within the rule function.
  *
  * Note: this function will throw an error if called without an active job. If
  * you need a standalone rule, use {@link RuleFactory.detached rule.detached}().
  *
  * @param fn The function that will be run each time its dependencies change.
  * The function will be run in a restarted job each time, with any resources
- * used by the previous run being cleaned up.  The function is passed a single
- * argument: a function that can be called to terminate the rule.   The function
- * should return a cleanup function or void.
+ * used by the previous run being cleaned up.  The function is called with no
+ * arguments, and should return a cleanup function or void.
  *
  * @returns A function that can be called to terminate the rule.
  *
  * @category Reactive Behaviors
  */
-export const rule: ((action: (stop: DisposeFn) => OptionalCleanup) => DisposeFn) & RuleFactory = (
+export const rule: ((fn: () => OptionalCleanup) => DisposeFn) & RuleFactory = (
     RF.prototype.factory(defer)
 )
 

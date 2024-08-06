@@ -10,6 +10,7 @@
 
 - `uneventful/signals`:
   - Added `unchangedIf()`: allows reactive expressions (in `cached()` or `value().setf()`) to return their previous value if the new value is equivalent according to a custom comparison function (`arrayEq()` by default)
+  - **Backward incompatibility**: Removed the `stop` parameter from rule functions, so that signals and zero-argument states can be used as rule actions.  (Use `rule.stop()` instead.)
 - `uneventful/utils`:
   - Expose `batch()` factory for creating generic batch processors
   - Add `GeneratorBase` for identifying generators with `instanceof`
