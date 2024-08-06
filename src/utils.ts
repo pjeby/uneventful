@@ -77,3 +77,14 @@ export const CallableObject = /* @__PURE__ */ ( () => <typeof CallableObject> Ob
 export { batch, Batch } from "./scheduling.ts";
 
 export const {apply} = Reflect;
+
+/**
+ * A pseudo-constructor for the abstract ancestor type of all generators,
+ * useful for testing whether something is `instanceof Generator`.
+ *
+ * @category Data Structures
+ */
+export const GeneratorBase = /* @__PURE__ */ (() => {
+    function G() {}; G.prototype = (function *(){}).constructor.prototype.prototype;
+    return G as any as abstract new () => Generator;
+})()

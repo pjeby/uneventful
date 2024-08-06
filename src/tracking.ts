@@ -6,7 +6,7 @@ import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, i
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
 import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
 import { Stream, Sink, Inlet, Connection } from "./streams.ts";
-import { apply } from "./utils.ts";
+import { GeneratorBase, apply } from "./utils.ts";
 import { isFunction } from "./utils.ts";
 
 /**
@@ -180,21 +180,29 @@ class _Job<T> implements Job<T> {
         try {
             if (init) result = job.run(init as StartFn<T>, job);
             if (result != null) {
-                if (result instanceof _Job) {
+                if (isFunction(result)) {
+                    job.must(result);
+                } else if (result instanceof GeneratorBase) {
+                    job.run(runGen<T>, result as Yielding<T>, job);
+                } else if (result instanceof _Job) {
                     if (result !== job) result.do(res => propagateResult(job, res));
+                } else if (result instanceof Promise) {
+                    // Duplicated because this will be monomorphic or low-poly,
+                    // but next branch will always be megamorphic
+                    (result as Promise<T>).then(
+                        v => { job.result() || job.return(v); },
+                        e => { job.result() || job.throw(e); }
+                    );
                 } else if (isFunction((result as Promise<T>).then)) {
                     (result as Promise<T>).then(
                         v => { job.result() || job.return(v); },
                         e => { job.result() || job.throw(e); }
                     );
-                    return job;
                 } else if (
                     isFunction((result as Yielding<T>)[Symbol.iterator]) &&
                     typeof result !== "string"
                 ) {
                     job.run(runGen<T>, result as Yielding<T>, job);
-                } else if (isFunction(result)) {
-                    job.must(result);
                 } else {
                     throw new TypeError("Invalid value/return for start()");
                 }

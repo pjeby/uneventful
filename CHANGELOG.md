@@ -8,7 +8,9 @@
 
   You can also use the new `isObserved()` function to test whether the current code is running inside of an observed signal or rule, with the side-effect that if the signal is *not* currently observed, then it will be recalculated when it *becomes* observed.  (This lets you avoid setting up jobs or cleanup-needing effects that will be immediately discarded due to a lack of subscribers, but still set them up as soon as there is demand for them.)
 
-- `uneventful/utils`: Expose `batch()` factory for creating generic batch processors
+- `uneventful/utils`:
+  - Expose `batch()` factory for creating generic batch processors
+  - Add `GeneratorBase` for identifying generators with `instanceof`
 - Refactor scheduling internals to remove subclassing
 
 ### 0.0.7
