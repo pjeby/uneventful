@@ -6,7 +6,7 @@ import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
-import { defaultQ, demandChanges } from "../src/cells.ts";
+import { defaultQ, demandChanges, unchangedIf } from "../src/cells.ts";
 
 function updateDemand() { demandChanges.flush(); }
 
@@ -391,6 +391,63 @@ describe("Signal Constructors/Interfaces", () => {
 
 describe("Dependency tracking", () => {
     useRoot();
+    describe("unchangedIf()", () => {
+        it("errors outside a reactive expression", () => {
+            expect(() => unchangedIf(42)).to.throw("unchangedIf() must be called from a reactive expression")
+        });
+        it("returns the old value if it's the same", () => {
+            // Given a cached that computes an equivalent value w/unchangedIf on each call
+            const v = value(0); const c = cached(() => { v(); log("calc"); return unchangedIf([1,2,3]); });
+            // When it's called more than once
+            v.set(1); const v1 = c(); see("calc");
+            v.set(2); const v2 = c(); see("calc");
+            v.set(3); const v3 = c(); see("calc");
+            // Then the same value should be returned each time
+            expect(v2).to.equal(v1);
+            expect(v3).to.equal(v1);
+        });
+        it("returns the new value if last value was an error", () => {
+            // Given a cached that either throws or computes an equivalent value w/unchangedIf
+            const v = value(0);
+            const c = cached(() => {
+                if (v()<0) throw new Error;
+                log("calc"); return unchangedIf([1,2,3]);
+            });
+            // When its value is saved before and after a throw
+            v.set(1); const v1 = c(); see("calc");
+            v.set(-1); expect(c).to.throw(); see();
+            v.set(1); const v2 = c(); see("calc");
+            v.set(-1); expect(c).to.throw(); see();
+            // Then the value after the throw should be new
+            expect(v2).to.not.equal(v1);
+            expect(v2).to.deep.equal(v1);
+        });
+        it("returns the new value if it's different", () => {
+            // Given a cached that computes a varying value w/unchangedIf
+            const v = value(0); const c = cached(() => { v(); log("calc"); return unchangedIf([1,2,v()]); });
+            // When it's called multiple times
+            // Then the values should change
+            v.set(1); expect(c()).to.deep.equal([1, 2, 1]); see("calc");
+            v.set(2); expect(c()).to.deep.equal([1, 2, 2]); see("calc");
+            v.set(3); expect(c()).to.deep.equal([1, 2, 3]); see("calc");
+        });
+        it("supports custom compare functions", () => {
+            // Given a cached that filters a value through a custom comparison
+            const eq = value(false), v = value<any>(null);
+            function compare(a: any, b: any) {
+                log(JSON.stringify(a)); log(JSON.stringify(b)); return eq();
+            }
+            const c = cached(() => { return unchangedIf(v(), compare); });
+            // When the cached is called with different values and comparison results
+            // Then the comparison should be called with the previous and new values
+            // and the result should only change when the comparison is false
+            v.set(null); eq.set(false); expect(c()).to.be.null; see("undefined", "null");
+            v.set(42);   eq.set(false); expect(c()).to.eq(42);  see("null", "42");
+            v.set(16);   eq.set(true);  expect(c()).to.eq(42);  see("42", "16");
+            v.set(16);   eq.set(false); expect(c()).to.eq(16);  see("42", "16");
+            v.set(16);   eq.set(true);  expect(c()).to.eq(16);  see("16", "16");
+        });
+    });
     describe("peek()", () => {
         describe("returns the result of calling the function", () => {
             it("with no arguments", () => {

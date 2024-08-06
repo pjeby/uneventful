@@ -18,7 +18,7 @@ import { next } from "./sinks.ts";  // needed for documentation link
 
 export type * from "./rules.ts"
 export { rule, runRules } from "./rules.ts"
-export { WriteConflict, CircularDependency } from "./cells.ts";
+export { WriteConflict, CircularDependency, unchangedIf } from "./cells.ts";
 
 /**
  * An observable value, as a zero-argument callable with extra methods.
@@ -176,7 +176,7 @@ export class ConfigurableImpl<T> extends WritableImpl<T> implements Configurable
 /**
  * Create a {@link Configurable} signal with the given inital value
  *
- * @category Signals
+ * @category Reactive Values
  */
 export function value<T>(val?: T): Configurable<T> {
     const cell = Cell.mkValue(val);
@@ -192,7 +192,7 @@ export function value<T>(val?: T): Configurable<T> {
  * calling signature below will apply, even if TypeScript doesn't see it that
  * way!)
  *
- * @category Signals
+ * @category Reactive Values
  */
 export function cached<T>(compute: () => T): Signal<T>;
 
@@ -241,7 +241,7 @@ export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T
  *
  * @returns The result of calling `fn(..args)`
  *
- * @category Signals
+ * @category Reactive Values
  */
 export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     if (!current.cell) return fn(...args);
@@ -288,7 +288,7 @@ export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): Re
  * to the original function, while running with dependency tracking suppressed
  * (as with {@link peek}()).
  *
- * @category Signals
+ * @category Reactive Behaviors
  */
 export function action<F extends AnyFunction>(fn: F): F;
 
@@ -336,7 +336,6 @@ export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx
  * the triggered event, or signal value.  An error is thrown if event stream
  * throws or closes early, or the signal throws.
  *
- * @category Signals
  * @category Scheduling
  */
 

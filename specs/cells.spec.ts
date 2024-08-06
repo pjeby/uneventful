@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts";
 import { runRules, value, cached, rule, CircularDependency, WriteConflict } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
-import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
+import { Cell, defaultQ, demandChanges, ruleQueue, unchangedIf } from "../src/cells.ts";
 import { IsStream, must } from "../mod.ts";
 
 describe("Demand management", () => {
@@ -236,7 +236,31 @@ describe("Consistent updates", () => {
         see("F", "H");
         A.set(4); B.set(2); runRules();
         see("E", "F", "H");
-    })
+    });
+    it("passes the state managers' efficiency test (w/custom compare)", () => {
+        // adapted from https://habr.com/ru/articles/707600/
+        function hard_work<T>(x: T) { return x; }
+        let A = value(0); // unique values: 1 2 3 4 ...
+        let B = value(0); // toggle values: 1 2 1 2 ...
+        const C = cached(()=> { return A() % 2 + B() % 2}) // toggle values
+        const D = cached(()=> { return unchangedIf([A() % 2 - B() % 2]) }) // same value: [0]
+        const E = cached(()=> { log("E"); return hard_work( C() + A() + D()[0] )}) // unique values
+        const F = cached(()=> { log("F"); return hard_work( D()[0] && B() )}) // same value
+        const G = cached(()=> { return C() + ( C() || E() % 2 ) + D()[0] + F()}) // toggle values
+        rule(()=> { log("H"); hard_work( G() ); }) // toggle values
+        rule(()=> { G(); }) // toggle values
+        rule(()=> { log("J"); hard_work( F() );} ) // single run
+        runRules();
+        see("H", "E", "F", "J");
+        A.set(1); B.set(1); runRules();
+        see("H");
+        A.set(2); B.set(2); runRules();
+        see("E", "H");
+        A.set(3); B.set(1); runRules();
+        see("H");
+        A.set(4); B.set(2); runRules();
+        see("E", "H");
+    });
 });
 
 describe("cached()", () => {

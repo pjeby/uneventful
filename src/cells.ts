@@ -2,11 +2,12 @@ import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
-import { apply, setMap } from "./utils.ts";
+import { apply, arrayEq, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { nullCtx } from "./internals.ts";
 import { defer } from "./defer.ts";
 import { Batch, batch } from "./scheduling.ts";
+import { action, peek, type Configurable } from "./signals.ts";
 
 const ruleQueues = new WeakMap<Function, RuleQueue>();
 export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
@@ -598,5 +599,42 @@ export class Cell {
         outer === detached || ruleStops.set(cell, outer.release(stop));
         cell.setQ(q);
         return stop;
+    }
+}
+
+/**
+ * Keep an expression's old value unless there's a semantic change
+ *
+ * By default, reactive values (i.e. {@link cached}(), or {@link value}() with a
+ * {@link Configurable.setf setf}()) are considered to have "changed" (and thus
+ * trigger recalculation of their dependents) when they are different according
+ * to `===` comparison.
+ *
+ * This works well for primitive values, but for arrays and objects it's not
+ * always ideal, because two arrays can have the exact same elements and still
+ * be different according to `===`.  So this function lets you substitute a
+ * different comparison function (like a deep-equal or shallow-equal) instead.
+ * (The default is {@link arrayEq}() if no compare function is supplied.)
+ *
+ * Specifically, if your reactive expression returns `unchangedIf(newVal,
+ * compare)`, then the expression's previous value will be kept if the compare
+ * function returns true when called with the old and new values. Otherwise, the
+ * new value will be used.
+ *
+ * @remarks
+ * - If the reactive expression's last "value" was an error, the new value is
+ *   returned
+ * - An error will be thrown if this function is called outside a reactive
+ *   expression or from within a {@link peek}() call or {@link action} wrapper.
+ *
+ * @category Reactive Values
+ */
+
+export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
+    const {cell} = current;
+    if (cell) {
+        return (cell.flags & Is.Error || !equals(cell.value, newVal)) ? newVal : cell.value;
+    } else {
+        throw new Error("unchangedIf() must be called from a reactive expression");
     }
 }

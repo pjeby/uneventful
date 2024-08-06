@@ -240,7 +240,7 @@ const factories = new WeakMap<Function, RuleFactory>();
  *
  * @returns A function that can be called to terminate the rule.
  *
- * @category Signals
+ * @category Reactive Behaviors
  */
 export const rule: ((action: (stop: DisposeFn) => OptionalCleanup) => DisposeFn) & RuleFactory = (
     RF.prototype.factory(defer)
@@ -262,7 +262,7 @@ export const rule: ((action: (stop: DisposeFn) => OptionalCleanup) => DisposeFn)
  * factory you wish to run pending rules for.  If not given, the default
  * {@link rule}() factory is targeted.
  *
- * @category Signals
+ * @category Reactive Behaviors
  */
 export function runRules(scheduleFn?: SchedulerFn) {
     (scheduleFn ? ruleQueue(scheduleFn) : defaultQ).flush();

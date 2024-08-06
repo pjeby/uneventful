@@ -8,6 +8,27 @@
 import { AnyFunction } from "./types.ts";
 
 /**
+ * Shorthand for Array.isArray()
+ *
+ * @category Data Structures
+ */
+export const isArray = Array.isArray;
+
+/**
+ * Return true if the supplied parameters are the same object/vaue, or are
+ * arrays with identical contents.
+ *
+ * @category Data Structures
+ */
+export function arrayEq<T>(a: readonly T[] | null | undefined, b: readonly T[] | null | undefined): boolean;
+export function arrayEq<T>(a: any, b: any): boolean;
+export function arrayEq<T>(a: readonly T[] | null | undefined, b: readonly T[] | null | undefined) {
+    return (a===b) || (isArray(a) && isArray(b) && a.length === b.length && a.every(same, b))
+}
+
+function same(this: any[], item: any, idx:  number) { return item === this[idx]; }
+
+/**
  * Set a value in a Map or WeakMap, and return the value.
  *
  * Commonly used with constructions like `return map.get(key) ?? setMap(map,
@@ -15,6 +36,8 @@ import { AnyFunction } from "./types.ts";
  *
  * @template K The type of key accepted by the map
  * @template V The type of value accepted by the map
+ *
+ * @category Data Structures
  */
 export function setMap<K, V>(map: { set(key: K, val: V): void; }, key: K, val: V) {
     map.set(key, val);
@@ -23,6 +46,8 @@ export function setMap<K, V>(map: { set(key: K, val: V): void; }, key: K, val: V
 
 /**
  * Is the given value a function?  (Shorthand for `typeof f === "function"`)
+ *
+ * @category Functional Programming
  */
 export function isFunction(f: any): f is Function {
     return typeof f === "function";
@@ -41,6 +66,8 @@ export function isFunction(f: any): f is Function {
  *
  * @template T The call/return signature that instances of the class will
  * implement.
+ *
+ * @category Functional Programming
  */
 //@ts-ignore not really a duplicate
 export declare class CallableObject<T extends AnyFunction> extends Function {
@@ -74,9 +101,15 @@ export const CallableObject = /* @__PURE__ */ ( () => <typeof CallableObject> Ob
     {prototype: Function.prototype }  // No need to have extra prototypes in the chain
 ))();
 
-export { batch, Batch } from "./scheduling.ts";
+export { batch, type Batch } from "./scheduling.ts";
 
-export const {apply} = Reflect;
+/**
+ * Calls the `target` function with the given object as the `this` value and the
+ * elements of given array as the arguments.
+ *
+ * @category Functional Programming
+ */
+export const apply = Reflect.apply;
 
 /**
  * A pseudo-constructor for the abstract ancestor type of all generators,
