@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.0.9
+
+- Fixed: `task` decorator was passing the job as an extra argument to the wrapped function
+
 ### 0.0.8
 
 - Any computed signal (i.e. a `cached()` function or a `value()` with a `.setf()`) can now start jobs or register cleanups for their side-effects.  (Previously, only rules could do this.)

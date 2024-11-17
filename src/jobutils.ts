@@ -260,6 +260,6 @@ export function task<T, A extends any[], C, D extends {value?: (this:C, ...args:
 ): D | ((this: C, ...args: A) => Job<T>) {
     if (desc) return {...desc, value: task(desc.value)};
     return function (this: C, ...args: A) {
-        return start<T>(fn.bind(this, ...args as any[]));
+        return start(() => apply(fn, this, args));
     }
 }

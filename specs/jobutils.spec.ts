@@ -125,6 +125,18 @@ describe("task()", () => {
         // goes to the enclosing job
         expect(getResult(job.result())).to.equal(42);
     });
+    it("only supplies exact arguments", () => {
+        // Given a task-wrapped function
+        const that = {};
+        const t = task(function*(...args) {
+            args.forEach(log);
+        })
+        // When called w/args and a `this`
+        t.call(that, 99, "foo"); see();
+
+        // Then the function should be called with only the given arguments
+        clock.tick(0); see("99", "foo");
+    })
     it("works as a decorator", () => {
         // Given an instance of a class w/a @task-decorated method
         // (experimental/legacy mode)
