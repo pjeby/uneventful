@@ -1,6 +1,6 @@
 # Changelog
 
-### 0.0.8 (Unreleased)
+### 0.0.8
 
 - Any computed signal (i.e. a `cached()` function or a `value()` with a `.setf()`) can now start jobs or register cleanups for their side-effects.  (Previously, only rules could do this.)
 
