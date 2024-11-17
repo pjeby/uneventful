@@ -4,7 +4,7 @@ import { Connection, Inlet, Sink, Stream, connect, pipe, throttle } from "./stre
 import { resolve, isError, markHandled, fulfillPromise, rejecter, resolver } from "./results.ts";
 import { restarting, start, must } from "./jobutils.ts";
 import { isFunction } from "./utils.ts";
-import { Signal, until } from "./signals.ts";  // the until is needed for documentation link
+import { Signal, until, cached } from "./signals.ts";  // the until and cached are needed for documentation links
 import { callOrWait, mustBeSourceOrSignal } from "./call-or-wait.ts";
 import { current } from "./ambient.ts";
 
