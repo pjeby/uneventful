@@ -2,7 +2,7 @@ import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useC
 import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
 import {
     CleanupFn, Job, JobResult, Suspend, detached, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
-    must, nativePromise, noop, restarting, start
+    must, nativePromise, newRoot, noop, restarting, root, start
 } from "../mod.ts";
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
@@ -106,13 +106,55 @@ describe("makeJob()", () => {
     });
 });
 
+describe("newRoot()", () => {
+    after(() => void newRoot())
+    it("returns a new job, ending the previous one", () => {
+        // Given a root job
+        const r1 = newRoot().must(msg("old root stopped"))
+        see()
+        // When newRoot is called
+        const r2 = newRoot()
+        // Then the old root should stop
+        see("old root stopped")
+        // And it should return the new root
+        expect(root).to.equal(r2)
+        // Not the old one
+        expect(root).to.not.equal(r1)
+    });
+    it("ensures root will be reset to null when the job ends", () => {
+        // Given a root job
+        const r1 = newRoot()
+        expect(root).to.equal(r1)
+        // When the job ends
+        r1.end()
+        // Then root should be null
+        expect(root).to.equal(null)
+    });
+    it("configures a default asyncCatch", () => {
+        // Given a new root
+        const r1 = newRoot();
+        // When a child job asynchronously throws
+        r1.start().throw("blah")
+        // Then our default test logger should catch it
+        see("Uncaught: blah")
+        // And the root should not crash
+        expect(root).to.equal(r1)
+        // But if we configure our own asyncCatch
+        r1.asyncCatch(e => log(`caught ${e}`))
+        // And do another async throw
+        r1.start().throw("blah")
+        // Then our overridden handler should catch it
+        see("caught blah")
+    });
+});
+
 describe("start(action)", () => {
     it("doesn't run without an enclosing job", () => {
         expect(() => start(()=>{})).to.throw("No job is currently active");
     });
     it("links to the enclosing job", () => {
         // Given a job created within a standalone job
-        const job = detached.start(() => {
+        const job = root.start(() => {
             start().must(() => log("cleanup"))
         });
         see();
@@ -123,8 +165,8 @@ describe("start(action)", () => {
     });
     it("waits for a promise (passed or returned)", async () => {
         // Given jobs wrapping passed or returned promises
-        const j1 = detached.start(async () => { return 42; });
-        const j2 = detached.start(Promise.reject("boom"));
+        const j1 = root.start(async () => { return 42; });
+        const j2 = root.start(Promise.reject("boom"));
         // When the promises resolve or reject
         // Then the result should become the job's result
         await expect(j1).to.eventually.equal(42);
@@ -133,8 +175,8 @@ describe("start(action)", () => {
     });
     it("waits for a returned job", async () => {
         // Given jobs wrapping returned jobs
-        const j1 = detached.start(() => { return start().return(42); });
-        const j2 = detached.start(() => { return start().onError(noop).throw("boom"); });
+        const j1 = root.start(() => { return start().return(42); });
+        const j2 = root.start(() => { return start().onError(noop).throw("boom"); });
         expect(j1.result()).to.be.undefined;
         expect(j2.result()).to.be.undefined;
         // They should eventually match their returned jobs' results
@@ -146,7 +188,7 @@ describe("start(action)", () => {
         for(const item of [42, "blah", {x:"y"},] as any[]) {
             for(const v of [item, () => item]) {
                 try {
-                    detached.start(v);
+                    root.start(v);
                 } catch(e) {
                     expect(e.message).to.equal("Invalid value/return for start()");
                     continue;
@@ -454,7 +496,7 @@ describe("Job instances", () => {
     });
 
     function jobWithHandlers() {
-        return detached.start()
+        return root.start()
             .onError(e => log(`Err: ${e}`))
             .onValue(v => log(`Val: ${v}`))
             .onCancel(() => log("cancel"))
@@ -499,7 +541,7 @@ describe("Job instances", () => {
         describe("marks errors handled", () => {
             it("synchronously, after error ", () => {
                 // Given a job iterator that's next()ed during throw
-                const j = detached.start(), it = j[Symbol.iterator]();
+                const j = root.start(), it = j[Symbol.iterator]();
                 j   // iterator should throw the error on next()
                     .must(() => { try {it.next();} catch(e) { log(`Err: ${e}`)}})
                     .must(r => log(isHandled(r))).do(r => log(isHandled(r)));
@@ -510,7 +552,7 @@ describe("Job instances", () => {
             });
             it("asynchronously, before error", () => {
                 // Given a job + iterator
-                const j = detached.start(), it = j[Symbol.iterator]();
+                const j = root.start(), it = j[Symbol.iterator]();
                 // When its Suspend is awaited and the job thrown
                 (it.next().value as Suspend<any>)((op, _val, err) => { log(`${op}: ${err}`)});
                 j.must(r => log(isHandled(r))).do(r => log(isHandled(r)));
@@ -616,17 +658,17 @@ describe("nativePromise()", () => {
     describe("returns the same promise", () => {
         it("per job", () => {
             // Given a job and its nativePromise
-            const j = detached.start(), p1 = nativePromise(j);
+            const j = root.start(), p1 = nativePromise(j);
             // When nativePromise is called again
             const p2 = nativePromise(j);
             // Then the promises should be equal
             expect(p1).to.equal(p2);
             // But be different from the nativePromise of another job
-            expect(p1).to.not.equal(nativePromise(detached.start()))
+            expect(p1).to.not.equal(nativePromise(root.start()))
         });
         describe("even after", () => {
             function shouldBeTheSame<T>(after: (j: Job<T>) => (Promise<T>|void)) {
-                const j = detached.start<T>(), p = nativePromise(j); p.catch(noop);
+                const j = root.start<T>(), p = nativePromise(j); p.catch(noop);
                 expect(after(j) || nativePromise(j)).to.equal(p);
             }
             it("return", () => { shouldBeTheSame(job => { job.return(42); });    });
@@ -635,7 +677,7 @@ describe("nativePromise()", () => {
         });
         it("except on restart()", () => {
             // Given a job and its nativePromise
-            const j = detached.start(), p1 = nativePromise(j); p1.catch(noop);
+            const j = root.start(), p1 = nativePromise(j); p1.catch(noop);
             // When nativePromise is called again after restart
             j.restart();
             const p2 = nativePromise(j);
@@ -645,7 +687,7 @@ describe("nativePromise()", () => {
     });
     it("marks errors handled", () => {
         // Given a job with a nativePromise
-        const j = detached.start(), p = nativePromise(j).catch(noop);
+        const j = root.start(), p = nativePromise(j).catch(noop);
         j.must(r => log(isHandled(r))).do(r => log(isHandled(r)))
         // When the job is thrown
         j.throw("boom");
@@ -659,7 +701,7 @@ function msg(val: any) { return () => log(val); }
 describe("Cleanup order", () => {
     function setupJobs() {
         const jobs = [] as Job<any>[];
-        jobs.unshift(detached.start(j => {
+        jobs.unshift(root.start(j => {
             log("starting @ root");
             must(msg("must @ root"));
             j.release(msg("release @ root"));
@@ -692,7 +734,7 @@ describe("Cleanup order", () => {
     it("runs restart() cleanups to completion before resuming other cleanups", () => {
         // Given some nested jobs, with a job that's restarted by one of them in a cleanup
         const [j, _j1, j2, _j3] = setupJobs();
-        const toRestart = detached.start(() => {
+        const toRestart = root.start(() => {
             must(msg("must @ restart"));
             start(() => msg("must @ restart sub"));
         })

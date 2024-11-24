@@ -3,7 +3,7 @@ import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl, action
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
-import { must, DisposeFn, RecalcSource, mockSource, lazy, detached, each, sleep } from "../src/mod.ts";
+import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
 import { current } from "../src/ambient.ts";
 import { nullCtx } from "../src/internals.ts";
 import { defaultQ, demandChanges, unchangedIf } from "../src/cells.ts";
@@ -84,7 +84,7 @@ describe("Signal Constructors/Interfaces", () => {
         });
         it("can be subscribed as a source", () => {
             // Given a value and a job that iterates over it with pauses
-            const v = value(42), j = detached.start(function *(){
+            const v = value(42), j = root.start(function *(){
                 for(const {item, next} of yield *each(v)) {
                     log(item); yield *sleep(10); yield next;
                 }
@@ -106,7 +106,7 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42);
-            const c = detached.connect(v, () => { log(current === nullCtx) });
+            const c = root.connect(v, () => { log(current === nullCtx) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
@@ -221,7 +221,7 @@ describe("Signal Constructors/Interfaces", () => {
         });
         it("can be subscribed as a source", () => {
             // Given a cached based on a value, and a job that iterates it with pauses
-            const v = value(42), s = cached(() => v()*2), j = detached.start(function *(){
+            const v = value(42), s = cached(() => v()*2), j = root.start(function *(){
                 for(const {item, next} of yield *each(s)) {
                     log(item); yield *sleep(10); yield next;
                 }
@@ -243,7 +243,7 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42), s = cached(() => v()*2);
-            const c = detached.connect(s, () => { log(current === nullCtx) });
+            const c = root.connect(s, () => { log(current === nullCtx) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
@@ -460,7 +460,7 @@ describe("Dependency tracking", () => {
                 // Then it should return the result
                 expect(peek((x, y) => ({x, y}), 15, 21)).to.deep.equal({x: 15, y: 21});
             });
-            it("prevents forming a dependency", () => {
+            it("without forming a dependency", () => {
                 // Given a cached that peeks at a value via peek
                 const v = value(42), c = cached(() => peek(v));
                 // And has a subscriber (so it will only recompute if a dependency changes)
@@ -472,13 +472,21 @@ describe("Dependency tracking", () => {
                 // Then it should still have the old value
                 expect(c()).to.equal(42);
             });
-            it("doesn't prevent cycle detection on assignment", () => {
+            it("without preventing cycle detection on assignment", () => {
                 // Given a rule that reads and writes a value with peek
                 const v = value(42);
                 rule(() => { peek(() => { v.set(v()+1); }); })
                 // When the rule is run,
                 // Then it should still throw a write conflict
                 expect(runRules).to.throw(WriteConflict);
+            });
+            it("without blocking access to an enclosing rule's job", () => {
+                // Given a rule with a peek() block that accesses the current job
+                const stop = rule(() => { peek(getJob); })
+                // When it's run
+                runRules()
+                // Then it should not produce an error
+                stop()
             });
         })
     });

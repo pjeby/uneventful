@@ -1,6 +1,6 @@
 import { defer } from "./defer.ts";
 import { type Stream, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Inlet, Source } from "./streams.ts";
-import { getJob, detached } from "./tracking.ts";
+import { getJob, root } from "./tracking.ts";
 import { must, start } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
 import { isCancel, isError, isUnhandled, markHandled, noop } from "./results.ts";
@@ -327,7 +327,7 @@ export function share<T>(source: Stream<T>): Source<T> {
             else if (multi.isReady() && !t.isReady()) defer(produce);
         });
         if (links.size === 1) {
-            uplink = detached.connect(source, v => {
+            uplink = root.connect(source, v => {
                 for(const [s, c] of links) try { s(v) } catch(e) { c.throw(e); };
             }, multi).do(r => {
                 uplink = undefined;

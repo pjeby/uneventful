@@ -1,11 +1,11 @@
 import { describe, expect, it, useClock, clock, log, useRoot, see } from "./dev_deps.ts";
-import { timeout, detached, abortSignal, task, getJob, getResult, Yielding, start } from "../mod.ts";
+import { timeout, abortSignal, task, getJob, getResult, Yielding, start, root } from "../mod.ts";
 
 describe("timeout()", () => {
     useClock();
     it("should cancel the job when it expires", () => {
         // Given a job with a timeout
-        const job = detached.start(); timeout(10, job);
+        const job = root.start(); timeout(10, job);
         expect(job).to.not.be.canceled;
         // When the timeout expires
         clock.tick(10);
@@ -14,7 +14,7 @@ describe("timeout()", () => {
     });
     it("should reset timeout if called again", () => {
         // Given a job with a timeout
-        const job = detached.start(); timeout(10, job);
+        const job = root.start(); timeout(10, job);
         expect(job).to.not.be.canceled;
         // When the timeout is reset before expiring
         clock.tick(9);
@@ -29,7 +29,7 @@ describe("timeout()", () => {
     });
     it("doesn't time out if set to 0", () => {
         // Given a job with a timeout
-        const job = detached.start(); timeout(10, job);
+        const job = root.start(); timeout(10, job);
         expect(job).to.not.be.canceled;
         // When the timeout is set to 0 before expiring
         clock.tick(9);
@@ -44,7 +44,7 @@ describe("timeout()", () => {
     });
     it("defaults to the current job", () => {
         // Given a job with a timeout set inside it
-        const job = detached.start(() => timeout(10));
+        const job = root.start(() => timeout(10));
         expect(job).to.not.be.canceled;
         // When the timeout expires
         clock.tick(10);
@@ -56,14 +56,14 @@ describe("timeout()", () => {
 describe("abortSignal", () => {
     it("returns an AbortSignal", () => {
         // Given a job
-        const job = detached.start();
+        const job = root.start();
         // When abortSignal is called on it
         // Then it should return an AbortSignal
         expect(abortSignal(job)).to.be.instanceOf(AbortSignal)
     });
     it("returns the same AbortSignal for the same job", () => {
         // Given a job
-        const job = detached.start();
+        const job = root.start();
         // When abortSignal is called on it more than once
         const s1 = abortSignal(job), s2 = abortSignal(job);
         // Then it should return the same AbortSignal
@@ -71,14 +71,14 @@ describe("abortSignal", () => {
     });
     it("should return an aborted signal if the job is already ended", () => {
         // Given an ended job's abortSignal
-        const job = detached.start(); job.end();
+        const job = root.start(); job.end();
         // Then the signal should be aborted
         const s = abortSignal(job);
         expect(s.aborted).to.be.true;
     });
     it("should abort the signal when the job ends", () => {
         // Given a job's abortSignal
-        const job = detached.start(), s = abortSignal(job);
+        const job = root.start(), s = abortSignal(job);
         expect(s.aborted).to.be.false;
         // When the job is ended
         job.end()
@@ -87,7 +87,7 @@ describe("abortSignal", () => {
     });
     it("should return a new signal when the job is restarted", () => {
         // Given a job's abortSignal
-        const job = detached.start(), s1 = abortSignal(job);
+        const job = root.start(), s1 = abortSignal(job);
         expect(s1.aborted).to.be.false;
         // When the job is restarted
         job.restart();

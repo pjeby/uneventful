@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logU
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, fromIterable,
     IsStream, backpressure, sleep, isHandled, Connection, detached, makeJob,
-    CancelError, throttle, next
+    CancelError, throttle, next, root
 } from "../src/mod.ts";
 import { value, cached, runRules, until } from "../src/signals.ts";
 import { runPulls } from "./dev_deps.ts";
@@ -42,7 +42,7 @@ describe("async start()", () => {
         });
         it("async-throws on throw during cancel", () => {
             // Given a suspended job that throws on resume
-            const j = detached.start(function*() {
+            const j = root.start(function*() {
                 try { yield *start(); } finally { throw "whoops!"; }
             });
             clock.tick(0);  // start job
@@ -276,7 +276,7 @@ describe("Job instances", () => {
             });
             it("doesn't affect a completed job", () => {
                 // Given a completed job (with a parent to catch the async error)
-                const parent = detached.start().onError(noop);
+                const parent = root.start().onError(noop);
                 const j = parent.start(function*() { return 42; });
                 clock.tick(0);
                 // When throw()n

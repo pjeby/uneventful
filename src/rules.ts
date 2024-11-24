@@ -2,7 +2,7 @@ import { defer } from "./defer.ts";
 import { Cell, RuleQueue, currentRule, defaultQ, ruleQueue } from "./cells.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
 import { CallableObject, apply, setMap } from "./utils.ts";
-import { detached } from "./tracking.ts";
+import { detached, root } from "./tracking.ts";
 
 /**
  * A decorator function that supports both TC39 and "legacy" decorator protocols
@@ -137,6 +137,9 @@ export interface RuleFactory {
     factory(scheduleFn: SchedulerFn): RuleFactory
 
     /**
+     * @deprecated Use {@link RuleFactory.root} instead
+     *
+     * ---
      * Create a "detached" or standalone rule, that is not attached to any job.
      *
      * `r.detached(fn)` is shorthand for calling `detached.run(r, fn)`.  (Where
@@ -147,6 +150,18 @@ export interface RuleFactory {
      * by the rule function arranging to stop itself via {@link rule.stop}().
      */
     detached(fn: () => OptionalCleanup): DisposeFn;
+
+    /**
+     * Create a standalone rule, not attached to the current job.
+     *
+     * `r.root(fn)` is shorthand for calling `root.run(r, fn)`, where `r` is a
+     * {@link RuleFactory} such as `rule`.
+     *
+     * The created rule will run until the {@link root} job stops, unless
+     * explicitly stopped.  (Either by calling the returned disposal function or
+     * by the rule function arranging to stop itself via {@link rule.stop}().)
+     */
+    root(fn: () => OptionalCleanup): DisposeFn;
 
     /**
      * Change the scheduler used for the currently-executing rule.  Throws an
@@ -206,6 +221,10 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
         return detached.run(this as RuleFunction, fn);
     }
 
+    root(fn: ActionFunction) {
+        return root.run(this as RuleFunction, fn);
+    }
+
     setScheduler(scheduleFn?: SchedulerFn): void {
         if (currentRule) currentRule.setQ(scheduleFn ? ruleQueue(scheduleFn) : defaultQ);
         else throw new Error("No rule active");
@@ -229,7 +248,7 @@ const factories = new WeakMap<Function, RuleFactory>();
  * {@link rule.stop}() from within the rule function.
  *
  * Note: this function will throw an error if called without an active job. If
- * you need a standalone rule, use {@link RuleFactory.detached rule.detached}().
+ * you need a standalone rule, use {@link RuleFactory.root rule.root}().
  *
  * @param fn The function that will be run each time its dependencies change.
  * The function will be run in a restarted job each time, with any resources

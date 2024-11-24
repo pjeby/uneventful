@@ -1,21 +1,31 @@
 # Changelog
 
+### 0.0.10 (Unreleased)
+
+`uneventful`
+  - Added `root` job to replace `detached` (which is now deprecated).  Creating root-based rather than detached jobs means there is a single point from which all resources can be cleaned up.
+
+`uneventful/signals`
+  - Added `rule.root` to replace `rule.detached` (which is now deprecated)
+  - Fixed code inside a `peek()` or `action()` not being able to access the job of the enclosing rule, if it hadn't already been used
+
 ### 0.0.9
 
 - Fixed: `task` decorator was passing the job as an extra argument to the wrapped function
 
 ### 0.0.8
 
+`uneventful/signals`
 - Any computed signal (i.e. a `cached()` function or a `value()` with a `.setf()`) can now start jobs or register cleanups for their side-effects.  (Previously, only rules could do this.)
 
   The jobs are ended (or cleanups run) when the signal ceases to have subscribers, or when the values the signal depends on change. (Unobserved signals with jobs are also recalculated if they gain subscribers later, even if none of their dependencies have changed.  This is so their side-effects will be restored without needing to wait for a change in their dependencies.)
 
-  You can also use the new `isObserved()` function to test whether the current code is running inside of an observed signal or rule, with the side-effect that if the signal is *not* currently observed, then it will be recalculated when it *becomes* observed.  (This lets you avoid setting up jobs or cleanup-needing effects that will be immediately discarded due to a lack of subscribers, but still set them up as soon as there is demand for them.)
+  You can also use the new `isObserved()` function (from the `uneventful` main package) to test whether the current code is running inside of an observed signal or rule, with the side-effect that if the signal is *not* currently observed, then it will be recalculated when it *becomes* observed.  (This lets you avoid setting up jobs or cleanup-needing effects that will be immediately discarded due to a lack of subscribers, but still set them up as soon as there is demand for them.)
 
-- `uneventful/signals`:
-  - Added `unchangedIf()`: allows reactive expressions (in `cached()` or `value().setf()`) to return their previous value if the new value is equivalent according to a custom comparison function (`arrayEq()` by default)
-  - **Backward incompatibility**: Removed the `stop` parameter from rule functions, so that signals and zero-argument states can be used as rule actions.  (Use `rule.stop()` instead.)
-- `uneventful/utils`:
+- Added `unchangedIf()`: allows reactive expressions (in `cached()` or `value().setf()`) to return their previous value if the new value is equivalent according to a custom comparison function (`arrayEq()` by default)
+- **Backward incompatibility**: Removed the `stop` parameter from rule functions, so that signals and zero-argument states can be used as rule actions.  (Use `rule.stop()` instead.)
+
+`uneventful/utils`
   - Expose `batch()` factory for creating generic batch processors
   - Add `GeneratorBase` for identifying generators with `instanceof`
   - Add `arrayEq()` for comparing array contents

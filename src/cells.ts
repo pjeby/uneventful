@@ -8,6 +8,7 @@ import { nullCtx } from "./internals.ts";
 import { defer } from "./defer.ts";
 import { Batch, batch } from "./scheduling.ts";
 import { action, peek, type Configurable } from "./signals.ts";
+import { root } from "./tracking.ts";
 
 const ruleQueues = new WeakMap<Function, RuleQueue>();
 export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
@@ -509,7 +510,11 @@ export class Cell {
 
     getJob() {
         this.flags |= Is.Stateful;
-        return this.ctx.job ||= makeJob();
+        return this.ctx.job ||= makeJob(root, () => {
+            // Ditch the job on GC
+            this.ctx.job?.end();
+            this.ctx.job = undefined;
+        });
     }
 
     updateDemand() {
@@ -539,7 +544,7 @@ export class Cell {
                 return
             }
             if (job) return;
-            job = ctx.job = makeJob<void>().do(r => {
+            job = ctx.job = makeJob<void>(root).do(r => {
                 if (isError(r)) {
                     cell.setValue(markHandled(r), true);
                 } else {
@@ -552,7 +557,7 @@ export class Cell {
                 src(write, job);
             } catch(e) {
                 job.end();
-                detached.asyncThrow(e);
+                root.asyncThrow(e);
             } finally {
                 swapCtx(old);
             }
@@ -588,6 +593,7 @@ export class Cell {
     static mkRule(fn: () => OptionalCleanup, q: RuleQueue) {
         const outer = getJob(), cell = Cell.mkCached(() => {
             try {
+                cell.getJob() // ensure a job is active
                 const cleanup = fn();
                 if (cleanup) (cell.ctx.job || cell.getJob()).must(cleanup);
                 cell.lastChanged = timestamp;

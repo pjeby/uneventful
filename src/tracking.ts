@@ -121,14 +121,14 @@ class _Job<T> implements Job<T> {
 
     _end(res: JobResult<T>) {
         if (this._done) throw new Error("Job already ended");
-        if (this !== detached) this._done = res;
+        if (this !== _detached) this._done = res;
         this.end();
         return this;
     }
 
     throw(err: any) {
         if (this._done) {
-            (owners.get(this) || detached).asyncThrow(err);
+            (owners.get(this) || _detached).asyncThrow(err);
             return this;
         }
         return this._end(ErrorResult(err));
@@ -239,7 +239,7 @@ class _Job<T> implements Job<T> {
     }
 
     release(cleanup: CleanupFn): () => void {
-        if (this === detached) return noop;
+        if (this === _detached) return noop;
         let cbs = this._chain();
         if (!this._done || cbs.u) cbs = cbs.u ||= chain();
         return pushCB(cbs, cleanup);
@@ -250,7 +250,7 @@ class _Job<T> implements Job<T> {
             (catchers.get(this) || this.throw).call(this, err);
         } catch (e) {
             // Don't allow a broken handler to stay on the job
-            if (this === detached) catchers.set(this, defaultCatch); else catchers.delete(this);
+            if (this === _detached) catchers.set(this, defaultCatch); else catchers.delete(this);
             const catcher = catchers.get(this) || this.throw;
             catcher.call(this, err);
             catcher.call(this, e);   // also report the broken handler
@@ -269,7 +269,7 @@ class _Job<T> implements Job<T> {
     // Chain whose .u stores a second chain for `release()` callbacks
     protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined;
     protected _chain() {
-        if (this === detached) this.end()
+        if (this === _detached) this.end()
         if (this._done && isEmpty(this._cbs)) defer(this.end);
         return this._cbs ||= chain();
     }
@@ -306,22 +306,32 @@ export function nativePromise<T>(job: Job<T>): Promise<T> {
  * Return a new {@link Job}.  If *either* a parent parameter or stop function
  * are given, the new job is linked to the parent.
  *
+ * @remarks You should generally use `start()`, `parent.start()` or
+ * `root.start()` instead of this, unless you're creating a special kind of job
+ * that needs a custom stop function.
+ *
  * @param parent The parent job to which the new job should be attached.
- * Defaults to the currently-active job if none given (assuming a stop
- * parameter is provided).
+ * Defaults to the currently-active job if none given (assuming a stop parameter
+ * is provided).
  *
  * @param stop The function to call to destroy the nested job.  Defaults to the
  * {@link Job.end} method of the new job if none is given (assuming a parent
  * parameter is provided).
  *
- * @returns A new job.  The job is linked/nested if any arguments are given,
- * or a detached (parentless) job otherwise.
+ * @returns A new job.  The job is a child job if any arguments are given, or
+ * a detached (parentless) job otherwise.
  *
  * @category Jobs
  */
 export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.create;
 
+const _detached = makeJob();
+
 /**
+ * @deprecated Use {@link root} instead.  (Including uses of
+ * `.asyncCatch()` to set the default async error handling policy.)
+ *
+ * ---
  * A special {@link Job} with no parents, that can be used to create standalone
  * jobs.  detached.start() returns a new detached job, detached.run() can be
  * used to run code that expects to create a child job, and detached.bind() can
@@ -349,9 +359,68 @@ export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.creat
  *
  * @category Jobs
  */
-export const detached = makeJob();
-(detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
-detached.asyncCatch(defaultCatch);
+export const detached = _detached;
+(_detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
+_detached.asyncCatch(defaultCatch);
+
+/**
+ * The "main" job of the program or bundle, which all other jobs should be a
+ * child of.  This provides a single point of configuration and cleanup, as one
+ * can e.g.:
+ *
+ * - Use {@link Job.asyncCatch `root.asyncCatch()`} to define the default async
+ *   error handling policy
+ * - Use {@link Job.end `root.end()`} to clean up all resources for the entire
+ *   program
+ * - Use {@link Job.start `root.start()`} to create top-level, standalone, or
+ *   "daemon"/service tasks, or to create tasks whose lifetime is managed by an
+ *   external framework.
+ *
+ * By default, there is only ever one root job, run once, in a given process or
+ * page.  But for testing you can use {@link newRoot} to end the existing root
+ * and start a new one.
+ *
+ * @remarks
+ * Uneventful does not include any code to end the root job itself, as the
+ * decision of when and whether to do that varies heavily by context (e.g.
+ * server vs. browser, app vs. plugin, etc.), and often doesn't need to happen
+ * at all.  (Because exiting the process or leaving the web page is often
+ * sufficient.)
+ *
+ * More commonly, you will only end the root job when running tests (to get a
+ * clean environment for the next test), or when your entire bundle is itself an
+ * unloadable plugin (e.g. in Obsidian).
+ *
+ * Note, too, that when the root job ends, root is reset to `null` so that any
+ * subsequent attempt to use the root job will throw an exception.  (Unless of
+ * course a new root job has been created with {@link newRoot}.)
+ *
+ * @category Jobs
+ */
+export let root: Job<unknown>;
+newRoot()
+
+/**
+ * Create a new root job (usually for testing purposes). If there is an existing
+ * root job, it is ended first.  The new root is configured to convert async
+ * errors into unhandled promise rejections by default, so if you need to change
+ * that you can use its {@link Job.asyncCatch `.asyncCatch()`} method.
+ *
+ * @returns The new root job.
+ *
+ * @remarks If your project customizes the root job in some way(s), you will
+ * probably want a function to do that, so you can use it both in tests and at
+ * runtime.  (e.g. `myInit(newJob())` in tests, and `myInit(root)` at runtime.)
+ *
+ * @category Jobs
+ */
+export function newRoot(): Job<unknown> {
+    root?.end()
+    const job = root = makeJob().asyncCatch(e => _detached.asyncThrow(e))
+    // Make attempts to use `root` fail, if they are during or after its cleanup
+    job.release(() => root === job && (root = null))
+    return root;
+}
 
 function runGen<R>(g: Yielding<R>, job: Job<R>) {
     let it = g[Symbol.iterator](), running = true, ctx = makeCtx(job), ct = 0;

@@ -1,5 +1,5 @@
 import { log, see, describe, it, useRoot, msg, expect } from "./dev_deps.ts";
-import { must, DisposeFn, detached } from "../mod.ts";
+import { must, DisposeFn, root, newRoot } from "../mod.ts";
 import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
 describe("@rule.method", () => {
@@ -38,7 +38,7 @@ describe("rule.setScheduler()", () => {
         // Given a rule that sets its scheduler
         let cb: () => unknown;
         const s = value<SchedulerFn|undefined>(f => cb = f)
-        const r = rule.detached(() => {
+        const r = rule.root(() => {
             rule.setScheduler(s());
             log("run");
         });
@@ -63,7 +63,7 @@ describe("rule.stop()", () => {
     it("stops the running rule w/rollback at end", () => {
         // Given a rule that conditionally stops itself
         const v = value(42)
-        rule.detached(() => {
+        rule.root(() => {
             if (v() !== 42) {
                 must(msg("stopped"));
                 rule.stop();
@@ -82,7 +82,7 @@ describe("rule.stop()", () => {
     it("is bound to the rule where it was retrieved", () => {
         // Given a rule that saves rule.stop
         let f: DisposeFn
-        rule.detached(() => { f = rule.stop; return msg("stopped"); })
+        rule.root(() => { f = rule.stop; return msg("stopped"); })
         runRules(); see();
         // When the function is called outside the rule
         f();
@@ -95,7 +95,7 @@ describe("rule.if()", () => {
     it("doesn't rerun unnecessarily", () => {
         // Given a rule.if() with a multipart condition
         const v1 = value(42), v2 = value(57), s = value("started");
-        detached.start(() => {
+        const job = root.start(() => {
             rule.if(
                 () => v1() && v2(),
                 () => { log(s()); return msg("stopped"); }
@@ -112,5 +112,27 @@ describe("rule.if()", () => {
         v2.set(0); runRules(); see("stopped");
         s.set("changed again"); runRules(); see()
         v2.set(58); runRules(); see("changed again");
+        // Or the job ends
+        job.end()
+        see("stopped")
+    });
+});
+
+describe("rule.root()", () => {
+    it("exits only when the root does", () => {
+        // Given a rule.root created in a job
+        newRoot()
+        const j = root.start(() => {
+            rule.root(() => msg("done"))
+        })
+        runRules()
+        see()
+        // When the job is ended, the rule should still be active
+        j.end()
+        see()
+        // But when the root is ended
+        newRoot()
+        // Then the rule should finish
+        see("done")
     });
 });

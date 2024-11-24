@@ -11,7 +11,7 @@ describe("Demand management", () => {
             const c = Cell.mkStream(() => IsStream);
             c.setQ(defaultQ); demandChanges.flush();
             // When the cell is subscribed
-            const r = rule.detached(() => c.getValue()); runRules();
+            const r = rule.root(() => c.getValue()); runRules();
             // Then an update should not be queued
             expect(demandChanges.has(c)).to.be.false;
             // And when it is unsubscribed
@@ -334,7 +334,7 @@ describe("cached()", () => {
         const v = value(42), s = Cell.mkCached(() => { if (!constant) return v(); else return 42; });
         // And various subscribers
         const c1 = Cell.mkCached(() => s.getValue()), c2 = Cell.mkCached(() => s.getValue());
-        const r = rule.detached(() => c1.getValue()); c2.setQ(defaultQ);
+        const r = rule.root(() => c1.getValue()); c2.setQ(defaultQ);
         runRules();
         expect(s.subscribers).to.not.be.undefined;
         expect(c1.subscribers).to.not.be.undefined;

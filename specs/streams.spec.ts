@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
 import { Connection, Throttle, backpressure, throttle } from "../src/streams.ts";
 import { runPulls } from "./dev_deps.ts";
-import { IsStream, connect, Sink, compose, pipe, must, detached, start, isError, JobResult } from "../mod.ts";
+import { IsStream, connect, Sink, compose, pipe, must, start, isError, JobResult, root } from "../mod.ts";
 
 function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
@@ -55,7 +55,7 @@ describe("backpressure()", () => {
     });
     it("closes(+unready) when its enclosing job is cleaned up", () => {
         // Given a job and a connection it's attached to
-        detached.start(job => {
+        root.start(job => {
             const c = start<void>().do(logClose);
             // When the job ends
             job.end();
