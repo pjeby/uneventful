@@ -9,7 +9,7 @@ import { must, start } from "./jobutils.ts";
 import { noop } from "./results.ts";
 import { root, newRoot } from "./tracking.ts";
 import { Yielding } from "./types.ts";
-import { apply, decorateMethod, isFunction } from "./utils.ts";
+import { apply, decorateMethod, isFunction, setMap } from "./utils.ts";
 
 /**
  * Wrap a factory function to create a singleton service accessor
@@ -91,6 +91,10 @@ export function expiring<T extends object>(obj: T): T {
  * TC39 and legacy decorator protocols), it wraps a method to fork its result as
  * well.
  *
+ * It is safe to call `fork()` more than once on the same generator, or to
+ * `fork()` an already-forked generator: the result will always be the same as
+ * the original fork.
+ *
  * @remarks Note that while you can *also* make a generator run or be waitable
  * in parallel using e.g. `start()`, the critical difference is in when resource
  * cleanup happens. If you `start()` the generator (or wrap the generator
@@ -124,12 +128,16 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>>(
     if (isFunction(genOrFunc)) return (function(this: any, ...args: Parameters<F>) {
         return fork(apply(genOrFunc, this, args))
     }) as F; else {
+        if (forks.has(genOrFunc)) return forks.get(genOrFunc);
         const job = start<T>();
         start(function *run(){
             try { job.return(yield *genOrFunc); }
             catch(e) { job.throw(e); }
             yield noop;  // suspend until canceled
         })
-        return { [Symbol.iterator]: job[Symbol.iterator].bind(job) }
+        const it = { [Symbol.iterator]: job[Symbol.iterator].bind(job) }
+        return setMap(forks, it, setMap(forks, genOrFunc, it))
     }
 }
+
+const forks = new WeakMap<Yielding<any>, Yielding<any>>()

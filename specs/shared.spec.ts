@@ -29,6 +29,27 @@ describe("fork()", () => {
 
     describe("when called on a generator, returns a generator", () => {
         checkGenerator(() => fork(sleepWithMessage()))
+        it("that is the same each time for a given input", () => {
+            // Given two generators
+            const g1 = sleepWithMessage(), g2 = sleepWithMessage()
+            // When each is forked more than once
+            const f1a = fork(g1), f1b = fork(g1)
+            const f2a = fork(g2), f2b = fork(g2)
+            // Then the results should be the same for each generator
+            expect(f1a).to.equal(f1b)
+            expect(f2a).to.equal(f2b)
+            // But different from the ones from the other generator
+            expect(f1a).to.not.equal(f2a)
+            expect(f1b).to.not.equal(f2b)
+        })
+        it("that is the input if it was already forked", () => {
+            // Given a forked generator
+            const f1 = fork(sleepWithMessage())
+            // When it is forked
+            const f2 = fork(f1)
+            // Then it should return the same (already-forked) generator
+            expect(f1).to.equal(f2)
+        });
     })
 
     describe("when called on a generator function, returns a generator function", () => {
