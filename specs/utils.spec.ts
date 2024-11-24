@@ -1,5 +1,5 @@
-import { describe, expect, it } from "./dev_deps.ts";
-import { GeneratorBase, arrayEq, isArray } from "../src/utils.ts";
+import { describe, expect, it, log, see } from "./dev_deps.ts";
+import { GeneratorBase, arrayEq, decorateMethod } from "../src/utils.ts";
 
 describe("Utilities", () => {
     describe("arrayEq()", () => {
@@ -24,5 +24,36 @@ describe("Utilities", () => {
         it("detects generators w/instanceof", () => {
             expect((function*(){})()).to.be.instanceOf(GeneratorBase)
         });
+    });
+    describe("decorateMethod", () => {
+        it("Calls the function wrapper when called in TC39 decorator mode", () => {
+            // Given a function wrapper using decorateMethod
+            // When it is called in TC39 mode with a function to wrap
+            const res = arbitraryWrapper(functionToWrap, {kind: "method"})
+            // Then the wrapper should be called with just the function
+            see("called", "true")
+            // And the result should be the wrapper's return value
+            expect(res()).to.equal(42)
+        })
+        it("Calls the function wrapper when called in legacy decorator mode", () => {
+            // Given a function wrapper using decorateMethod
+            // When it is called in legacy mode with a descriptor
+            const desc = {value: functionToWrap, configurable: true}
+            const res = arbitraryWrapper(class {} as any, "methodName", desc) as any as typeof desc;
+            // Then the wrapper should be called with just the function
+            see("called", "true")
+            // And the result should be a copied descriptor with the wrapper's return value
+            expect(res.value()).to.equal(42)
+            expect(res.configurable).to.be.true
+        });
+
+        function arbitraryWrapper(fn: () => number, ...args: any[]): () => number {
+            if (args.length) return decorateMethod(arbitraryWrapper, fn, ...args as [any, any])
+            log("called")
+            log(fn === functionToWrap)
+            return () => 42
+        }
+
+        function functionToWrap() { return 99; }
     });
 });

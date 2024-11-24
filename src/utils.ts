@@ -8,6 +8,44 @@
 import { AnyFunction } from "./types.ts";
 
 /**
+ * Helper for creating hybrid legacy/TC39 decorator/wrapper functions, e.g.:
+ *
+ * ```ts
+ * // As wrapper function
+ * export function myDecorator<T>(fn: SomeFnType<T>): SomeFnType<T>;
+ *
+ * // TC39 decorator
+ * export function myDecorator<T>(fn: SomeFnType<T>, ctx: {kind: "method"}): SomeFnType<T>
+ *
+ * // "Legacy"/"TypeScript Experimental" Decorator
+ * export function myDecorator<T,D extends {value?: SomeFnType<T>}>(clsOrProto:any, name: string|symbol, desc: D): D
+ *
+ * // Implementation
+ * export function myDecorator<T>(factory: SomeFnType<T>, ...args: any[]): SomeFnType<T> {
+ *     // extra args means we're being used as a decorator, so run as decorator:
+ *     if (args.length) return decorateMethod(myDecorator, factory, ...args as [any, any]);
+ *     // No extra args, we're b
+ *     return () => {
+ *     }
+ * }
+ * ```
+ *
+ * Yes, this is fairly ugly, but it's also the **only** way to make this work
+ * when the wrapper is a generic function.  (TypeScript's type system doesn't
+ * allow generic values, declaring functions as implementing interfaces,
+ * higher-order kinds, or any other tricks that would let you avoid this giant
+ * ball of boilerplate for generic decorators.)
+ *
+ * @category Decorators
+ */
+export function decorateMethod<F extends AnyFunction, D extends { value?: F; }>(
+    decorate: (fn: F) => F, fn: F, _ctxOrName: string | symbol | { kind: "method"; }, desc?: D
+): F | D {
+    const method = decorate(desc ? desc.value : fn);
+    return desc ? { ...desc, value: method } : method as F;
+}
+
+/**
  * Shorthand for Array.isArray()
  *
  * @category Data Structures

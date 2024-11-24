@@ -26,6 +26,12 @@
                 "default": "./dist/mod.mjs"
             }
         },
+        "./shared": {
+            "import": {
+                "types": "./dist/shared.d.ts",
+                "default": "./dist/shared.mjs"
+            }
+        },
         "./signals": {
             "import": {
                 "types": "./dist/signals.d.ts",

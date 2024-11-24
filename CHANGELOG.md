@@ -5,9 +5,17 @@
 `uneventful`
   - Added `root` job to replace `detached` (which is now deprecated).  Creating root-based rather than detached jobs means there is a single point from which all resources can be cleaned up.
 
+`uneventful/shared` (NEW)
+  - `service()`: wrap a factory function to create a singleton service accessor
+  - `fork()`: wrap a generator, generator function, or generator method to run in parallel, and have a result that can be waited on in parallel as well
+  - `expiring()`: proxy an object so it cannot be accessed after the calling job ends
+
 `uneventful/signals`
   - Added `rule.root` to replace `rule.detached` (which is now deprecated)
   - Fixed code inside a `peek()` or `action()` not being able to access the job of the enclosing rule, if it hadn't already been used
+
+`uneventful/utils`
+  - Added `decorateMethod()`: a helper for creating hybrid (TC39/legacy) decorator/function wrappers
 
 ### 0.0.9
 
