@@ -1,6 +1,6 @@
 # Changelog
 
-### 0.0.10 (Unreleased)
+### 0.0.10
 
 `uneventful`
   - Added `root` job to replace `detached` (which is now deprecated).  Creating root-based rather than detached jobs means there is a single point from which all resources can be cleaned up.

@@ -1,6 +1,6 @@
 {
     "name": "uneventful",
-    "version": "0.0.9",
+    "version": "0.0.10",
     "description": "Declarative, event-driven reactivity: signals, streams, structured concurrency, and easy resource cleanup",
     "keywords": [
         "signals",
@@ -78,7 +78,7 @@
         "mocha": "^10.2.0",
         "monkey-around": "^3",
         "onchange": "^7.1.0",
-        "pkgroll": "^2.1",
+        "pkgroll": "^2.1.1",
         "sinon": "^17.0.1",
         "sinon-chai": "^3.7.0",
         "ts-node": "^10.9.1",

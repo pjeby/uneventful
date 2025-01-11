@@ -128,7 +128,7 @@ export { batch, type Batch } from "./scheduling.ts";
 
 /**
  * Calls the `target` function with the given object as the `this` value and the
- * elements of given array as the arguments.
+ * elements of given array as the arguments.  (Shorthand for Reflect.apply)
  *
  * @category Functions and Decorators
  */
