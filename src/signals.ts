@@ -127,10 +127,17 @@ export interface Writable<T> extends Signal<T>  {
      */
     readonly set: (val: T) => void;
 
-    get value(): T
+    value: T
 
-    /** Set the current value */
-    set value(val: T);
+    /**
+     * Update the current value with a patch function
+     *
+     * Note: this reads the signal's current value, which may produce a write
+     * conflict or circular dependency if you call it from inside a rule.
+     *
+     * @category Writing
+     */
+    edit(patch: (before: T) => T): void;
 }
 
 /** @internal */
@@ -140,6 +147,9 @@ export class WritableImpl<T> extends SignalImpl<T> implements Writable<T> {
     set = (val: T) => { this._c.setValue(val, false); }
     asReadonly(): Signal<T> {
         return new SignalImpl<T>(this._c);
+    }
+    edit(patch: (before: T) => T) {
+        this.set(patch(this()))
     }
 }
 

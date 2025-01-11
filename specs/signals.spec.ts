@@ -33,9 +33,14 @@ describe("Signal Constructors/Interfaces", () => {
         it("is a Writable instance", () => {
             expect(value(27)).to.be.instanceOf(ConfigurableImpl);
         })
-        it("can be set()", () => {
+        it("can be .set()", () => {
             const val = value();
             verifyMulti(v => { val.set(v); return val as Signal<typeof v>; })
+        });
+        it("can be .edit()ed", () => {
+            const val = value(42)
+            val.edit(v => v*2)
+            expect(val()).to.equal(84)
         });
         it("can have its .value set", () => {
             const val = value();
@@ -81,6 +86,10 @@ describe("Signal Constructors/Interfaces", () => {
             // And setting the signal's value should call the set method
             s.value = 9999;
             see("9999");
+            // And .edit() should, too
+            val.set(9999);
+            (s as Writable<number>).edit(v => v+1)
+            see("10000")
         });
         it("can be subscribed as a source", () => {
             // Given a value and a job that iterates over it with pauses

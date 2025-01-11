@@ -12,6 +12,7 @@
 
 `uneventful/signals`
   - Added `rule.root` to replace `rule.detached` (which is now deprecated)
+  - Added `.edit()` method to writable signals (to patch the existing value using a function)
   - Fixed code inside a `peek()` or `action()` not being able to access the job of the enclosing rule, if it hadn't already been used
 
 `uneventful/utils`
