@@ -8,8 +8,8 @@
 import { must, start } from "./jobutils.ts";
 import { noop } from "./results.ts";
 import { root, newRoot } from "./tracking.ts";
-import { Yielding } from "./types.ts";
-import { apply, decorateMethod, isFunction, setMap } from "./utils.ts";
+import { JobIterator, Yielding } from "./types.ts";
+import { apply, decorateMethod, isFunction, isGeneratorFunction, setMap } from "./utils.ts";
 
 /**
  * Wrap a factory function to create a singleton service accessor
@@ -22,9 +22,12 @@ import { apply, decorateMethod, isFunction, setMap } from "./utils.ts";
  * value, a function, an object, etc.  It will be called at most once per root
  * job lifetime, in a job that is an immediate child of the root job.
  *
- * (Note: if your factory is a generator function or returns a generator to
- * produce an async result, you should wrap it with {@link fork}, so it can be
- * waited on by multiple callers.)
+ * (Note: if your factory is a native generator function, it is automatically
+ * wrapped with {@link fork}() so that its job will not end when the generator
+ * ends, and the result can be waited on by multiple callers.  If your factory
+ * is *not* a native generator function but still returns a generator to produce
+ * an async result, you should wrap that generator with {@link fork} before
+ * returning it.)
  *
  * @remarks Note that if you want your code to be testable with {@link newRoot},
  * you should avoid storing the *result* of calling the service accessor
@@ -40,6 +43,7 @@ import { apply, decorateMethod, isFunction, setMap } from "./utils.ts";
  */
 export function service<T>(factory: () => T): () => T {
     let known = false, value: T = undefined;
+    if (isGeneratorFunction<JobIterator<any>>(factory)) factory = fork(factory)
     return () => {
         if (known) return value
         root.start(() => {

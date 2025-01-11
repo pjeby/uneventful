@@ -144,3 +144,14 @@ export const GeneratorBase = /* @__PURE__ */ (() => {
     function G() {}; G.prototype = (function *(){}).constructor.prototype.prototype;
     return G as any as abstract new () => Generator;
 })()
+
+/**
+ * Is the given function a native generator function?
+ *
+ * @category Functions and Decorators
+ */
+export function isGeneratorFunction<G extends Generator<any,any,any>=Generator>(
+    fn: any
+): fn is (this: any, ...args: any[]) => G {
+    return isFunction(fn) && fn.prototype instanceof GeneratorBase
+}

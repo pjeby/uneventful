@@ -17,6 +17,7 @@
 
 `uneventful/utils`
   - Added `decorateMethod()`: a helper for creating hybrid (TC39/legacy) decorator/function wrappers
+  - Added `isGeneratorFunction()` to check for native generator function
 
 ### 0.0.9
 

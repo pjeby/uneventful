@@ -1,5 +1,5 @@
 import { describe, expect, it, log, see } from "./dev_deps.ts";
-import { GeneratorBase, arrayEq, decorateMethod } from "../src/utils.ts";
+import { GeneratorBase, arrayEq, decorateMethod, isGeneratorFunction } from "../src/utils.ts";
 
 describe("Utilities", () => {
     describe("arrayEq()", () => {
@@ -25,6 +25,13 @@ describe("Utilities", () => {
             expect((function*(){})()).to.be.instanceOf(GeneratorBase)
         });
     });
+    describe("isGeneratorFunction", () => {
+        it("detects generator functions", () => {
+            expect(isGeneratorFunction(function*(){})).to.be.true
+            expect(isGeneratorFunction(function(){})).to.be.false
+            expect(isGeneratorFunction(() => {})).to.be.false
+        })
+    })
     describe("decorateMethod", () => {
         it("Calls the function wrapper when called in TC39 decorator mode", () => {
             // Given a function wrapper using decorateMethod

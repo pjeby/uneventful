@@ -161,5 +161,13 @@ describe("service()", () => {
             // Then the cleanups should run
             see("cleanup")
         });
+        it("fork()s the factory if it's a generator function", () => {
+            // Given an async service
+            const svc = service(function*(){})
+            // When it is called
+            const res = svc()
+            // Then it should return a fork()ed generator
+            expect(root.run(() => fork(res))).to.equal(res)
+        });
     })
 })
