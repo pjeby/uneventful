@@ -36,7 +36,7 @@ import { AnyFunction } from "./types.ts";
  * higher-order kinds, or any other tricks that would let you avoid this giant
  * ball of boilerplate for generic decorators.)
  *
- * @category Decorators
+ * @category Functions and Decorators
  */
 export function decorateMethod<F extends AnyFunction, D extends { value?: F; }>(
     decorate: (fn: F) => F, fn: F, _ctxOrName: string | symbol | { kind: "method"; }, desc?: D
@@ -53,7 +53,7 @@ export function decorateMethod<F extends AnyFunction, D extends { value?: F; }>(
 export const isArray = Array.isArray;
 
 /**
- * Return true if the supplied parameters are the same object/vaue, or are
+ * Return true if the supplied parameters are the same object/value, or are
  * arrays with identical contents.
  *
  * @category Data Structures
@@ -85,59 +85,44 @@ export function setMap<K, V>(map: { set(key: K, val: V): void; }, key: K, val: V
 /**
  * Is the given value a function?  (Shorthand for `typeof f === "function"`)
  *
- * @category Functional Programming
+ * @category Functions and Decorators
  */
 export function isFunction(f: any): f is Function {
     return typeof f === "function";
 }
 
 /**
- * This class hides the implementation details of inheriting from Function in
- * the documentation.  (By default, typedoc exposes all the inherited properties
- * and members, which we don't want.  By inheriting from it instead of from
- * Function, we keep the documentation free of unimportant details.)
+ * A base class for creating callable objects.
  *
  * The way this works is that you subclass CallableObject and define a
- * constructor that calls `super(someClosure)` where `someClosure` is a unique
+ * constructor that calls `super(someClosure)` where `someClosure` is a *unique*
  * function object, which will then pick up any properties or methods defined by
  * the subclass.
+ *
+ * (Note: It needs to be unique because the `super()` call only sets its
+ * prototype, and returns the function you passed as `this`.  So if you call it
+ * with the same function more than once, you're just reinitializing the same
+ * object instead of creating a new one.)
  *
  * @template T The call/return signature that instances of the class will
  * implement.
  *
- * @category Functional Programming
+ * @param fn A unique function or closure, to be passed to super() in a
+ * subclass.  The function object will gain a prototype from `new.target`,
+ * thereby picking up any properties or methods defined by the class, and
+ * becoming `this` for the calling constructor.
+ *
+ * (Note that calling the constructor by any means other than super() from a
+ * constructor will result in an error or some other unhelpful result.)
+ *
+ * @category Functions and Decorators
  */
-//@ts-ignore not really a duplicate
-export declare class CallableObject<T extends AnyFunction> extends Function {
-    /**
-     * @param fn A unique function or closure, to be passed to super() in a
-     * subclass.  The function object will gain a prototype from `new.target`,
-     * thereby picking up any properties or methods defined by the class,
-     * and becoming `this` for the calling constructor.
-     *
-     * (Note that calling the constructor by any means other than super() from
-     * a constructor will result in an error or some other unhelpful result.)
-     */
-    constructor(fn: T);
-    /** @internal */ declare length: number;
-    /** @internal */ declare arguments: any;
-    /** @internal */ declare caller: Function;
-    /** @internal */ declare prototype: any;
-    /** @internal */ declare name: string;
-}
-//@ts-ignore CallableObject<T> adheres to the constraint of T in its *implementation*
-export interface CallableObject<T extends AnyFunction> extends T {
-    /** @internal */ [Symbol.hasInstance](value: any): boolean;
-    /** @internal */ apply(this: Function, thisArg: any, argArray?: any): any;
-    /** @internal */ bind(this: Function, thisArg: any, ...argArray: any[]): any;
-    /** @internal */ call(this: Function, thisArg: any, ...argArray: any[]): any;
-    /** @internal */ toString(): string;
-}
-//@ts-ignore This is the real implementation of the above declarations
-export const CallableObject = /* @__PURE__ */ ( () => <typeof CallableObject> Object.assign(
-    function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.target.prototype); },
-    {prototype: Function.prototype }  // No need to have extra prototypes in the chain
-))();
+export const CallableObject: new <T extends AnyFunction>(fn: T) => T = /* @__PURE__ */ (() => {
+    function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.target.prototype); }
+    CallableObject.prototype = Function.prototype;
+    return CallableObject as any
+})();
+
 
 export { batch, type Batch } from "./scheduling.ts";
 
@@ -145,7 +130,7 @@ export { batch, type Batch } from "./scheduling.ts";
  * Calls the `target` function with the given object as the `this` value and the
  * elements of given array as the arguments.
  *
- * @category Functional Programming
+ * @category Functions and Decorators
  */
 export const apply = Reflect.apply;
 
