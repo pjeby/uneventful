@@ -8,43 +8,27 @@
 import type { Job } from "./types.ts";
 import type { Cell } from "./cells.ts";
 
-type Opt<X> = X | undefined | null;
-
-export type Context = {
-    job: Opt<Job<unknown>>
-    cell: Opt<Cell>
-}
-
 /** The current context */
-export var current: Context = makeCtx();
+export var currentJob: Job, currentCell: Cell;
 
+/** Context stacks */
+const cells = [] as Cell[], jobs = [] as Job[];
 
-/** Set a new current context, returning the old one */
-export function swapCtx(future: Context): Context {
-    const now = current;
-    current = future;
-    return now
+/** Set a temporary context */
+export function pushCtx(job?: Job | null, cell?: Cell | null) {
+    jobs.push(currentJob)
+    cells.push(currentCell)
+    currentJob = job
+    currentCell = cell
 }
 
-var freelist = [] as Context[];
-
-/** Get a fresh context object (either by creation or recycling) */
-export function makeCtx(
-    job?:  Context["job"],
-    cell?: Context["cell"],
-): Context {
-    if (freelist && freelist.length) {
-        const s = freelist.pop()!;
-        s.job = job;
-        s.cell = cell;
-        return s;
-    }
-    return {job, cell};
+/** Restore previous context */
+export function popCtx() {
+    currentJob = jobs.pop()
+    currentCell = cells.pop()
 }
 
-/** Put a no-longer-needed context object on the recycling heap */
-export function freeCtx(s: Context) {
-    s.job = s.cell = null;
-    freelist.push(s);
+/** Create a job from the current cell if there's a cell and no job  */
+export function cellJob() {
+    return currentJob ||= currentCell?.getJob()
 }
-

@@ -1,7 +1,7 @@
 import { pulls } from "./internals.ts";
 import { DisposeFn, Job } from "./types.ts";
 import { getJob } from "./tracking.ts";
-import { current } from "./ambient.ts";
+import { currentJob } from "./ambient.ts";
 import type { Signal } from "./signals.ts";  // needed for documentation links
 
 /**
@@ -187,7 +187,7 @@ export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inl
  *
  * @category Stream Consumers
  */
-export function throttle(job: Job = current.job): Throttle {
+export function throttle(job: Job = currentJob): Throttle {
     return new _Throttle(job);
 }
 

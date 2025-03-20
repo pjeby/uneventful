@@ -6,7 +6,7 @@ import { restarting, start, must } from "./jobutils.ts";
 import { isFunction } from "./utils.ts";
 import { Signal, until, cached } from "./signals.ts";  // the until and cached are needed for documentation links
 import { callOrWait, mustBeSourceOrSignal } from "./call-or-wait.ts";
-import { current } from "./ambient.ts";
+import { currentCell } from "./ambient.ts";
 
 /**
  * The result type returned from calls to {@link Each}.next()
@@ -247,7 +247,7 @@ export function recalcWhen(src: RecalcSource): void;
  */
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
-    current.cell?.recalcWhen<T>(fnOrKey as T, fn);
+    currentCell?.recalcWhen<T>(fnOrKey as T, fn);
 }
 
 /**
@@ -275,5 +275,5 @@ export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (k
  * @category Signals
  */
 export function isObserved(): boolean | undefined  {
-    return current.cell?.isObserved();
+    return currentCell?.isObserved();
 }

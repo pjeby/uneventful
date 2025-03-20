@@ -1,33 +1,64 @@
 import { describe, it } from "mocha";
-import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
-import { Job } from "../mod.ts";
+import { cellJob, currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
+import { root, Job } from "../src/mod.ts";
 import { Cell } from "../src/cells.ts";
 import { expect } from "chai";
 
-it("swapCtx() swaps the context", () => {
-    const ctx = makeCtx(), old = current;
-    expect(old, "Should return the old context").to.equal(swapCtx(ctx));
-    expect(ctx, "Should set the passed context").to.equal(current);
-    expect(ctx, "Should return the old context").to.equal(swapCtx(old));
-    expect(old, "Should set the passed context").to.equal(current);
-});
+function expectJobCell(job?: Job, cell?: Cell) {
+    expect(currentJob).to.equal(job);
+    expect(currentCell).to.equal(cell);
+}
 
-it("makeCtx() creates a context w/given props", () => {
-    const c = {} as Cell, f = {} as Job, ctx = makeCtx(f, c);
-    expect(ctx.job, "Should set job from first arg" ).to.equal(f);
-    expect(ctx.cell, "Should set cell from second arg").to.equal(c);
-});
-
-describe("freeCtx()", () => {
-    it("Clears the props of the freed context", () => {
-        const c = {} as Cell, f = {} as Job, ctx = makeCtx(f, c);
-        freeCtx(ctx);
-        expect(ctx.job, "Should clear the job").to.equal(null);
-        expect(ctx.cell, "Should clear the job").to.equal(null);
+describe("Ambient Context API", () => {
+    describe("pushCtx()/popCtx()", () => {
+        it("control the currentCell/currentJob", () => {
+            // Given a cell and/or job
+            const c = {} as Cell, f = {} as Job;
+            // When no context has been pushed,
+            // Then there should be no current cell or job
+            expectJobCell();
+            // But when a context has been pushed
+            pushCtx(f, c);
+            try {
+                // Then the current cell and job should match
+                expectJobCell(f, c);
+                // Until nulls are pushed
+                pushCtx(null, null);
+                try {
+                    // And then the current cell and job should be null
+                    expectJobCell(null, null);
+                } finally {
+                    // Until the context is popped
+                    popCtx()
+                }
+                // And then the pushed cell and job should be current again
+                expectJobCell(f, c);
+            } finally {
+                // Until the outer context is popped
+                popCtx()
+            }
+            // And then they should be undefined again.
+            expectJobCell();
+        });
+    });
+    describe("cellJob() creates a job for the cell", () => {
+        it("if cell and no job", () => {
+            const c = new Cell;
+            // Given a cell and no job on the context stack
+            pushCtx(undefined, c)
+            try {
+                expectJobCell(undefined, c);
+                // When cellJob() is called
+                const j = cellJob()
+                // Then it should return the cell.job
+                expect(j).to.equal(c.job)
+                //  And it should be a job object
+                expect(j).to.be.instanceOf(root.constructor)
+                // And it should also be the current job
+                expectJobCell(j, c)
+            } finally {
+                popCtx()
+            }
+        });
     })
-    it("Recycles to makeCtx()", () => {
-        const ctx = makeCtx();
-        freeCtx(ctx);
-        expect(makeCtx(), "Should be recycled").to.equal(ctx);
-    })
-});
+})

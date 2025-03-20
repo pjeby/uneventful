@@ -4,8 +4,7 @@ import {
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
-import { current } from "../src/ambient.ts";
-import { nullCtx } from "../src/internals.ts";
+import { currentCell, currentJob } from "../src/ambient.ts";
 import { defaultQ, demandChanges, unchangedIf } from "../src/cells.ts";
 
 function updateDemand() { demandChanges.flush(); }
@@ -115,7 +114,7 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42);
-            const c = root.connect(v, () => { log(current === nullCtx) });
+            const c = root.connect(v, () => { log(currentJob == null && currentCell == null) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
@@ -126,7 +125,7 @@ describe("Signal Constructors/Interfaces", () => {
             const v = value(false);
             // When it's waited for via until and then goes truthy
             for(const cb of v["uneventful.until"]()) {
-                cb(() => { log(!!current.cell); });
+                cb(() => { log(!!currentCell); });
             }
             v.set(true); runRules(); see();
             // Then the resolve should occur asynchronously without being in a rule
@@ -252,7 +251,7 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42), s = cached(() => v()*2);
-            const c = root.connect(s, () => { log(current === nullCtx) });
+            const c = root.connect(s, () => { log(!currentJob && !currentCell) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
@@ -507,7 +506,7 @@ describe("Dependency tracking", () => {
                 log(this === that);
                 log(a);
                 log(b);
-                log(!!current.cell);
+                log(isObserved());
                 return 42;
             });
             // When called w/args and a `this`
@@ -530,7 +529,7 @@ describe("Dependency tracking", () => {
                     log(this === that);
                     log(a);
                     log(b);
-                    log(!!current.cell);
+                    log(isObserved());
                     return 42;
                 }
             }

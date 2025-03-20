@@ -4,7 +4,7 @@
  * @module uneventful/signals
  */
 
-import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
+import { currentCell } from "./ambient.ts";
 import { PlainFunction, Yielding, AnyFunction, Job } from "./types.ts";
 import { Cell } from "./cells.ts";
 import { rule } from "./rules.ts";
@@ -254,9 +254,7 @@ export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T
  * @category Reactive Values
  */
 export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
-    if (!current.cell) return fn(...args);
-    const old = swapCtx(makeCtx(current.job));
-    try { return fn(...args); } finally { freeCtx(swapCtx(old)); }
+    return currentCell ? currentCell.peek(fn, null, args) : fn(...args);
 }
 
 /**
@@ -312,10 +310,8 @@ export function action<F extends AnyFunction, D extends {value?: F}>(
 
 export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx?: any, desc?: D): D | F {
     if (desc) return {...desc, value: action(desc.value)};
-    return <F> function (this: ThisParameterType<F>) {
-        if (!current.cell) return apply(fn, this, arguments);
-        const old = swapCtx(makeCtx(current.job));
-        try { return apply(fn, this, arguments); } finally { freeCtx(swapCtx(old)); }
+    return <F> function (this: ThisParameterType<F>, ...args) {
+        return currentCell ? currentCell.peek(fn, this, args) : apply(fn, this, args)
     }
 }
 

@@ -1,10 +1,9 @@
-import { Context, current, makeCtx, swapCtx } from "./ambient.ts";
+import { currentCell, popCtx, pushCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, arrayEq, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
-import { nullCtx } from "./internals.ts";
 import { defer } from "./defer.ts";
 import { Batch, batch } from "./scheduling.ts";
 import { action, peek, type Configurable } from "./signals.ts";
@@ -107,6 +106,7 @@ const enum Is {
     Observed = 1 << 0,  // Cell has subscribers or a rule queue
     Stopped  = 1 << 1,  // Stateful cell requested stop
     Compute  = 1 << 2,
+    Peeking  = 1 << 3,  // dependency should not be tracked
     Error    = 1 << 4,
     Running  = 1 << 5,
     Stateful = 1 << 6,  // Cell has state (e.g. job, stream) that depends on its observed-ness
@@ -209,7 +209,7 @@ export class Cell {
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
     flags = 0;
-    ctx: Context = undefined;
+    job: Job = undefined;
     /** The subscription being added during the current calculation - used for uniqueness */
     adding: Subscription = undefined;
     /** Linked list of sources */
@@ -229,8 +229,8 @@ export class Cell {
         Cell.mkRule(() => {
             const val = this.getValue();
             if (val !== lastValue) {
-                const old = swapCtx(nullCtx);
-                try { sink(lastValue = val); } finally { swapCtx(old); }
+                pushCtx();
+                try { sink(lastValue = val); } finally { popCtx(); }
             }
         }, inlet ? ruleQueue(backpressure(inlet)) : defaultQ);
         return IsStream;
@@ -238,9 +238,9 @@ export class Cell {
 
     getValue() {
         if (arguments.length) return apply(this.stream, this, arguments);
-        const dep = current.cell;
+        const dep = currentCell;
         // Only create a dependency if our value can change
-        if (dep && this.flags & Is.Variable) {
+        if (dep && this.flags & Is.Variable && (dep.flags & Is.Peeking) === 0) {
             if (this.flags & Is.Running) throw new CircularDependency("Cached function dependency cycle");
             // See if we've already got a subscription node for the dependent
             let s = this.adding;
@@ -272,7 +272,7 @@ export class Cell {
     }
 
     shouldWrite(changed: boolean) {
-        const cell = current.cell || currentRule;
+        const cell = currentCell || currentRule;
         if (cell) {
             // When a cell changes within a sweep (i.e. from an active rule or other
             // cell), we need to check if it's not a circular update or disallowed
@@ -316,7 +316,6 @@ export class Cell {
         if (this.shouldWrite(compute !== this.compute)) {
             this.flags |= Is.Compute;
             this.compute = compute;
-            this.ctx ||= makeCtx(null, this);
         }
     }
 
@@ -365,9 +364,9 @@ export class Cell {
     }
 
     doRecalc() {
-        const {ctx} = this, oldCtx = swapCtx(ctx);
+        pushCtx(this.job, this);
         if (this.flags & Is.Stateful) {
-            ctx.job?.restart();
+            this.job?.restart();
         }
         for(let sub = this.sources; sub; sub = sub.nS) {
             sub.ts = -1; // mark stale for possible reuse
@@ -397,13 +396,13 @@ export class Cell {
                 demandChanges.delete(this);
                 if (this.flags & (Is.Error|Is.Stopped)) {
                     this.flags &= ~Is.Stopped;
-                    ctx.job?.restart();
+                    this.job?.restart();
                 } else if (this.flags & Is.Observed) {
                 } else {
-                    ctx.job?.restart();
+                    this.job?.restart();
                 }
             }
-            swapCtx(oldCtx);
+            popCtx();
             // reset this.src to the head of the list, dropping stale subscriptions
             let head: Subscription;
             for(let sub = this.sources; sub; ) {
@@ -504,17 +503,20 @@ export class Cell {
     }
 
     isObserved() {
+        if (this.flags & Is.Peeking) return false;
         // intentional side effect: start state tracking
         return !!((this.flags|= Is.Stateful) & Is.Observed);
     }
 
     getJob() {
+        if (this.job) return this.job;
         this.flags |= Is.Stateful;
-        return this.ctx.job ||= makeJob(root, () => {
+        this.job = makeJob(root, () => {
             // Ditch the job on GC
-            this.ctx.job?.end();
-            this.ctx.job = undefined;
+            this.job?.end();
+            this.job = undefined;
         });
+        return this.job
     }
 
     updateDemand() {
@@ -526,14 +528,13 @@ export class Cell {
             this.shouldWrite(true);
         } else {
             // no demand: restart job if active
-            this.ctx.job?.restart();
+            this.job?.restart();
         }
     }
 
     static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stateful;
-        const ctx = makeCtx();
         const write = (v: T) => { cell.setValue(v, false);  };
         let job: Job<void>;
         monitors.set(cell, () => {
@@ -544,30 +545,38 @@ export class Cell {
                 return
             }
             if (job) return;
-            job = ctx.job = makeJob<void>(root).do(r => {
+            job = makeJob<void>(root).do(r => {
                 if (isError(r)) {
                     cell.setValue(markHandled(r), true);
                 } else {
                     cell.setValue(val, false);
                 }
-                ctx.job = job = undefined;
+                job = undefined;
             });
-            const old = swapCtx(ctx);
+            pushCtx(job);
             try {
                 src(write, job);
             } catch(e) {
                 job.end();
                 root.asyncThrow(e);
             } finally {
-                swapCtx(old);
+                popCtx();
             }
         });
         return cell;
     }
 
+    peek(fn: Function, thisArg: unknown, args: any[]) {
+        if (this.flags & Is.Peeking) return apply(fn, thisArg, args);
+        this.flags |= Is.Peeking;
+        try { return apply(fn, thisArg, args) } finally { this.flags &= ~Is.Peeking; }
+    }
+
     recalcWhen(src: RecalcSource): void;
     recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
     recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
+        // Don't track if peeking
+        if (this.flags & Is.Peeking) return;
         let trackers: WeakMap<WeakKey, () => number> = fn ?
             obtrackers.get(fn) || setMap(obtrackers, fn, new WeakMap) :
             fntrackers
@@ -585,7 +594,6 @@ export class Cell {
     static mkCached<T>(compute: () => T) {
         const cell = new Cell;
         cell.compute = compute;
-        cell.ctx = makeCtx(null, cell);
         cell.flags = Is.Compute;
         return cell;
     }
@@ -595,7 +603,7 @@ export class Cell {
             try {
                 cell.getJob() // ensure a job is active
                 const cleanup = fn();
-                if (cleanup) (cell.ctx.job || cell.getJob()).must(cleanup);
+                if (cleanup) (cell.job || cell.getJob()).must(cleanup);
                 cell.lastChanged = timestamp;
             } catch (e) {
                 cell.stop();
@@ -637,7 +645,7 @@ export class Cell {
  */
 
 export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
-    const {cell} = current;
+    const cell = currentCell;
     if (cell) {
         return (cell.flags & Is.Error || !equals(cell.value, newVal)) ? newVal : cell.value;
     } else {

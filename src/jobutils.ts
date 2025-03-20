@@ -1,4 +1,4 @@
-import { current, freeCtx, makeCtx, swapCtx } from "./ambient.ts";
+import { currentJob, popCtx, pushCtx } from "./ambient.ts";
 import { getJob, makeJob } from "./tracking.ts";
 import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
 import { apply } from "./utils.ts";
@@ -76,7 +76,7 @@ export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T
  *
  * @category Jobs
  */
-export function isJobActive() { return !!current.job; }
+export function isJobActive() { return !!currentJob; }
 
 
 const timers = new WeakMap<Job,
@@ -182,10 +182,10 @@ export function restarting<F extends AnyFunction>(task?: F): F {
     inner.asyncCatch(e => outer.asyncThrow(e));
     return <F>function(this: ThisParameterType<F>) {
         inner.restart().must(outer.release(end));
-        const old = swapCtx(makeCtx(inner));
+        pushCtx(inner);
         try { return apply(task, this, arguments); }
         catch(e) { inner.restart(); throw e; }
-        finally { freeCtx(swapCtx(old)); }
+        finally { popCtx(); }
     };
 }
 

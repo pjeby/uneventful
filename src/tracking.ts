@@ -1,5 +1,5 @@
-import { makeCtx, current, freeCtx, swapCtx } from "./ambient.ts";
-import { catchers, defaultCatch, nullCtx, owners } from "./internals.ts";
+import { pushCtx, popCtx, currentJob, currentCell, cellJob } from "./ambient.ts";
+import { catchers, defaultCatch, owners } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, StartFn, OptionalCleanup, JobIterator, RecalcSource, StartObj } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
@@ -17,13 +17,13 @@ import { isFunction } from "./utils.ts";
  * @category Jobs
  */
 export function getJob<T=unknown>() {
-    const job = current.job || current.cell?.getJob();
+    const job = currentJob || cellJob();
     if (job) return job as Job<T>;
     throw new Error("No job is currently active");
 }
 
 /** RecalcSource factory for jobs (so you can wait on a job result in a signal or rule) */
-function recalcJob(job: Job<any>): RecalcSource { return (cb => { current.job.must(job.release(cb)); }); }
+function recalcJob(job: Job<any>): RecalcSource { return (cb => { currentJob.must(job.release(cb)); }); }
 
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
     while (qlen(cbs)) try { pop(cbs)(res); } catch (e) { detached.asyncThrow(e); }
@@ -65,7 +65,7 @@ class _Job<T> implements Job<T> {
     result(): JobResult<T> | undefined {
         // If we're done, we're done; otherwise make signals/rules reading this
         // recalc when we're done (handy for rendering "loading" states).
-        return this._done || current.cell?.recalcWhen(this, recalcJob) || undefined;
+        return this._done || currentCell?.recalcWhen(this, recalcJob) || undefined;
     }
 
     get [Symbol.toStringTag]() { return "Job"; }
@@ -76,7 +76,7 @@ class _Job<T> implements Job<T> {
         // re-throw; otherwise, if there aren't any callbacks we're done here
         if (!cbs && !isUnhandled(res)) return;
 
-        const ct = inProcess.size, old = swapCtx(nullCtx);;
+        const ct = inProcess.size; pushCtx();
         // Put a placeholder on the queue if it's empty
         if (!ct) inProcess.add(null);
 
@@ -88,7 +88,7 @@ class _Job<T> implements Job<T> {
         inProcess.add(this);
 
         // if the queue wasn't empty, there's a loop above us that will run our must/do()s
-        if (ct) { swapCtx(old); return; }
+        if (ct) { popCtx(); return; }
 
         // don't need the placeholder any more
         inProcess.delete(null);
@@ -99,7 +99,7 @@ class _Job<T> implements Job<T> {
             inProcess.delete(item);
             if (isUnhandled(item._done)) item.throw(markHandled(item._done));
         }
-        swapCtx(old);
+        popCtx();
     }
 
     restart() {
@@ -221,15 +221,15 @@ class _Job<T> implements Job<T> {
     protected constructor() {};
 
     run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
-        const old = swapCtx(makeCtx(this));
-        try { return fn(...args); } finally { freeCtx(swapCtx(old)); }
+        pushCtx(this);
+        try { return fn(...args); } finally { popCtx(); }
     }
 
     bind<F extends (...args: any[]) => any>(fn: F): F {
         const job = this;
         return <F> function (this: any) {
-            const old = swapCtx(makeCtx(job));
-            try { return apply(fn, this, arguments); } finally { freeCtx(swapCtx(old)); }
+            pushCtx(job);
+            try { return apply(fn, this, arguments); } finally { popCtx(); }
         }
     }
 
@@ -423,8 +423,8 @@ export function newRoot(): Job<unknown> {
 }
 
 function runGen<R>(g: Yielding<R>, job: Job<R>) {
-    let it = g[Symbol.iterator](), running = true, ctx = makeCtx(job), ct = 0;
-    let done = ctx.job.release(() => {
+    let it = g[Symbol.iterator](), running = true, j = job, ct = 0;
+    let done = job.release(() => {
         job = undefined;
         ++ct; // disable any outstanding request(s)
         // XXX this should be deferred to cleanup phase, or must() instead of release
@@ -440,7 +440,7 @@ function runGen<R>(g: Yielding<R>, job: Job<R>) {
         if (running) {
             return defer(step.bind(null, method, arg));
         }
-        const old = swapCtx(ctx);
+        pushCtx(j);
         try {
             running = true;
             try {
@@ -468,14 +468,14 @@ function runGen<R>(g: Yielding<R>, job: Job<R>) {
                 }
             } catch(e) {
                 it = job = undefined;
-                ctx.job.throw(e);
+                j.throw(e);
             }
             // Iteration is finished; disconnect from job
             it = undefined;
             done?.();
             done = undefined;
         } finally {
-            swapCtx(old);
+            popCtx();
             running = false;
         }
     }

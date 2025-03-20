@@ -56,7 +56,7 @@ import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
 import { detached, isCancel, makeJob } from "../src/mod.ts";
-import { current } from "../src/ambient.ts";
+import { popCtx, pushCtx } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
 import { pulls } from "../src/internals.ts";
@@ -67,8 +67,8 @@ export const runPulls = pulls.flush;
 /** Arrange for each test in the current suite to be wrapped in a root job */
 export function useRoot() {
     var f = makeJob();
-    beforeEach(() => { current.job = f; log.clear(); });
-    afterEach(() => { f.restart(); current.job = null; log.clear(); });
+    beforeEach(() => { pushCtx(f); log.clear(); });
+    afterEach(() => { f.restart(); popCtx(); log.clear(); });
 }
 
 // Log all unhandled job errors as `Uncaught: X`

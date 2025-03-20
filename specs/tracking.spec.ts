@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
-import { current, freeCtx, makeCtx, swapCtx } from "../src/ambient.ts";
+import { currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
 import {
     CleanupFn, Job, JobResult, Suspend, detached, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
     must, nativePromise, newRoot, noop, restarting, root, start
@@ -269,8 +269,8 @@ describe("Job API", () => {
     });
     describe("calls methods on the active job", () => {
         var t1: Job, cb = spy();
-        beforeEach(() => { t1 = makeJob(); cb = spy(); current.job = t1; });
-        afterEach(() => { current.job = undefined; });
+        beforeEach(() => { t1 = makeJob(); cb = spy(); pushCtx(t1); });
+        afterEach(() => { popCtx(); });
         it("must()", () => {
             const m = spy(t1, "must");
             must(cb);
@@ -346,9 +346,9 @@ describe("Job instances", () => {
         });
         it("runs callbacks without an active job or cell", () => {
             let hasJobOrCell: boolean = undefined;
-            f.must(() => hasJobOrCell = !!(current.job || current.cell));
-            const old = swapCtx(makeCtx(f, {} as Cell));
-            try { f.end(); } finally { freeCtx(swapCtx(old)); }
+            f.must(() => hasJobOrCell = !!(currentJob || currentCell));
+            pushCtx(f, {} as Cell);
+            try { f.end(); } finally { popCtx(); }
             expect(hasJobOrCell).to.equal(false);
         });
         it("sends errors to the detached job", () => {

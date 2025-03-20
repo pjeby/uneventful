@@ -1,5 +1,9 @@
 # Changelog
 
+### 0.0.11 (Unreleased)
+
+- Refactored internal context management to use less memory (and fewer objects) per signal, and to reduce the amount of pointer indirection on some common code paths.
+
 ### 0.0.10
 
 `uneventful`
