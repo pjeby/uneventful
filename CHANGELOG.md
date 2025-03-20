@@ -1,3 +1,6 @@
+---
+title: Changelog
+---
 # Changelog
 
 ### 0.0.11 (Unreleased)
@@ -10,18 +13,18 @@
   - Added `root` job to replace `detached` (which is now deprecated).  Creating root-based rather than detached jobs means there is a single point from which all resources can be cleaned up.
 
 `uneventful/shared` (NEW)
-  - `service()`: wrap a factory function to create a singleton service accessor
-  - `fork()`: wrap a generator, generator function, or generator method to run in parallel, and have a result that can be waited on in parallel as well
-  - `expiring()`: proxy an object so it cannot be accessed after the calling job ends
+  - {@link uneventful/shared.service `service()`}: wrap a factory function to create a singleton service accessor
+  - {@link uneventful/shared.fork `fork()`}: wrap a generator, generator function, or generator method to run in parallel, and have a result that can be waited on in parallel as well
+  - {@link uneventful/shared.expiring `expiring()`}: proxy an object so it cannot be accessed after the calling job ends
 
 `uneventful/signals`
-  - Added `rule.root` to replace `rule.detached` (which is now deprecated)
+  - Added {@link uneventful/signals.rule.root `rule.root`} to replace `rule.detached` (which is now deprecated)
   - Added `.edit()` method to writable signals (to patch the existing value using a function)
-  - Fixed code inside a `peek()` or `action()` not being able to access the job of the enclosing rule, if it hadn't already been used
+  - Fixed code inside a {@link uneventful/signals.peek `peek()`} or {@link uneventful/signals.action `action()`} not being able to access the job of the enclosing rule, if it hadn't already been used
 
 `uneventful/utils`
-  - Added `decorateMethod()`: a helper for creating hybrid (TC39/legacy) decorator/function wrappers
-  - Added `isGeneratorFunction()` to check for native generator function
+  - Added {@link uneventful/utils.decorateMethod `decorateMethod()`}: a helper for creating hybrid (TC39/legacy) decorator/function wrappers
+  - Added {@link uneventful/utils.isGeneratorFunction `isGeneratorFunction()`} to check for native generator function
 
 ### 0.0.9
 

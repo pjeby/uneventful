@@ -11,7 +11,9 @@ module.exports = {
         "./src/utils.ts",
     ],
     name: "Uneventful",
+    router: "structure",
     customCss: ["./typedoc/custom.css"],
+    customJs: ["./typedoc/custom.js"],
     categorizeByGroup: false,
     categoryOrder: [
         "Jobs",
@@ -28,24 +30,17 @@ module.exports = {
         "Errors",
         "Other",
     ],
-    plugin: ["@knodes/typedoc-plugin-pages"],
-    pluginPages: {
-        "source": "guides",
-        "pages": [
-            {name: "Changelog", source: "./CHANGELOG.md"}
-        ]
-    },
     hideGenerator: true,
     excludeInternal: true,
     excludePrivate: true,
     excludeProtected: true,
     excludeReferences: true,
-    hideParameterTypesInTitle: false,
+    useFirstParagraphOfCommentAsSummary: true,
     navigation: {
         includeCategories: true,
         includeFolders: false,
     },
-    options: "package.json", // workaround for https://github.com/KnodesCommunity/typedoc-plugins/issues/525
+    projectDocuments: ["CHANGELOG.md"],
     sort: [
         "alphabetical"
     ],

@@ -2,6 +2,7 @@
  * Invoke a no-argument function as a microtask, using queueMicrotask or Promise.resolve().then()
  *
  * @category Scheduling
+ * @function
  */
 export let defer: (cb: () => any) => void =
     typeof queueMicrotask === "function" ?

@@ -67,12 +67,12 @@ function supportDragDrop(parentNode: HTMLElement) {
     return start(function*(job) {
         const mouseDown = fromDomEvent(parentNode, "mousedown");
         for (const {item: event, next} of yield *each(mouseDown)) {
-            if (event.target.matches(".drag-handle") {
+            if (event.target.matches(".drag-handle")) {
                 const dropTarget = yield *drag(event.target.closest(".draggable"));
                 // do something with the dropTarget here
             }
             yield next;  // wait for next mousedown
-        });
+        }
     });
 }
 ```

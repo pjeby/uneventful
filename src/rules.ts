@@ -258,6 +258,7 @@ const factories = new WeakMap<Function, RuleFactory>();
  * @returns A function that can be called to terminate the rule.
  *
  * @category Reactive Behaviors
+ * @function
  */
 export const rule: ((fn: () => OptionalCleanup) => DisposeFn) & RuleFactory = (
     RF.prototype.factory(defer)

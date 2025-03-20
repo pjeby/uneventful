@@ -322,6 +322,7 @@ export function nativePromise<T>(job: Job<T>): Promise<T> {
  * a detached (parentless) job otherwise.
  *
  * @category Jobs
+ * @function
  */
 export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.create;
 

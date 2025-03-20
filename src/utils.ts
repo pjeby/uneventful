@@ -49,6 +49,7 @@ export function decorateMethod<F extends AnyFunction, D extends { value?: F; }>(
  * Shorthand for Array.isArray()
  *
  * @category Data Structures
+ * @function
  */
 export const isArray = Array.isArray;
 
@@ -116,6 +117,7 @@ export function isFunction(f: any): f is Function {
  * constructor will result in an error or some other unhelpful result.)
  *
  * @category Functions and Decorators
+ * @class
  */
 export const CallableObject: new <T extends AnyFunction>(fn: T) => T = /* @__PURE__ */ (() => {
     function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.target.prototype); }
@@ -131,6 +133,7 @@ export { batch, type Batch } from "./scheduling.ts";
  * elements of given array as the arguments.  (Shorthand for Reflect.apply)
  *
  * @category Functions and Decorators
+ * @function
  */
 export const apply = Reflect.apply;
 
@@ -139,6 +142,7 @@ export const apply = Reflect.apply;
  * useful for testing whether something is `instanceof Generator`.
  *
  * @category Data Structures
+ * @class
  */
 export const GeneratorBase = /* @__PURE__ */ (() => {
     function G() {}; G.prototype = (function *(){}).constructor.prototype.prototype;
