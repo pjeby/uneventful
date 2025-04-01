@@ -19,6 +19,10 @@ div.tsd-accordion-details>ul.tsd-nested-navigation:not(
     margin-left: 1.5rem;
 }
 
+/* Need more space above signature description and between signatures */
+div.tsd-signature + div.tsd-description { margin-top: 1em; }
+ul.tsd-signatures > li { margin-bottom: 2.5em; }
+
 /* Readable text width, except for code blocks */
 .col-content { max-width: 45em; }
 .col-content .tsd-panel > pre { max-width: unset; }

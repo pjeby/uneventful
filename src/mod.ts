@@ -5,8 +5,7 @@
  * nothing if the signals framework isn't in use, and won't cause it to be
  * imported).
  *
- * For the rest of the signals API, see the
- * [uneventful/signals](uneventful_signals.html) export.
+ * For the rest of the signals API, see the {@link uneventful/signals} export.
  *
  * @module uneventful
  */

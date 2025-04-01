@@ -68,6 +68,15 @@ const monitors = new WeakMap<Cell, ()=>void>();
 /** Cells whose demand has changed and need to start/stop jobs, etc. */
 export const demandChanges = batch<Cell>(q => { for(const cell of q) cell.updateDemand(); });
 
+// XXX the demand changes queue should only run when there are no pending rules,
+// because they might reinstate or drop demand, creating job thrash.  Currently,
+// we run all pending rules in a batch, so rules created by other rules should
+// run before the demand queue has a chance to do anything.  But if we later add
+// things like time/length limits to running the rule queues, we need a way to
+// ensure the demand changes aren't run early.  (e.g. only running it after a
+// rule queue is emptied, or blocking it from running while new rules are
+// pending.)
+
 const dirtyStack: Cell[] = [];
 
 function markDependentsDirty(cell: Cell) {

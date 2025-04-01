@@ -117,7 +117,6 @@ export function isFunction(f: any): f is Function {
  * constructor will result in an error or some other unhelpful result.)
  *
  * @category Functions and Decorators
- * @class
  */
 export const CallableObject: new <T extends AnyFunction>(fn: T) => T = /* @__PURE__ */ (() => {
     function CallableObject<T>(fn: T) { return Object.setPrototypeOf(fn, new.target.prototype); }
