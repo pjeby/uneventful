@@ -6,6 +6,7 @@ title: Changelog
 ### 0.0.11 (Unreleased)
 
 - Refactored internal context management to use less memory (and fewer objects) per signal, and to reduce the amount of pointer indirection on some common code paths.
+- Fixed an issue where signals polling external data using {@link uneventful.recalcWhen}() could become stale unless observed by a rule.
 
 ### 0.0.10
 

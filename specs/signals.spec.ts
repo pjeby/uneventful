@@ -5,7 +5,7 @@ import {
 import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
 import { currentCell, currentJob } from "../src/ambient.ts";
-import { defaultQ, demandChanges, unchangedIf } from "../src/cells.ts";
+import { defaultQ, demandChanges, unchangedIf, staleStreams } from "../src/cells.ts";
 
 function updateDemand() { demandChanges.flush(); }
 
@@ -639,6 +639,19 @@ describe("Dependency tracking", () => {
             updateDemand(); see("sub", "unsub", "Uncaught: boom");
             runRules(); see();
             end(); see();
+        });
+        it("doesn't suppress recalc if not subscribed", () => {
+            // Given a cached fn with a recalcWhen dependency
+            let c = 0, emit = mockSource();
+            const ctr = (() => ++c), f = cached(() => {
+                recalcWhen(emit.source)
+                return ctr()
+            })
+            // When called twice in a row without subscription (but a tick in between)
+            expect(f()).to.equal(1)
+            staleStreams.flush()
+            // Then it should recalculate
+            expect(f()).to.equal(2)
         });
     });
 });

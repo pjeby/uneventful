@@ -65,6 +65,12 @@ const obtrackers = new WeakMap<Function, WeakMap<WeakKey, () => number>>();
 /** stream controllers for stream+recalcWhen signals */
 const monitors = new WeakMap<Cell, ()=>void>();
 
+/** bump the clock after reading a stream that's not subscribed */
+export const staleStreams = batch<Cell>(q => {
+    for(const cell of q) if (!cell.subscribers) { ++timestamp; break; }
+    q.clear();
+})
+
 /** Cells whose demand has changed and need to start/stop jobs, etc. */
 export const demandChanges = batch<Cell>(q => { for(const cell of q) cell.updateDemand(); });
 
@@ -121,6 +127,7 @@ const enum Is {
     Stateful = 1 << 6,  // Cell has state (e.g. job, stream) that depends on its observed-ness
     Mutable  = 1 << 7,
     Variable = Compute | Mutable,
+    Stream   = 1 << 8,  // Cell is wrapping a stream
 }
 
 type Subscription = {
@@ -340,7 +347,16 @@ export class Cell {
         const {validThrough} = this;
         if (validThrough === timestamp) return;
         this.validThrough = timestamp;
-        if (!(this.flags & Is.Compute)) return;
+        if (!(this.flags & Is.Compute)) {
+            if (this.flags & Is.Stream && !this.subscribers) {
+                // A stream without subscribers should be treated as freshly
+                // updated so signals that poll external values will be rerun
+                // when queried after the current microtask
+                this.lastChanged = timestamp;
+                staleStreams.add(this);
+            }
+            return;
+        }
         if (this.sources) {
             for(let sub=this.sources; sub; sub = sub.nS) {
                 const s = sub.src;
@@ -543,7 +559,7 @@ export class Cell {
 
     static mkStream<T>(src: Source<T>, val?: T) {
         const cell = this.mkValue(val);
-        cell.flags |= Is.Stateful;
+        cell.flags |= Is.Stateful | Is.Stream;
         const write = (v: T) => { cell.setValue(v, false);  };
         let job: Job<void>;
         monitors.set(cell, () => {
