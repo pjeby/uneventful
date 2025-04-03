@@ -77,14 +77,14 @@ export function qlen(c: Chain<any>  | null | undefined) { return c ? c.v : 0; }
  *
  * @category Chains
  */
-export function pop<T>(c: Chain<T>) { if (qlen(c)) return unlink(c, c.p); }
+export function pop<T>(c: Chain<T>): T|undefined { return qlen(c) ? unlink(c, c.p) : undefined; }
 
 /**
  * Remove a value from the front of the chain, returning it
  *
  * @category Chains
  */
-export function shift<T>(c: Chain<T>) { if (qlen(c)) return unlink(c, c.n); }
+export function shift<T>(c: Chain<T>): T|undefined { return qlen(c) ? unlink(c, c.n) : undefined; }
 
 /** A node in a chain */
 class Node<T, V=T, U=DisposeFn> {

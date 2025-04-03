@@ -26,7 +26,8 @@ export function getJob<T=unknown>() {
 function recalcJob(job: Job<any>): RecalcSource { return (cb => { currentJob.must(job.release(cb)); }); }
 
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
-    while (qlen(cbs)) try { pop(cbs)(res); } catch (e) { detached.asyncThrow(e); }
+    let cb: CleanupFn<T>;
+    while (cb = pop(cbs)) try { cb(res); } catch (e) { _detached.asyncThrow(e); }
     cbs && recycle(cbs);
     return undefined;
 }

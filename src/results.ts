@@ -193,9 +193,11 @@ export function markHandled(res: ErrorResult): any {
  * @category Jobs
  */
 export function getResult<T>(res: JobResult<T>): T {
-    if (isValue(res)) return res.val;
-    res.op; // throw if not defined
-    fulfillPromise(noop, e => { throw e; }, res);
+    if (!isValue(res)) {
+        res.op; // throw if not defined
+        fulfillPromise(noop, e => { throw e; }, res);
+    }
+    return res.val;
 }
 
 /**

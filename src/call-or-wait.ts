@@ -8,7 +8,8 @@ export function callOrWait<T>(
     source: any, method: string, handler: (job: Job<T>, val: T) => void, noArgs: (f?: any) => Yielding<T> | void
 ) {
     if (source && isFunction(source[method])) return source[method]() as Yielding<T>;
-    if (isFunction(source)) return (
+    if (!isFunction(source)) mustBeSourceOrSignal();
+    return (
         source.length === 0 ? noArgs(source) : false
     ) || start<T>(job => {
         connect(source as Source<T>, v => handler(job, v)).do(r => {
@@ -16,7 +17,6 @@ export function callOrWait<T>(
             else if (isError(r)) job.throw(markHandled(r));
         });
     });
-    mustBeSourceOrSignal();
 }
 
 export function mustBeSourceOrSignal() { throw new TypeError("not a source or signal"); }

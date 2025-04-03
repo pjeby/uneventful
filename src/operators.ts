@@ -220,9 +220,9 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
         const buffer: T[] = [], ready = backpressure(inlet);
         let paused = false, draining = false;
         const t = throttle();
-        conn.connect(src, v => {
+        conn.connect(src, (v): void => {
             buffer.push(v);
-            if (!draining && ready()) return drain();
+            if (!draining && ready()) return void drain();
             while (buffer.length > max) { dropped((size < 0) ? buffer.pop() : buffer.shift()); }
             if (buffer.length === max) { t.pause(); paused = true; }
             if (buffer.length) ready(drain);
@@ -245,6 +245,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
             } finally {
                 draining = false;
             }
+            return false;
         }
         return IsStream;
     }
