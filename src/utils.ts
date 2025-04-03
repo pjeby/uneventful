@@ -137,6 +137,21 @@ export { batch, type Batch } from "./scheduling.ts";
 export const apply = Reflect.apply;
 
 /**
+ * Like `fn.call(thisArg, ...args)`, but monomorphic, and the `thisArg`
+ * parameter can be omitted or null.
+ *
+ * This is mostly useful as syntax sugar for an immediately-evaluated function
+ * expression, replacing `(() => {...})()` with `call(() => {...})`.
+ *
+ * @category Functions and Decorators
+ */
+export function call<F extends AnyFunction>(
+    fn: F, thisArg?: ThisParameterType<F>, ...args: Parameters<F>
+): ReturnType<F> {
+    return thisArg ? apply(fn, thisArg, args) : (args.length ? fn(...args) : fn());
+}
+
+/**
  * A pseudo-constructor for the abstract ancestor type of all generators,
  * useful for testing whether something is `instanceof Generator`.
  *

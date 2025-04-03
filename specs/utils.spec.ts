@@ -1,5 +1,5 @@
 import { describe, expect, it, log, see } from "./dev_deps.ts";
-import { GeneratorBase, arrayEq, decorateMethod, isGeneratorFunction } from "../src/utils.ts";
+import { GeneratorBase, arrayEq, call, decorateMethod, isGeneratorFunction } from "../src/utils.ts";
 
 describe("Utilities", () => {
     describe("arrayEq()", () => {
@@ -18,6 +18,31 @@ describe("Utilities", () => {
             expect(arrayEq([1, 2], [1])).to.be.false;
             expect(arrayEq([1, 2], [1, 3])).to.be.false;
             expect(arrayEq(1, 2)).to.be.false;
+        });
+    });
+    describe("call() calls a function with", () => {
+        "use strict"; // ensure no this
+        const someThis = {}
+        function logCall(this: any, ...args: any[]) {
+            expect(this === undefined || this === someThis, "Unexpected `this`").to.be.true;
+            log(this === someThis)
+            log(JSON.stringify(args));
+        }
+        it("no this and no args", () => {
+            call(logCall);            see("false", "[]")
+            call(logCall, null);      see("false", "[]")
+            call(logCall, undefined); see("false", "[]")
+        });
+        it("no this and args", () => {
+            call(logCall, null, 22);      see("false", "[22]");
+            call(logCall, null, 33, 156); see("false", "[33,156]");
+        });
+        it("this and no args", () => {
+            call(logCall, someThis); see("true", "[]")
+        });
+        it("this and args", () => {
+            call(logCall, someThis, 22);      see("true", "[22]");
+            call(logCall, someThis, 33, 156); see("true", "[33,156]");
         });
     });
     describe("GeneratorBase", () => {
