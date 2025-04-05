@@ -536,12 +536,7 @@ export class Cell {
     getJob() {
         if (this.job) return this.job;
         this.flags |= Is.Stateful;
-        this.job = makeJob(root, () => {
-            // Ditch the job on GC
-            this.job?.end();
-            this.job = undefined;
-        });
-        return this.job
+        return this.job = makeJob()
     }
 
     updateDemand() {
@@ -626,16 +621,15 @@ export class Cell {
     static mkRule(fn: () => OptionalCleanup, q: RuleQueue) {
         const outer = getJob(), cell = Cell.mkCached(() => {
             try {
-                cell.getJob() // ensure a job is active
                 const cleanup = fn();
                 if (cleanup) (cell.job || cell.getJob()).must(cleanup);
-                cell.lastChanged = timestamp;
             } catch (e) {
                 cell.stop();
                 throw e;
             }
         }), stop = cell.stop.bind(cell);
         outer === detached || ruleStops.set(cell, outer.release(stop));
+        cell.flags |= Is.Stateful
         cell.setQ(q);
         return stop;
     }
