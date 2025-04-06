@@ -6,6 +6,7 @@ if (OS==="Windows_NT" && TYPEDOC_GIT_DIR !== undefined) process.env.PATH=`${TYPE
 module.exports = {
     entryPoints: [
         "./src/mod.ts",
+        "./src/ext.ts",
         "./src/shared.ts",
         "./src/signals.ts",
         "./src/utils.ts",

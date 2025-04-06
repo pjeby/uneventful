@@ -8,6 +8,9 @@ title: Changelog
 `uneventful`
 - Refactored internal context management to use less memory (and fewer objects) per signal, and to reduce the amount of pointer indirection on some common code paths.
 
+`uneventful/ext` (NEW)
+- New module for easily adding on-the-fly extension properties and methods to arbitrary objects, inspired by the [Python AddOns package](https://pypi.org/project/AddOns/).
+
 `uneventful/signals`
 - Fixed an issue where signals polling external data using {@link uneventful.recalcWhen}() could become stale unless observed by a rule.
 
