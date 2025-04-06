@@ -1,6 +1,6 @@
 {
     "name": "uneventful",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "description": "Declarative, event-driven reactivity: signals, streams, structured concurrency, and easy resource cleanup",
     "keywords": [
         "signals",
@@ -56,8 +56,9 @@
         "docs": "typedoc",
         "watch": "mocha -r tsx --watch",
         "watch-docs": "typedoc --watch",
+        "watch-prep": "pkgroll --watch",
         "test": "mocha -r tsx && pkgroll",
-        "prepare": "pkgroll --sourcemap --clean-dist"
+        "prepare": "pkgroll --clean-dist"
     },
     "mocha": {
         "spec": "specs/*.spec.ts",
@@ -70,6 +71,7 @@
     },
     "ts-node": {
         "esm": true,
+        "transpileOnly": true,
         "experimentalSpecifierResolution": "node"
     },
     "packageManager": "pnpm@7.33.6",

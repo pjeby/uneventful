@@ -258,6 +258,9 @@ describe("Signal Constructors/Interfaces", () => {
             see("true"); c.end();
         });
         describe("Job support", () => {
+            // Isolate each test's errors
+            beforeEach(() => { updateDemand(); runRules(); log.clear(); });
+
             it("works like an on-demand rule", () => {
                 // Given a cached that does job functions
                 const c = cached(() => { log("do"); must(msg("undo")); });

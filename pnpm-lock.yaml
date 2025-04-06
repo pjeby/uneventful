@@ -488,10 +488,6 @@ packages:
     dev: true
     optional: true
 
-  /@fabiospampinato/tiny-diff/2.0.0:
-    resolution: {integrity: sha512-rR9RrTngbAS8/z1xF+cSYe5xlthCsgmIxSXbIXtpLbO/Rw+IQryAklKFYdbntc3WywBeNzQ6BgGBxkWx/7S0jw==}
-    dev: true
-
   /@gerrit0/mini-shiki/3.2.1:
     resolution: {integrity: sha512-HbzRC6MKB6U8kQhczz0APKPIzFHTrcqhaC7es2EXInq1SpjPVnpVSIsBe6hNoLWqqCx1n5VKiPXq6PfXnHZKOQ==}
     dependencies:

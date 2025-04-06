@@ -190,7 +190,7 @@ describe("start(action)", () => {
                 try {
                     root.start(v);
                 } catch(e) {
-                    expect(e.message).to.equal("Invalid value/return for start()");
+                    expect((e as any).message).to.equal("Invalid value/return for start()");
                     continue;
                 }
                 log(`Should have thrown for ${item}, ${v}`);
