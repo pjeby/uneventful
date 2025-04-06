@@ -13,6 +13,7 @@ title: Changelog
 
 `uneventful/signals`
 - Fixed an issue where signals polling external data using {@link uneventful.recalcWhen}() could become stale unless observed by a rule.
+- Reduced thrashing behavior of signals w/no deps that are executed purely for job side-effects. Previously, they would rollback and re-run every time they were called, but now they only roll back if they cease being observed.  (And if called when unobserved, they will only start+rollback the first time they end up with no dependencies.)  In terms of end results, the behavior is still the same: i.e., the signal job will end up active or rolled back during the same general periods, this just gets rid of temporary flip-flopping when the signal doesn't depend on any other signals.
 
 `uneventful/utils`
 - Added {@link uneventful/utils.call `call()`} function as an IIFE replacement utility

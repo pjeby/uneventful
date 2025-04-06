@@ -278,6 +278,35 @@ describe("Signal Constructors/Interfaces", () => {
                 see(); runRules(); see("do");
                 r2(); updateDemand(); see("undo");
             });
+
+            it("doesn't recalc with no sources, even if timestamp changes", () => {
+                // Given a value, and a cached that does job functions w/no deps
+                const v = value(42), c = cached(() => { log("do"); must(msg("undo")); })
+                // When called while unobserved
+                // Then it initially runs and then rolls back
+                v.value++; c(); see("do", "undo")
+                // But then stops re-running, since it "knows" it will just run/rollback again
+                v.value++; c(); see()
+                v.value++; c(); see()
+                // And When it's tracked by a rule
+                const r1 = rule(() => void c()); runRules(); updateDemand()
+                // Then it will run once
+                see(); runRules(); see("do")
+                // And keep its job active, even if called again
+                v.value++; c(); see()
+                v.value++; c(); see()
+                // Until the demand goes away, when it will roll back
+                r1(); updateDemand(); see("undo")
+                // And then refuse once more to update
+                v.value++; c(); see()
+                v.value++; c(); see()
+                // Until it is observed again
+                const r2 = rule(() => void c()); runRules(); updateDemand();
+                see(); c(); see("do");
+                v.value++; c(); see()
+                r2(); updateDemand(); see("undo");
+            })
+
             it("doesn't roll back during temporary demand dips", () => {
                 // Given an observed cached that does job functions
                 const c = cached(() => { log("do"); must(msg("undo")); });
@@ -295,7 +324,8 @@ describe("Signal Constructors/Interfaces", () => {
                 updateDemand(); see()
                 // Until all subscriptions are ended
                 r2(); updateDemand(); see("undo");
-            });
+            })
+
             it("rolls back on error", () => {
                 // Given a job-using signal that throws
                 const c = cached(() => {

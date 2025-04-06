@@ -219,6 +219,9 @@ function toggleDemand(c: Cell) {
     }
 }
 
+/** Stateful cells with no sources depend on this to avoid spurious recalc when unobserved  */
+let dummySource: Cell
+
 export class Cell {
     value: any = undefined // the value
     validThrough = 0; // timestamp of most recent validation or recalculation
@@ -444,9 +447,15 @@ export class Cell {
 
     becomeConstant() {
         // Not safe if running, and running cells will do this on exit anyway.
+        if (this.flags & Is.Running) return
+
         // And if we're stateful, we can change by being observed/unobserved, so
-        // aren't really constant.
-        if (this.flags & (Is.Running | Is.Stateful)) return;
+        // we aren't really constant: attach a fake source so we'll avoid
+        // recalculating until we're observed again.
+        if (this.flags & Is.Stateful) {
+            mksub(dummySource ||= Cell.mkValue(null), this)
+            return
+        }
 
         this.flags &= ~Is.Compute;
 
