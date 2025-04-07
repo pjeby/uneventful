@@ -3,6 +3,11 @@ title: Changelog
 ---
 # Changelog
 
+### 0.0.12 (Unreleased)
+
+`uneventful/ext`
+- {@link uneventful/ext.Ext `Ext`}: refactored how instance construction works to eliminate some typing pitfalls and simplify overriding `__new__`
+
 ### 0.0.11
 
 `uneventful`

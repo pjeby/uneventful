@@ -124,18 +124,12 @@ export namespace Ext {
     /**
      * Get the type of extension that will be returned by the static API.
      *
-     * Defaults to the subclass instance type, but can be overridden by `declare
-     * readonly __type__: OtherType` in a subclass, so long as the
-     * {@link Ext.__new__ `__new__()`} method is also overridden to return that
-     * type.
+     * Defaults to the subclass instance type, but can be changed by overriding
+     * {@link Ext.__new__ `__new__()`} to return a different type.
      */
-    export type Type<T extends Ext.Class> = InstanceType<T> extends {__type__: infer R}
+    export type Type<T extends Ext.Class> = InstanceType<T> extends {__new__(ob: any): infer R}
         ? (unknown extends R ? InstanceType<T> : R)  // default to InstanceType if unknown
         : InstanceType<T>
-
-
-    /** The type of weakmap passed to {@link Ext.__new__ `__new__()`} */
-    export type Map<Class extends Ext.Class> = WeakMap<Ext.Target<Class>, any>
 
     /**
      * The type constraint for static generics in the API; you probably won't use this directly.
@@ -183,29 +177,13 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
     readonly of: Target
 
     /**
-     * A "virtual" property you can override in subclasses to change the static
-     * interface's return type.  For example, if a subclass does `declare readonly __type__:
-     * Promise<this>`, and overrides `__new__`() to return a promise, then the
-     * static APIs for the subclass (like `.for()`) will return promises instead
-     * of instances. (See the {@link __new__ `__new__`} method for more
-     * details.)
+     * @deprecated Use `.for()` or `prototype.__inst__()` instead!
      *
-     * Note: this property is not actually set by any code, so you can't do anything
-     * other than declare it.  It's just a hack to work around TypeScript's limited
-     * type parameterization for static generics.
-     *
-     * @category Lifecycle Hooks
-     */
-    declare readonly __type__: unknown
-
-    /**
-     * @deprecated Use .for() instead!
-     *
-     * Never directly call the constructor of an Ext subclass except from the
-     * {@link __new__ `__new__()`} method - otherwise you run the risk of having
-     * multiple instances for the same target.  (And it may accept invalid
-     * parameter values if you've redefined the type of the {@link Ext.of `of`}
-     * property in a sub-subclass.)
+     * Never directly call the constructor of an Ext subclass.  If you're
+     * creating an instance in {@link __new__ `__new__()`}, use the
+     * {@link __inst__ `__inst__()`} method instead.  Otherwise,
+     * you should use the .for or .get methods, as they are properly typed
+     * and won't create multiple instances for the same target.
      */
     constructor(of: Target) {
         this.of = of;
@@ -217,7 +195,7 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
      */
     static for<Class extends Ext.Class>(this: Class, tgt: Ext.Target<Class>): Ext.Type<Class> {
         const map = classMap(this)
-        return map.get(tgt) ?? (this.__new__(tgt, map), map.get(tgt));
+        return map.get(tgt) ?? setMap(map, tgt, this.prototype.__new__(tgt) as Ext.Type<Class>);
     }
 
     /**
@@ -259,21 +237,15 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
      * behavior, e.g. to execute the constructor within a job, or create a
      * promise for an extension instance to be asynchronously initiaized, etc.
      *
-     * If you will be creating something other than an instance of the subclass,
-     * you must also redeclare the type of the {@link __type__ `__type__`}
-     * property.  For example:
+     * For example:
      *
      * ```ts
-     * class AsyncExt extends Ext {
-     *     declare readonly __type__: Job<this>
-     *
+     * class AsyncExt extends Ext<SomeType> {
      *     // simulate slow initialization
      *     *setup() { yield *sleep(100); return this; }
      *
-     *     static __new__<Class extends typeof AsyncExt>(
-     *         tgt: Ext.Target<Class>, map: Ext.Map<Class>
-     *     ) {
-     *         const ext = new this(tgt);
+     *     __new__(tgt: SomeType): Job<this> {
+     *         const ext = this.__inst__(tgt);
      *         map.set(tgt, root.start(ext.setup()) as Ext.Type<Class>);
      *     }
      * }
@@ -283,14 +255,29 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
      * extension whose `setup()` has finished. (And subclasses of `AsyncExt`
      * will share the same behavior, while being subtyped appropriately.)
      *
-     * (Note: your `__new__` method *must* store what it created in the supplied
-     * map for the given target, and the value it sets must conform to the
-     * declared `__type__`, which is *not* checked for you by TypeScript!)
+     * @remarks Note that while this is technically an instance method, it's
+     * actually called with the class *prototype*, so you should not use any
+     * properties or methods of `this` other than `__inst__`.  Think of it
+     * as a function that's just on the class as a convenient way of configuring
+     * it.
      *
      * @category Lifecycle Hooks
      */
-    static __new__<Class extends Ext.Class>(this: Class, tgt: Ext.Target<Class>, map: Ext.Map<Class>) {
-        map.set(tgt, new (this as any)(tgt, map))
+    __new__<C extends Ext>(this: C, tgt: C["of"]): unknown {
+        return this.__inst__(tgt)
+    }
+
+    /**
+     * Given a target, create an extension instance.
+     *
+     * You do not need to override this, nor should you: it's just a type-safe
+     * way to construct an extension instance, since an Ext subclass's
+     * constructor may accept a wider type than the class actually requires.
+     *
+     * @category Lifecycle Hooks
+     */
+    __inst__<T extends Ext>(this: T, tgt: T["of"]): T {
+        return new(this.constructor as new(of: T["of"]) => T)(tgt)
     }
 
     /**

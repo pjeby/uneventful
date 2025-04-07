@@ -89,19 +89,18 @@ describe("Extensions", () => {
         class Target { blah: number }
         class Simple extends Ext<Target> {}
         class AsyncExt extends Simple {
-            declare readonly __type__: Job<this>
             *setup() {
                 // simulate slow init
                 yield *sleep(100);
                 return this
             }
-            static __new__<Class extends typeof AsyncExt>(tgt: Ext.Target<Class>, map: Ext.Map<Class>) {
-                map.set(tgt, start((new this(tgt)).setup()))
+            __new__(tgt: Target): Job<this> {
+                return start(this.__inst__(tgt).setup())
             }
         }
 
         describe("subtyping", () => {
-            it("inherits altered __type__", () => {
+            it("inherits altered __new__", () => {
                 // Given a subclass of AsyncExt
                 class AsyncSub extends AsyncExt {}
                 const t = new Target
@@ -153,9 +152,7 @@ describe("Extensions", () => {
             it("calls __new__ to create extensions", () => {
                 // Given an Ext subclass with a custom __new__
                 class ExtWithNew extends Simple {
-                    static __new__<C extends typeof ExtWithNew>(tgt: Ext.Target<C>, map: Ext.Map<C>) {
-                        log("create")
-                    }
+                    __new__(tgt: (typeof this)["of"]) { log("create") }
                 }
                 // When .for() is called
                 ExtWithNew.for(new Target)
