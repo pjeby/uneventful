@@ -41,6 +41,9 @@ module.exports = {
         includeCategories: true,
         includeFolders: false,
     },
+    navigationLinks: {
+        Github: "https://github.com/pjeby/uneventful/"
+    },
     projectDocuments: ["CHANGELOG.md"],
     sort: [
         "alphabetical"

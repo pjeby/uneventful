@@ -14,7 +14,7 @@
  * @module uneventful/ext
  *
  * @experimental
- *
+ * @disableGroups
  * @summary Tools for extending objects with extra state and behavior, without
  * directly modifying them.
  */
