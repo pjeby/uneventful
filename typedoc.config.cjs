@@ -18,9 +18,8 @@ module.exports = {
     categorizeByGroup: false,
     categoryOrder: [
         "Jobs",
-        "Reactive Values",
-        "Reactive Behaviors",
         "Resource Management",
+        "Dependency Tracking",
         "Scheduling",
         "Signals",
         "Stream Consumers",

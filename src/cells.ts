@@ -669,7 +669,7 @@ export class Cell {
  * - An error will be thrown if this function is called outside a reactive
  *   expression or from within a {@link peek}() call or {@link action} wrapper.
  *
- * @category Reactive Values
+ * @category Dependency Tracking
  */
 
 export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {

@@ -3,6 +3,7 @@
  * boundaries.
  *
  * @module uneventful/shared
+ * @disableGroups
  */
 
 import { must, start } from "./jobutils.ts";

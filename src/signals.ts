@@ -186,7 +186,7 @@ export class ConfigurableImpl<T> extends WritableImpl<T> implements Configurable
 /**
  * Create a {@link Configurable} signal with the given inital value
  *
- * @category Reactive Values
+ * @category none
  */
 export function value<T>(val?: T): Configurable<T> {
     const cell = Cell.mkValue(val);
@@ -202,7 +202,7 @@ export function value<T>(val?: T): Configurable<T> {
  * calling signature below will apply, even if TypeScript doesn't see it that
  * way!)
  *
- * @category Reactive Values
+ * @category none
  */
 export function cached<T>(compute: () => T): Signal<T>;
 
@@ -251,7 +251,7 @@ export function cached<T>(compute: Source<T> | (() => T), initVal?: T): Signal<T
  *
  * @returns The result of calling `fn(..args)`
  *
- * @category Reactive Values
+ * @category Dependency Tracking
  */
 export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
     return currentCell ? currentCell.peek(fn, null, args) : fn(...args);
@@ -296,7 +296,7 @@ export function peek<F extends PlainFunction>(fn: F, ...args: Parameters<F>): Re
  * to the original function, while running with dependency tracking suppressed
  * (as with {@link peek}()).
  *
- * @category Reactive Behaviors
+ * @category Dependency Tracking
  */
 export function action<F extends AnyFunction>(fn: F): F;
 
