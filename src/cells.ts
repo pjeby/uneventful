@@ -2,11 +2,10 @@ import { currentCell, popCtx, pushCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
 import { detached, getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
-import { apply, arrayEq, setMap } from "./utils.ts";
+import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { defer } from "./defer.ts";
 import { Batch, batch } from "./scheduling.ts";
-import { action, peek, type Configurable } from "./signals.ts";
 import { root } from "./tracking.ts";
 
 const ruleQueues = new WeakMap<Function, RuleQueue>();
@@ -601,6 +600,10 @@ export class Cell {
         try { return apply(fn, thisArg, args) } finally { this.flags &= ~Is.Peeking; }
     }
 
+    unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean): T {
+        return (this.flags & Is.Error || !equals(this.value, newVal)) ? newVal : this.value;
+    }
+
     recalcWhen(src: RecalcSource): void;
     recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
     recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
@@ -644,39 +647,9 @@ export class Cell {
     }
 }
 
-/**
- * Keep an expression's old value unless there's a semantic change
- *
- * By default, reactive values (i.e. {@link cached}(), or {@link value}() with a
- * {@link Configurable.setf setf}()) are considered to have "changed" (and thus
- * trigger recalculation of their dependents) when they are different according
- * to `===` comparison.
- *
- * This works well for primitive values, but for arrays and objects it's not
- * always ideal, because two arrays can have the exact same elements and still
- * be different according to `===`.  So this function lets you substitute a
- * different comparison function (like a deep-equal or shallow-equal) instead.
- * (The default is {@link arrayEq}() if no compare function is supplied.)
- *
- * Specifically, if your reactive expression returns `unchangedIf(newVal,
- * compare)`, then the expression's previous value will be kept if the compare
- * function returns true when called with the old and new values. Otherwise, the
- * new value will be used.
- *
- * @remarks
- * - If the reactive expression's last "value" was an error, the new value is
- *   returned
- * - An error will be thrown if this function is called outside a reactive
- *   expression or from within a {@link peek}() call or {@link action} wrapper.
- *
- * @category Dependency Tracking
- */
-
-export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
-    const cell = currentCell;
-    if (cell) {
-        return (cell.flags & Is.Error || !equals(cell.value, newVal)) ? newVal : cell.value;
-    } else {
-        throw new Error("unchangedIf() must be called from a reactive expression");
-    }
+export function getCell(f="") {
+    if (!currentCell || currentCell.flags & Is.Peeking) throw new Error(
+        `${f}must be called from a reactive expression`
+    )
+    return currentCell
 }

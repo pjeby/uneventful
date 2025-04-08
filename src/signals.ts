@@ -6,19 +6,19 @@
 
 import { currentCell } from "./ambient.ts";
 import { PlainFunction, Yielding, AnyFunction, Job } from "./types.ts";
-import { Cell } from "./cells.ts";
+import { Cell, getCell } from "./cells.ts";
 import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
 import { UntilMethod } from "./sinks.ts";
 import { SignalSource, Source, Stream } from "./streams.ts";
 import { callOrWait } from "./call-or-wait.ts";
-import { CallableObject, apply } from "./utils.ts";
+import { CallableObject, apply, arrayEq } from "./utils.ts";
 import { defer } from "./defer.ts";
 import { next } from "./sinks.ts";  // needed for documentation link
 
 export type * from "./rules.ts"
 export { rule, runRules } from "./rules.ts"
-export { WriteConflict, CircularDependency, unchangedIf } from "./cells.ts";
+export { WriteConflict, CircularDependency } from "./cells.ts";
 
 /**
  * An observable value, as a zero-argument callable with extra methods.
@@ -313,6 +313,38 @@ export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx
     return <F> function (this: ThisParameterType<F>, ...args) {
         return currentCell ? currentCell.peek(fn, this, args) : apply(fn, this, args)
     }
+}
+
+/**
+ * Keep an expression's old value unless there's a semantic change
+ *
+ * By default, reactive values (i.e. {@link cached}(), or {@link value}() with a
+ * {@link Configurable.setf setf}()) are considered to have "changed" (and thus
+ * trigger recalculation of their dependents) when they are different according
+ * to `===` comparison.
+ *
+ * This works well for primitive values, but for arrays and objects it's not
+ * always ideal, because two arrays can have the exact same elements and still
+ * be different according to `===`.  So this function lets you substitute a
+ * different comparison function (like a deep-equal or shallow-equal) instead.
+ * (The default is {@link arrayEq}() if no compare function is supplied.)
+ *
+ * Specifically, if your reactive expression returns `unchangedIf(newVal,
+ * compare)`, then the expression's previous value will be kept if the compare
+ * function returns true when called with the old and new values. Otherwise, the
+ * new value will be used.
+ *
+ * @remarks
+ * - If the reactive expression's last "value" was an error, the new value is
+ *   returned
+ * - An error will be thrown if this function is called outside a reactive
+ *   expression or from within a {@link peek}() call or {@link action} wrapper.
+ *
+ * @category Dependency Tracking
+ */
+
+export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
+    return getCell("unchangedIf() ").unchangedIf(newVal, equals)
 }
 
 /**

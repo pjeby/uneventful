@@ -1,11 +1,12 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
 import {
-    runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl, action
+    runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl,
+    unchangedIf, action
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
 import { currentCell, currentJob } from "../src/ambient.ts";
-import { defaultQ, demandChanges, unchangedIf, staleStreams } from "../src/cells.ts";
+import { defaultQ, demandChanges, staleStreams } from "../src/cells.ts";
 
 function updateDemand() { demandChanges.flush(); }
 
