@@ -8,6 +8,9 @@ title: Changelog
 `uneventful/ext`
 - {@link uneventful/ext.Ext `Ext`}: refactored how instance construction works to eliminate some typing pitfalls and simplify overriding `__new__`
 
+`uneventful/signals`
+- Replaced `unchangedIf()` with {@link uneventful/signals.stable `stable()`}, {@link uneventful/signals.stableArray `stableArray()`} and other {@link uneventful/signals.stabilizer `stablilizer()`} features.  (The old function has been deprecated and will be removed in a later release.)
+
 ### 0.0.11
 
 `uneventful`

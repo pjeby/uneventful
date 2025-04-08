@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl,
-    unchangedIf, action
+    action, stable, stableArray
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
 import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
@@ -433,13 +433,13 @@ describe("Signal Constructors/Interfaces", () => {
 
 describe("Dependency tracking", () => {
     useRoot();
-    describe("unchangedIf()", () => {
+    describe("stableArray()", () => {
         it("errors outside a reactive expression", () => {
-            expect(() => unchangedIf(42)).to.throw("unchangedIf() must be called from a reactive expression")
+            expect(() => stableArray([42])).to.throw("stabilizers must be called from a reactive expression")
         });
         it("returns the old value if it's the same", () => {
-            // Given a cached that computes an equivalent value w/unchangedIf on each call
-            const v = value(0); const c = cached(() => { v(); log("calc"); return unchangedIf([1,2,3]); });
+            // Given a cached that computes an equivalent value w/stableArray on each call
+            const v = value(0); const c = cached(() => { v(); log("calc"); return stableArray([1,2,3]); });
             // When it's called more than once
             v.set(1); const v1 = c(); see("calc");
             v.set(2); const v2 = c(); see("calc");
@@ -449,11 +449,11 @@ describe("Dependency tracking", () => {
             expect(v3).to.equal(v1);
         });
         it("returns the new value if last value was an error", () => {
-            // Given a cached that either throws or computes an equivalent value w/unchangedIf
+            // Given a cached that either throws or computes an equivalent value w/stableArray
             const v = value(0);
             const c = cached(() => {
                 if (v()<0) throw new Error;
-                log("calc"); return unchangedIf([1,2,3]);
+                log("calc"); return stableArray([1,2,3]);
             });
             // When its value is saved before and after a throw
             v.set(1); const v1 = c(); see("calc");
@@ -465,21 +465,23 @@ describe("Dependency tracking", () => {
             expect(v2).to.deep.equal(v1);
         });
         it("returns the new value if it's different", () => {
-            // Given a cached that computes a varying value w/unchangedIf
-            const v = value(0); const c = cached(() => { v(); log("calc"); return unchangedIf([1,2,v()]); });
+            // Given a cached that computes a varying value w/stableArray
+            const v = value(0); const c = cached(() => { v(); log("calc"); return stableArray([1,2,v()]); });
             // When it's called multiple times
             // Then the values should change
             v.set(1); expect(c()).to.deep.equal([1, 2, 1]); see("calc");
             v.set(2); expect(c()).to.deep.equal([1, 2, 2]); see("calc");
             v.set(3); expect(c()).to.deep.equal([1, 2, 3]); see("calc");
         });
+    });
+    describe("stable()", () => {
         it("supports custom compare functions", () => {
             // Given a cached that filters a value through a custom comparison
             const eq = value(false), v = value<any>(null);
             function compare(a: any, b: any) {
                 log(JSON.stringify(a)); log(JSON.stringify(b)); return eq();
             }
-            const c = cached(() => { return unchangedIf(v(), compare); });
+            const c = cached(() => { return stable(compare, v()); });
             // When the cached is called with different values and comparison results
             // Then the comparison should be called with the previous and new values
             // and the result should only change when the comparison is false

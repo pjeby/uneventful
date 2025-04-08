@@ -1,8 +1,9 @@
 import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts";
-import { runRules, value, cached, rule, CircularDependency, unchangedIf, WriteConflict } from "../src/signals.ts";
+import { runRules, value, cached, rule, CircularDependency, WriteConflict, stableArray } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
 import { IsStream, must } from "../mod.ts";
+import { arrayEq } from "../src/utils.ts";
 
 describe("Demand management", () => {
     describe("Subscriber changes", () => {
@@ -243,7 +244,7 @@ describe("Consistent updates", () => {
         let A = value(0); // unique values: 1 2 3 4 ...
         let B = value(0); // toggle values: 1 2 1 2 ...
         const C = cached(()=> { return A() % 2 + B() % 2}) // toggle values
-        const D = cached(()=> { return unchangedIf([A() % 2 - B() % 2]) }) // same value: [0]
+        const D = cached(()=> { return stableArray([A() % 2 - B() % 2]) }) // same value: [0]
         const E = cached(()=> { log("E"); return hard_work( C() + A() + D()[0] )}) // unique values
         const F = cached(()=> { log("F"); return hard_work( D()[0] && B() )}) // same value
         const G = cached(()=> { return C() + ( C() || E() % 2 ) + D()[0] + F()}) // toggle values
@@ -433,5 +434,18 @@ describe("rule.factory()", () => {
             v()();
             see("inner flush");
         });
+    });
+});
+
+describe("Cell.unchangedIf()", () => {
+    it("returns the old value if it's the same / new value if different", () => {
+        const oldVal = ["x"], newVal =["x"], v = Cell.mkValue(oldVal)
+        expect(v.unchangedIf(newVal, arrayEq)).to.equal(oldVal)
+        expect(v.unchangedIf(newVal, () => false)).to.equal(newVal)
+    });
+    it("returns the new value if last value was an error", () => {
+        const oldVal = ["x"], newVal =["x"], v = Cell.mkValue(oldVal)
+        v.setValue(new Error, true)
+        expect(v.unchangedIf(newVal, () => true)).to.equal(newVal)
     });
 });

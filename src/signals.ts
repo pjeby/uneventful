@@ -327,25 +327,76 @@ export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx
  * always ideal, because two arrays can have the exact same elements and still
  * be different according to `===`.  So this function lets you substitute a
  * different comparison function (like a deep-equal or shallow-equal) instead.
- * (The default is {@link arrayEq}() if no compare function is supplied.)
  *
- * Specifically, if your reactive expression returns `unchangedIf(newVal,
- * compare)`, then the expression's previous value will be kept if the compare
- * function returns true when called with the old and new values. Otherwise, the
- * new value will be used.
+ * Specifically, if your reactive expression returns `stable(compare, newVal)`,
+ * then the expression's previous value will be kept if the `compare` function
+ * returns true when called with the old and new values. Otherwise, the new
+ * value will be used.
  *
  * @remarks
  * - If the reactive expression's last "value" was an error, the new value is
- *   returned
+ *   returned.
  * - An error will be thrown if this function is called outside a reactive
  *   expression or from within a {@link peek}() call or {@link action} wrapper.
+ * - You can use the {@link stabilizer}() function to create custom functions
+ *   similar to {@link stableJSON}. or {@link stableArray}().
  *
  * @category Dependency Tracking
  */
-
-export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
-    return getCell("unchangedIf() ").unchangedIf(newVal, equals)
+export function stable<T>(equals: (v1: T, v2: T) => boolean, newVal: T): T {
+    return getCell("stabilizers ").unchangedIf(newVal, equals)
 }
+
+/**
+ * @deprecated This is {@link stable}() but with swapped arguments.  Please switch
+ * to using stable(), stableArray(), or a stabilizer(), as this function will be removed
+ * in a future release.
+ *
+ * @hidden
+ */
+export function unchangedIf<T>(newVal: T, equals: (v1: T, v2: T) => boolean = arrayEq): T {
+    return stable(equals, newVal)
+}
+
+/**
+ * Create a shorthand version of {@link stable}(), pre-bound to a specific comparison
+ * function.
+ *
+ * @param equals The comparison function to use
+ * @template T The type of value the comparison function works on
+ *
+ * @category Dependency Tracking
+ */
+export function stabilizer<T>(equals: <T>(v1: T, v2: T) => boolean) {
+    return stable.bind(null, equals) as <R extends T>(newVal: R) => R
+}
+
+/**
+ * Keep an expression's old value if the new value is an array with the same
+ * contents.
+ *
+ * (Shorthand for {@link stable}({@link arrayEq}, ...).)
+ *
+ * @function
+ * @category Dependency Tracking
+ */
+export const stableArray = /* @__PURE__ */ stabilizer<unknown[]>(arrayEq)
+
+/**
+ * Keep an expression's old value if its JSON string is the same as the new one.
+ *
+ * (Shorthand for {@link stable}() with a JSON-string comparison function.)
+ *
+ * Note that JSON string comparison is slow and memory intensive for more
+ * complex data structures, is order-sensitive for object keys, and doesn't
+ * support maps or sets.  If you need any of those things, you should probably
+ * use a {@link stabilizer}() based on
+ * [fast-equals](https://github.com/planttheidea/fast-equals) instead.
+ *
+ * @function
+ * @category Dependency Tracking
+ */
+export const stableJSON = /* @__PURE__ */ stabilizer<any>((a,b) => JSON.stringify(a) === JSON.stringify(b))
 
 /**
  * Wait for and return the next truthy value (or error) from a data source (when
