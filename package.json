@@ -52,12 +52,12 @@
         }
     },
     "scripts": {
-        "coverage": "c8 -r lcov mocha -n loader=ts-node/esm",
+        "coverage": "cross-env TS_NODE_PROJECT=specs/tsconfig.json c8 -r lcov mocha -n loader=ts-node/esm",
         "docs": "typedoc",
-        "watch": "mocha -r tsx --watch",
+        "watch": "pnpm run test --watch",
         "watch-docs": "typedoc --watch",
         "watch-prep": "pkgroll --watch",
-        "test": "mocha -r tsx && pkgroll",
+        "test": "tsx --tsconfig specs/tsconfig.json node_modules/mocha/bin/mocha.js",
         "prepare": "pkgroll --clean-dist"
     },
     "mocha": {
@@ -68,11 +68,6 @@
             "specs/*.ts",
             "README.md"
         ]
-    },
-    "ts-node": {
-        "esm": true,
-        "transpileOnly": true,
-        "experimentalSpecifierResolution": "node"
     },
     "packageManager": "pnpm@7.33.6",
     "devDependencies": {
@@ -85,6 +80,7 @@
         "c8": "^10",
         "chai": "^4.3.10",
         "chai-as-promised": "^7.1.1",
+        "cross-env": "^7.0.3",
         "mocha": "^10.2.0",
         "monkey-around": "^3",
         "pkgroll": "^2.1.1",

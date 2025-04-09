@@ -10,6 +10,7 @@ specifiers:
   c8: ^10
   chai: ^4.3.10
   chai-as-promised: ^7.1.1
+  cross-env: ^7.0.3
   mocha: ^10.2.0
   monkey-around: ^3
   pkgroll: ^2.1.1
@@ -31,6 +32,7 @@ devDependencies:
   c8: 10.1.3
   chai: 4.3.10
   chai-as-promised: 7.1.1_chai@4.3.10
+  cross-env: 7.0.3
   mocha: 10.2.0
   monkey-around: 3.0.0
   pkgroll: 2.1.1_typescript@5.4.5
@@ -1135,6 +1137,14 @@ packages:
 
   /create-require/1.1.1:
     resolution: {integrity: sha512-dcKFX3jn0MpIaXjisoRvexIJVEKzaq7z2rZKxf+MSr9TkdmHmsU4m2lcLojrj/FHl8mk5VxMmYA+ftRkP/3oKQ==}
+    dev: true
+
+  /cross-env/7.0.3:
+    resolution: {integrity: sha512-+/HKd6EgcQCJGh2PSjZuUitQBQynKor4wrFbRg4DtAgS1aWO+gU52xpH7M9ScGgXSYmAVS9bIJ8EzuaGw0oNAw==}
+    engines: {node: '>=10.14', npm: '>=6', yarn: '>=1'}
+    hasBin: true
+    dependencies:
+      cross-spawn: 7.0.6
     dev: true
 
   /cross-spawn/7.0.6:
