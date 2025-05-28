@@ -3,6 +3,11 @@ title: Changelog
 ---
 # Changelog
 
+### 0.0.13 (Unreleased)
+
+`uneventful/signals`
+- Signals that gain their first (or lose their last) observer now run their setup or cleanup as part of the active rule batch (if applicable), instead of waiting for the next microtask.  This makes side effects (such as DOM manipulation) happen closer to the time when the rules controlling them are run (at the cost of possible thrashing if a sole controlling rule is terminated and replaced with one on a different scheduler).
+
 ### 0.0.12
 
 `uneventful/ext`

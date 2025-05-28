@@ -23,15 +23,18 @@ var currentQueue: RuleQueue;
 function runRules(this: RuleQueue, q: Set<Cell>) {
     // another queue is running? reschedule for later
     if (currentQueue) return;
-    currentQueue = this;
-    try {
-        // run rules marked dirty by value changes
-        for (currentRule of q) {
-            currentRule.catchUp();
-            q.delete(currentRule);
+    while(q.size) {
+        currentQueue = this;
+        try {
+            // run rules marked dirty by value changes
+            for (currentRule of q) {
+                currentRule.catchUp();
+                q.delete(currentRule);
+            }
+        } finally {
+            currentQueue = currentRule = undefined;
         }
-    } finally {
-        currentQueue = currentRule = undefined;
+        demandChanges.flush()
     }
 }
 

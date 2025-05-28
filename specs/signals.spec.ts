@@ -260,7 +260,7 @@ describe("Signal Constructors/Interfaces", () => {
         });
         describe("Job support", () => {
             // Isolate each test's errors
-            beforeEach(() => { updateDemand(); runRules(); log.clear(); });
+            beforeEach(() => { runRules(); log.clear(); });
 
             it("works like an on-demand rule", () => {
                 // Given a cached that does job functions
@@ -269,17 +269,17 @@ describe("Signal Constructors/Interfaces", () => {
                 // Then the job should run and immediately restart
                 c(); see("do", "undo");
                 // But when subscribed, and the demand is updated
-                const r1 = rule(() => void c()); runRules(); updateDemand();
+                const r1 = rule(() => void c()); runRules();
                 // Then it should be queued for re-run, but not restart
-                see(); runRules(); see("do");
+                see("do");
                 // And when unsubscribed (w/demand update)
                 r1(); updateDemand();
                 // It should restart
                 see("undo");
                 // And when re-subscribed again (w/demand update)
-                const r2 = rule(() => void c()); runRules(); updateDemand();
+                const r2 = rule(() => void c()); runRules();
                 // Then a recalc should be queued again
-                see(); runRules(); see("do");
+                see("do");
                 r2(); updateDemand(); see("undo");
             });
 
@@ -293,9 +293,9 @@ describe("Signal Constructors/Interfaces", () => {
                 v.value++; c(); see()
                 v.value++; c(); see()
                 // And When it's tracked by a rule
-                const r1 = rule(() => void c()); runRules(); updateDemand()
+                const r1 = rule(() => void c()); runRules();
                 // Then it will run once
-                see(); runRules(); see("do")
+                see("do")
                 // And keep its job active, even if called again
                 v.value++; c(); see()
                 v.value++; c(); see()
@@ -305,8 +305,8 @@ describe("Signal Constructors/Interfaces", () => {
                 v.value++; c(); see()
                 v.value++; c(); see()
                 // Until it is observed again
-                const r2 = rule(() => void c()); runRules(); updateDemand();
-                see(); c(); see("do");
+                const r2 = rule(() => void c()); runRules();
+                see("do");
                 v.value++; c(); see()
                 r2(); updateDemand(); see("undo");
             })
@@ -315,7 +315,6 @@ describe("Signal Constructors/Interfaces", () => {
                 // Given an observed cached that does job functions
                 const c = cached(() => { log("do"); must(msg("undo")); });
                 const r1 = rule(() => void c()); runRules(); see("do");
-                updateDemand(); runRules(); see();
                 // When it's unsubscribed
                 r1();  // unsubscribe
                 // Then the rollback is queued
@@ -359,9 +358,9 @@ describe("Signal Constructors/Interfaces", () => {
             // And emitting values should have no effect on it, nor produce output
             e("testing"); see(); expect(c()).to.equal("unobserved");
             // But after the signal is observed by a rule
-            const r = rule(() => log(c())); runRules(); see("unobserved");
+            const r = rule(() => log(c())); runRules();
             // The source should be susbcribed asynchronously
-            updateDemand(); see("subscribe");
+            see("unobserved", "subscribe");
             // And emitting values should update the signal and fire the rule
             e("test 1"); runRules(); see("test 1"); expect(c()).to.equal("test 1");
             e("test 2"); runRules(); see("test 2"); expect(c()).to.equal("test 2");
@@ -380,7 +379,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); updateDemand(); see("subscribe");
+            see("unobserved", "subscribe");
             e("42"); runRules(); see("42")
             // When the source ends and rules run
             e.end(); see("unsubscribe"); runRules();
@@ -396,7 +395,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); updateDemand(); see("subscribe");
+            see("unobserved", "subscribe");
             e("42"); runRules(); see("42")
             // When the rule is ended and a new one created and run
             r(); const r2 = rule(() => log(c())); runRules();
@@ -417,7 +416,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
             const c = cached(s, "unobserved");
             const r = rule(() => log(c())); runRules();
-            see("unobserved"); updateDemand(); see("subscribe");
+            see("unobserved", "subscribe");
             e("42"); runRules(); see("42")
             // When the source throws and rules run
             e.throw("boom!"); see("unsubscribe");
@@ -599,15 +598,15 @@ describe("Dependency tracking", () => {
             // Then it should run and return false
             see("calculating: false");
             // But when subscribed, and the demand is updated
-            const r1 = rule(() => void c()); runRules(); updateDemand();
+            const r1 = rule(() => void c()); runRules();
             // Then it should be queued for re-run and return true
-            see(); runRules(); see("calculating: true");
+            see("calculating: true");
             // And when unsubscribed (w/demand update)
             r1(); updateDemand();
             // And then re-subscribed (w/demand update)
-            const r2 = rule(() => void c()); runRules(); updateDemand();
+            const r2 = rule(() => void c()); runRules();
             // Then a recalc should be queued again
-            see(); runRules(); see("calculating: true");
+            see("calculating: true");
             r2(); updateDemand(); see();
         });
     });
@@ -621,7 +620,7 @@ describe("Dependency tracking", () => {
             // When the rule is run
             see(); runRules();
             // Then the source should be subscribed afterward
-            see("ping"); updateDemand(); see("sub");
+            see("ping", "sub");
             runRules(); see();
             // And when the source produces a value
             changed(); see();
@@ -633,7 +632,7 @@ describe("Dependency tracking", () => {
             updateDemand(); see("unsub");
             // And then resubscribed after new rules are added
             const e2 = rule(() => { recalcWhen(src); log("ping"); });
-            runRules(); see("ping"); updateDemand(); see("sub");
+            runRules(); see("ping", "sub");
             changed(); runRules(); see("ping");
             // Without a second subscribe for subsequent rules
             const e3 = rule(() => { recalcWhen(src); log("pong"); });
@@ -656,7 +655,7 @@ describe("Dependency tracking", () => {
             // When they are run
             see(); runRules();
             // Then the sources should each be subscribed afterward
-            see("ping 1", "ping 2"); updateDemand(); see("sub 1", "sub 2");
+            see("ping 1", "ping 2", "sub 1", "sub 2");
             // And when they are updated, the rules should recalc
             o1.cb(); runRules(); see("ping 1");
             o2.cb(); runRules(); see("ping 2");
@@ -669,10 +668,10 @@ describe("Dependency tracking", () => {
             const src: RecalcSource = () => { log("sub"); must(()=> log("unsub")); throw "boom"; }
             const end = rule(() => { recalcWhen(src); log("ping"); });
             // When the rule is run
-            runRules(); see("ping");
+            runRules();
             // Then the error should throw asynchronously to detached
             // and the subscription should be rolled back
-            updateDemand(); see("sub", "unsub", "Uncaught: boom");
+            see("ping", "sub", "unsub", "Uncaught: boom");
             runRules(); see();
             end(); see();
         });
