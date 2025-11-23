@@ -13,10 +13,10 @@ import { detached, root } from "./tracking.ts";
  * @category Types and Interfaces
  */
 export type GenericMethodDecorator<F extends AnyFunction> = {
-    /** TC39 Method Decorator @hidden */
+    /** TC39 Method Decorator */
     (fn: F, ctx?: {kind: "method"}): F;
 
-    /** Legacy Method Decorator @hidden */
+    /** Legacy Method Decorator */
     (proto: object, name: string|symbol, desc?: {value?: F}): void;
 }
 

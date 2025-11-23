@@ -13,7 +13,6 @@
  *
  * @module uneventful/ext
  *
- * @experimental
  * @disableGroups
  * @summary Tools for extending objects with extra state and behavior, without
  * directly modifying them.
@@ -116,7 +115,7 @@ export function method<Target extends object, Method extends PlainFunction>(
 const classMap = /* @__PURE__ */ ext(<C extends Ext.Class>(cls: C) => new WeakMap<Ext.Target<C>, Ext.Type<C>>());
 
 
-/** Helper types for working with {@link Ext} Subclasses */
+/** Helper types for working with {@link Ext} Subclasses @experimental */
 export namespace Ext {
     /** Get the target type of an {@link Ext} subclass constructor */
     export type Target<T extends Ext.Class> = InstanceType<T>["of"]
@@ -164,6 +163,8 @@ export namespace Ext {
  *
  * Instance and static members you can override to customize extension creation,
  * deletion, target and return types.
+ *
+ * @experimental
  */
 export abstract class Ext<Target extends WeakKey=WeakKey> {
     /**
@@ -246,7 +247,7 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
      *
      *     __new__(tgt: SomeType): Job<this> {
      *         const ext = this.__inst__(tgt);
-     *         map.set(tgt, root.start(ext.setup()) as Ext.Type<Class>);
+     *         return start(this.__inst__(tgt).setup())
      *     }
      * }
      * ```
