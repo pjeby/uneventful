@@ -21,9 +21,9 @@ import { AnyFunction } from "./types.ts";
  * export function myDecorator<T,D extends {value?: SomeFnType<T>}>(clsOrProto:any, name: string|symbol, desc: D): D
  *
  * // Implementation
- * export function myDecorator<T>(factory: SomeFnType<T>, ...args: any[]): SomeFnType<T> {
+ * export function myDecorator<T>(fn: SomeFnType<T>, ...args: any[]): SomeFnType<T> {
  *     // extra args means we're being used as a decorator, so run as decorator:
- *     if (args.length) return decorateMethod(myDecorator, factory, ...args as [any, any]);
+ *     if (args.length) return decorateMethod(myDecorator, fn, ...args as [any, any]);
  *     // No extra args, we're b
  *     return () => {
  *     }
@@ -90,6 +90,59 @@ export function setMap<K, V>(map: { set(key: K, val: V): void; }, key: K, val: V
  */
 export function isFunction(f: any): f is Function {
     return typeof f === "function";
+}
+
+const enum Fn { NON_FUNC = 0, PLAIN, BOUND, ES6_CLASS, ES5_CLASS, EXOTIC }
+function functionType(fn: any, checkClass?: Fn.ES5_CLASS | Fn.ES6_CLASS) {
+    var prot: any
+    switch(true) {
+        case !isFunction(fn):                                            return Fn.NON_FUNC
+        case Object.getPrototypeOf(fn).constructor?.name !== "Function": return Fn.EXOTIC
+        case !(prot = fn.prototype):                                     return Fn.BOUND
+        case checkClass && fn.toString().startsWith("class"):            return Fn.ES6_CLASS
+        // Check for ES5-style emulated class
+        case checkClass === Fn.ES5_CLASS && (
+            !isPlainObject(prot) ||  // Does it inherit from something other than Object?
+            Object.getOwnPropertyNames(prot).length > 1  // Does it have methods/props?
+        ):  return Fn.ES5_CLASS
+        default:
+            return Fn.PLAIN
+    }
+}
+
+/**
+ * Is the given value a class?
+ *
+ * This function detects ES6 native classes, but also ES5-style emmulated
+ * classes, if they're either a subclass (i.e. inherit from something other than
+ * Object), or a base class with public instance methods or other property
+ * descriptors on its prototype.
+ *
+ * It has NO false positives: if it returns true, the thing is definitely a
+ * class by the above rules. But it *can* return a false negative for a plain
+ * constructor function with no base class and no prototype methods.
+ *
+ * @category Functions and Decorators
+ */
+export function isClass<T>(f: any): f is new () => T {
+    const t = functionType(f, Fn.ES5_CLASS)
+    return t === Fn.ES6_CLASS || t === Fn.ES5_CLASS
+}
+
+/**
+ * Is `ob` a non-null plain object?  (i.e. object literal or created via
+ * `Object.create(null, ...)`)
+ *
+ * @returns true if ob's a non-null of type `object` with a null prototype
+ * or a constructor named `Object`.
+ *
+ * @category Data Structures
+ */
+export function isPlainObject(ob: any): boolean {
+    var proto: any
+    return typeof ob === "object" && ob !== null && (
+        !(proto = Object.getPrototypeOf(ob)) || proto.constructor?.name === "Object"
+    )
 }
 
 /**
