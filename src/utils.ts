@@ -190,18 +190,27 @@ export { batch, type Batch } from "./scheduling.ts";
 export const apply = Reflect.apply;
 
 /**
+ * Syntax sugar for an IIFE (i.e. to use `call(() => ...)` instead of `(()=> ...)()` )
+ *
+ * @category Functions and Decorators
+ */
+export function call<F extends () => any>(fn: F): ReturnType<F>
+
+/**
  * Like `fn.call(thisArg, ...args)`, but monomorphic, and the `thisArg`
  * parameter can be omitted or null.
- *
- * This is mostly useful as syntax sugar for an immediately-evaluated function
- * expression, replacing `(() => {...})()` with `call(() => {...})`.
  *
  * @category Functions and Decorators
  */
 export function call<F extends AnyFunction>(
     fn: F, thisArg?: ThisParameterType<F>, ...args: Parameters<F>
-): ReturnType<F> {
-    return thisArg ? apply(fn, thisArg, args) : (args.length ? fn(...args) : fn());
+): ReturnType<F>
+
+export function call<F extends AnyFunction>(fn: F, thisArg?: ThisParameterType<F>): ReturnType<F>{
+    return (
+        thisArg ? apply(fn, thisArg, [...arguments].slice(2)) :
+        arguments.length < 3 ? fn() : fn(...[...arguments].slice(2))
+    )
 }
 
 /**
