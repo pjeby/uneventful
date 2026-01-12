@@ -121,7 +121,7 @@ export type StartObj<T> = Yielding<T> | Promise<T> | PromiseLike<T>
  * canceled (using {@link Job.end \.end()} or
  * {@link Job.restart \.restart()}).
  *
- * Jobs can be created using {@link start}(), {@link detached}.start(), and
+ * Jobs can be created using {@link start}(), {@link root}.start(), and
  * {@link makeJob}().
  *
  * @category Types and Interfaces
@@ -371,7 +371,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      * will be called with the error, otherwise the job will end with the
      * supplied error.  If the error then isn't handled by a listener on the
      * job, the error will cascade to an asyncThrow on the job's parent, until
-     * the {@link detached} job and its asyncCatch handler is reached. (Which
+     * the {@link root} job and its asyncCatch handler is reached. (Which
      * defaults to creating an unhandled promise rejection.)
      *
      * Note: application code should not normally need to call this method

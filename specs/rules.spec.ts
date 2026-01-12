@@ -1,4 +1,4 @@
-import { log, see, describe, it, useRoot, msg, expect } from "./dev_deps.ts";
+import { log, see, describe, it, useRoot, msg, expect, logUncaught } from "./dev_deps.ts";
 import { must, DisposeFn, root, newRoot } from "../mod.ts";
 import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
@@ -121,7 +121,7 @@ describe("rule.if()", () => {
 describe("rule.root()", () => {
     it("exits only when the root does", () => {
         // Given a rule.root created in a job
-        newRoot()
+        newRoot().asyncCatch(logUncaught)
         const j = root.start(() => {
             rule.root(() => msg("done"))
         })
@@ -131,7 +131,7 @@ describe("rule.root()", () => {
         j.end()
         see()
         // But when the root is ended
-        newRoot()
+        newRoot().asyncCatch(logUncaught)
         // Then the rule should finish
         see("done")
     });

@@ -669,7 +669,7 @@ describe("Dependency tracking", () => {
             const end = rule(() => { recalcWhen(src); log("ping"); });
             // When the rule is run
             runRules();
-            // Then the error should throw asynchronously to detached
+            // Then the error should throw asynchronously to root
             // and the subscription should be rolled back
             see("ping", "sub", "unsub", "Uncaught: boom");
             runRules(); see();

@@ -55,7 +55,8 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { detached, isCancel, makeJob } from "../src/mod.ts";
+import { makeJob, root } from "../src/tracking.ts";
+import { isCancel } from "../src/results.ts";
 import { popCtx, pushCtx } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
 import { setDefer } from "../src/defer.ts";
@@ -73,7 +74,7 @@ export function useRoot() {
 
 // Log all unhandled job errors as `Uncaught: X`
 export const logUncaught = (e: any) => log(`Uncaught: ${e}`)
-detached.asyncCatch(logUncaught);
+root.asyncCatch(logUncaught)
 
 // Log all unhandled rejections as `rejected: X`
 const seen = new WeakSet<Promise<any>>();

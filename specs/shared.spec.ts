@@ -1,6 +1,6 @@
 import { Yielding, must, newRoot, root, sleep, start } from "../mod.ts";
 import { expiring, fork, service } from "../src/shared.ts"
-import { clock, describe, expect, it, log, msg, see, useClock, useRoot } from "./dev_deps.ts";
+import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts";
 
 describe("expiring()", () => {
     it("returns a proxy that becomes inaccessible after job end", () => {
@@ -130,7 +130,7 @@ describe("fork()", () => {
 
 describe("service()", () => {
     describe("returns an accessor that", () => {
-        afterEach(() => void newRoot())
+        afterEach(() => void newRoot().asyncCatch(logUncaught))
         it("calls the factory at most once per root", () => {
             // Given a service for a factory that logs and returns a new value each time
             let count = 0, svc = service(() => {
@@ -144,7 +144,7 @@ describe("service()", () => {
             // But it should return the same value each timeframe
             expect([r1, r2, r3]).to.deep.equal([1, 1, 1])
             // Until a new root exists
-            newRoot()
+            newRoot().asyncCatch(logUncaught)
             // And Then it should call the factory once again
             const r4 = svc(), r5 = svc(), r6 = svc()
             see("call #2")
@@ -157,7 +157,7 @@ describe("service()", () => {
             svc()
             see()
             // When a new root is created
-            newRoot()
+            newRoot().asyncCatch(logUncaught)
             // Then the cleanups should run
             see("cleanup")
         });

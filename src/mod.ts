@@ -13,7 +13,7 @@
 export { defer } from "./defer.ts";
 export * from "./types.ts";
 export * from "./results.ts";
-export * from "./tracking.ts";
+export { getJob, nativePromise, makeJob, root, newRoot } from "./tracking.ts";
 export * from "./async.ts";
 export * from "./streams.ts"
 export * from "./sources.ts";

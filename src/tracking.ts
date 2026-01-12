@@ -27,7 +27,7 @@ function recalcJob(job: Job<any>): RecalcSource { return (cb => { currentJob.mus
 
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
     let cb: CleanupFn<T>;
-    while (cb = pop(cbs)) try { cb(res); } catch (e) { _detached.asyncThrow(e); }
+    while (cb = pop(cbs)) try { cb(res); } catch (e) { root.asyncThrow(e); }
     cbs && recycle(cbs);
     return undefined;
 }
@@ -122,14 +122,15 @@ class _Job<T> implements Job<T> {
 
     _end(res: JobResult<T>) {
         if (this._done) throw new Error("Job already ended");
-        if (this !== _detached) this._done = res;
+        this._done = res;
         this.end();
         return this;
     }
 
     throw(err: any) {
         if (this._done) {
-            (owners.get(this) || _detached).asyncThrow(err);
+            const parent: Job = (owners.get(this) || root);
+            if (parent && parent !== this) parent.asyncThrow(err); else defaultCatch(err);
             return this;
         }
         return this._end(ErrorResult(err));
@@ -240,7 +241,6 @@ class _Job<T> implements Job<T> {
     }
 
     release(cleanup: CleanupFn): () => void {
-        if (this === _detached) return noop;
         let cbs = this._chain();
         if (!this._done || cbs.u) cbs = cbs.u ||= chain();
         return pushCB(cbs, cleanup);
@@ -251,7 +251,7 @@ class _Job<T> implements Job<T> {
             (catchers.get(this) || this.throw).call(this, err);
         } catch (e) {
             // Don't allow a broken handler to stay on the job
-            if (this === _detached) catchers.set(this, defaultCatch); else catchers.delete(this);
+            if (this === root) catchers.set(this, defaultCatch); else catchers.delete(this);
             const catcher = catchers.get(this) || this.throw;
             catcher.call(this, err);
             catcher.call(this, e);   // also report the broken handler
@@ -270,7 +270,6 @@ class _Job<T> implements Job<T> {
     // Chain whose .u stores a second chain for `release()` callbacks
     protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined;
     protected _chain() {
-        if (this === _detached) this.end()
         if (this._done && isEmpty(this._cbs)) defer(this.end);
         return this._cbs ||= chain();
     }
@@ -327,44 +326,6 @@ export function nativePromise<T>(job: Job<T>): Promise<T> {
  */
 export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.create;
 
-const _detached = makeJob();
-
-/**
- * @deprecated Use {@link root} instead.  (Including uses of
- * `.asyncCatch()` to set the default async error handling policy.)
- *
- * ---
- * A special {@link Job} with no parents, that can be used to create standalone
- * jobs.  detached.start() returns a new detached job, detached.run() can be
- * used to run code that expects to create a child job, and detached.bind() can
- * wrap a function to work without a parent job.
- *
- * (Note that such `detached` child jobs *must* exit themselves or be stopped
- * explicitly from outside, or else they may "run" forever, never running their
- * cleanup callbacks.  Unlike other jobs, they don't end when their parent does
- * because the `detached` job never "ends".)
- *
- * The detached job has a few special features and limitations:
- *
- * - It can't be ended, thrown, return()ed, etc. -- you'll get an error
- *
- * - It can't have any cleanup functions added: no do, must, onError, etc., and
- *   thus also can't have any native promise, abort signal, etc. used.  You can
- *   call its release() method, but nothing will actually be registered and the
- *   returned callback is a no-op.
- *
- * - Unhandled errors from jobs without parents (and errors from *any* job's
- *   cleanup functions) are sent to the detached job for handling.  This means
- *   whatever you set as the detached job's .{@link Job.asyncCatch asyncCatch}()
- *   handler will receive them.  (Its default is Promise.reject, causing an
- *   unhandled promise rejection.)
- *
- * @category Jobs
- */
-export const detached = _detached;
-(_detached as any).end = () => { throw new Error("Can't do that with the detached job"); }
-_detached.asyncCatch(defaultCatch);
-
 /**
  * The "main" job of the program or bundle, which all other jobs should be a
  * child of.  This provides a single point of configuration and cleanup, as one
@@ -418,7 +379,7 @@ newRoot()
  */
 export function newRoot(): Job<unknown> {
     root?.end()
-    const job = root = makeJob().asyncCatch(e => _detached.asyncThrow(e))
+    const job = root = makeJob().asyncCatch(defaultCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
     job.release(() => root === job && (root = null))
     return root;

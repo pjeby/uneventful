@@ -2,7 +2,7 @@ import { defer } from "./defer.ts";
 import { Cell, RuleQueue, currentRule, defaultQ, ruleQueue } from "./cells.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
 import { CallableObject, apply, setMap } from "./utils.ts";
-import { detached, root } from "./tracking.ts";
+import { root } from "./tracking.ts";
 
 /**
  * A decorator function that supports both TC39 and "legacy" decorator protocols
@@ -137,21 +137,6 @@ export interface RuleFactory {
     factory(scheduleFn: SchedulerFn): RuleFactory
 
     /**
-     * @deprecated Use {@link RuleFactory.root} instead
-     *
-     * ---
-     * Create a "detached" or standalone rule, that is not attached to any job.
-     *
-     * `r.detached(fn)` is shorthand for calling `detached.run(r, fn)`.  (Where
-     * `r` is a {@link RuleFactory} such as `rule`.)
-     *
-     * Note that since the created rule isn't attached to a job, it *must* be
-     * explicitly stopped, either by calling the returned disposal function or
-     * by the rule function arranging to stop itself via {@link rule.stop}().
-     */
-    detached(fn: () => OptionalCleanup): DisposeFn;
-
-    /**
      * Create a standalone rule, not attached to the current job.
      *
      * `r.root(fn)` is shorthand for calling `root.run(r, fn)`, where `r` is a
@@ -215,10 +200,6 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
 
     factory(scheduleFn: SchedulerFn): RuleFactory {
         return factories.get(scheduleFn) || setMap(factories, scheduleFn, new RF(ruleQueue(scheduleFn)));
-    }
-
-    detached(fn: ActionFunction) {
-        return detached.run(this as RuleFunction, fn);
     }
 
     root(fn: ActionFunction) {

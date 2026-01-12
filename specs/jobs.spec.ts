@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logUncaught } from "./dev_deps.ts";
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, fromIterable,
-    IsStream, backpressure, sleep, isHandled, Connection, detached, makeJob,
+    IsStream, backpressure, sleep, isHandled, Connection, makeJob,
     CancelError, throttle, next, root
 } from "../src/mod.ts";
 import { value, cached, runRules, until } from "../src/signals.ts";
@@ -510,18 +510,18 @@ describe("Error Handling", () => {
         // Then the parent should catch it
         see("caught");
     });
-    it("goes to detached if no parent", () => {
+    it("goes to root if no parent", () => {
         // Given a job with no parent
         const j = makeJob();
         // When it throws
         j.throw("boom");
-        // Then it should be caught by the detached job
+        // Then it should be caught by the root job
         see("Uncaught: boom")
     });
 
     describe(".asyncThrow()", () => {
         // reset handler to testing default after tests that tweak it
-        afterEach(() => { detached.asyncCatch(logUncaught); });
+        afterEach(() => { root.asyncCatch(logUncaught); });
 
         it("calls job.throw() if no asyncCatch", () => {
             // Given a job without an asyncCatch
@@ -552,16 +552,16 @@ describe("Error Handling", () => {
             // And the handler should be removed
             expect(catchers.has(j)).to.be.false;
         });
-        it("resets detached.asyncCatch() if it throws", async () => {
-            // Given a throwing handler on the detached job
-            detached.asyncCatch(() => { throw "whoops"; });
+        it("resets root.asyncCatch() if it throws", async () => {
+            // Given a throwing handler on the root job
+            root.asyncCatch(() => { throw "whoops"; });
             // When it's asyncThrown
-            detached.asyncThrow("boom");
+            root.asyncThrow("boom");
             await new Promise(res => {setTimeout(res, 0)});
             // Then both errors should be passed up to Promise.reject()
             see("rejected: boom", "rejected: whoops");
             // And the handler should be reset to the default
-            expect(catchers.get(detached)).to.equal(defaultCatch);
+            expect(catchers.get(root)).to.equal(defaultCatch);
         });
     });
 

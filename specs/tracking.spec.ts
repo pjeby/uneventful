@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, clock, describe, expect, it, log, see, spy, useClock, useRoot } from "./dev_deps.ts";
+import { afterEach, beforeEach, clock, describe, expect, it, log, logUncaught, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
 import {
-    CleanupFn, Job, JobResult, Suspend, detached, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
+    CleanupFn, Job, JobResult, Suspend, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
     must, nativePromise, newRoot, noop, restarting, root, start
 } from "../mod.ts";
 import { rule, runRules } from "../src/signals.ts";
@@ -107,13 +107,13 @@ describe("makeJob()", () => {
 });
 
 describe("newRoot()", () => {
-    after(() => void newRoot())
+    after(() => void newRoot().asyncCatch(logUncaught))
     it("returns a new job, ending the previous one", () => {
         // Given a root job
-        const r1 = newRoot().must(msg("old root stopped"))
+        const r1 = newRoot().must(msg("old root stopped")).asyncCatch(logUncaught)
         see()
         // When newRoot is called
-        const r2 = newRoot()
+        const r2 = newRoot().asyncCatch(logUncaught)
         // Then the old root should stop
         see("old root stopped")
         // And it should return the new root
@@ -123,7 +123,7 @@ describe("newRoot()", () => {
     });
     it("ensures root will be reset to null when the job ends", () => {
         // Given a root job
-        const r1 = newRoot()
+        const r1 = newRoot().asyncCatch(logUncaught)
         expect(root).to.equal(r1)
         // When the job ends
         r1.end()
@@ -132,7 +132,7 @@ describe("newRoot()", () => {
     });
     it("configures a default asyncCatch", () => {
         // Given a new root
-        const r1 = newRoot();
+        const r1 = newRoot().asyncCatch(logUncaught);
         // When a child job asynchronously throws
         r1.start().throw("blah")
         // Then our default test logger should catch it
@@ -222,37 +222,6 @@ describe("start(action)", () => {
             })).to.throw("dang");
             expect(cb).to.have.been.calledOnce;
         });
-    });
-});
-
-describe("detached", () => {
-    function cantDoThat(fn: () => any) {
-        expect(fn).to.throw("Can't do that with the detached job");
-    }
-    it("doesn't allow must(), do(), and other callback-based operations", () => {
-        cantDoThat(() => detached.must(noop));
-        cantDoThat(() => detached.do(noop));
-    });
-    it("refuses to end(), restart(), return(), throw(), etc.", () => {
-        cantDoThat(detached.end);
-        cantDoThat(() => detached.restart());
-        cantDoThat(() => detached.return(42));
-        cantDoThat(() => detached.throw("boom"));
-    });
-    it("returns noop from .release()", () => {
-        expect(detached.release(() => log("whatever"))).to.equal(noop);
-    });
-
-    it("allows creating 'nested' jobs", () => {
-        // Given a detached job factory that creates a job
-        const job = detached.bind(() => start(() => {
-            must(() => log("cleanup"));
-        }))();
-        see();
-        // When the job's cleanup is called
-        job.end();
-        // Then cleanups registered in the job should run
-        see("cleanup");
     });
 });
 
@@ -351,7 +320,7 @@ describe("Job instances", () => {
             try { f.end(); } finally { popCtx(); }
             expect(hasJobOrCell).to.equal(false);
         });
-        it("sends errors to the detached job", () => {
+        it("sends errors to the root job", () => {
             const cb1 = spy(), cb2 = spy();
             f.must(cb1);
             f.must(() => { throw new Error("caught me!"); })

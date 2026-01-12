@@ -1,6 +1,6 @@
 import { currentCell, popCtx, pushCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { detached, getJob, makeJob } from "./tracking.ts";
+import { getJob, makeJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
@@ -643,7 +643,7 @@ export class Cell {
                 throw e;
             }
         }), stop = cell.stop.bind(cell);
-        outer === detached || ruleStops.set(cell, outer.release(stop));
+        ruleStops.set(cell, outer.release(stop));
         cell.flags |= Is.Stateful
         cell.setQ(q);
         return stop;

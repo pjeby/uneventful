@@ -12,7 +12,7 @@ export const
     /** Jobs' asyncCatch handlers: in a map because few jobs will have them */
     catchers = new WeakMap<Job, (this: Job, err: any) => unknown>(),
 
-    /** Default error handler for the `detached` job */
+    /** Default error handler for the root job */
     defaultCatch = (e: any) => { Promise.reject(e); }
 ;
 
