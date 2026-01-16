@@ -10,6 +10,9 @@ title: Changelog
 `uneventful/signals`
 - Signals that gain their first (or lose their last) observer now run their setup or cleanup as part of the active rule batch (if applicable), instead of waiting for the next microtask.  This makes side effects (such as DOM manipulation) happen closer to the time when the rules controlling them are run (at the cost of possible thrashing if a sole controlling rule is terminated and replaced with one on a different scheduler).
 
+`uneventful/shared`
+- Added {@link uneventful/shared.$ the "singleton" operator, `$`}, which can be used as both a nano-dependency injector, and a useMemo-like utility for signal functions.
+
 `uneventful/utils`
 - Added {@link uneventful/utils.isClass `isClass()`} and {@link uneventful/utils.isPlainObject `isPlainObject()`}
 

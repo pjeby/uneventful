@@ -6,11 +6,14 @@
  * @disableGroups
  */
 
-import { must, start } from "./jobutils.ts";
-import { noop } from "./results.ts";
-import { root, newRoot } from "./tracking.ts";
-import { JobIterator, Yielding } from "./types.ts";
-import { apply, decorateMethod, isFunction, isGeneratorFunction, setMap } from "./utils.ts";
+import { currentCell } from "./ambient.ts"
+import { getCell } from "./cells.ts"
+import { Deps, getHooks, getMemo, setMemo, staleDeps } from "./hooks.ts"
+import { must, start } from "./jobutils.ts"
+import { noop } from "./results.ts"
+import { root, newRoot } from "./tracking.ts"
+import { JobIterator, Yielding } from "./types.ts"
+import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap } from "./utils.ts"
 
 /**
  * Wrap a factory function to create a singleton service accessor
@@ -41,6 +44,8 @@ import { apply, decorateMethod, isFunction, isGeneratorFunction, setMap } from "
  * saved service value throw a TypeError after the root job ends.  (Note that
  * such a thing should not be necessary in your production builds, however,
  * since at runtime you will normally only ever have one root job.)
+ *
+ * @category Resources
  */
 export function service<T>(factory: () => T): () => T {
     let known = false, value: T = undefined;
@@ -63,6 +68,8 @@ export function service<T>(factory: () => T): () => T {
  * than to check its `typeof`) will result in a TypeError.
  *
  * Note: your runtime environment must support `Proxy.revocable()`.
+ *
+ * @category Resources
  */
 export function expiring<T extends object>(obj: T): T {
     const p = Proxy.revocable(obj, {})
@@ -117,6 +124,8 @@ export function expiring<T extends object>(obj: T): T {
  * `start()` or `task()` for generators that return the result of an action, and
  * `fork` for generators that return a resource that will be owned by the
  * calling job.)
+ *
+ * @category Resources
  */
 export function fork<T>(gen: Yielding<T>): Yielding<T>
 export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F): F
@@ -146,3 +155,110 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>>(
 }
 
 const forks = new WeakMap<Yielding<any>, Yielding<any>>()
+
+
+/** @inline */
+type Factory<T> = (() => T) | (new () => T)
+const constants = new WeakMap(), factories = new WeakMap<Factory<any>, Factory<any>>()
+
+/**
+ * Return a singleton instance for the given factory
+ *
+ * Every call to `$()` with a given factory will return the same result. (Unless
+ * overridden using {@link $cache.set}, {@link $cache.unset} or
+ * {@link $cache.replace}.)  On first use, the factory is called (or
+ * constructed, if it's a class) and the result (if not an error) is cached for
+ * future calls.
+ *
+ * @summary Return a singleton instance for the given factory, or create a
+ * per-signal call-site cache (a bit like React's `useMemo()`).
+ *
+ * @category Singletons & Caching
+ */
+export function $<T>(factory: Factory<T>): T
+
+/**
+ * Create a per-signal call-site cache (ala React `useMemo`), via
+ * ```$``()```
+ *
+ * When you call ```$``(factory, deps)``` inside a given signal function for the
+ * first time, `factory()` will be called and returned, and the result cached
+ * for future calls *at the same location in that specific signal*.  If the
+ * values provided in the optional `deps` array differ from one call to the
+ * next, the cached value is discarded and recomputed. An error results if
+ * called outside a signal function.
+ *
+ * If you're familiar with React, you can think of this as being like calling
+ * `useMemo()`, with less of an ordering constraint.  (Which is why it's not
+ * *called* useMemo, as some aggressive linters may complain about it not being
+ * used in a React component.)
+ *
+ * While React hooks must all be called in the same order on every component
+ * refresh, ```$``()``` calls can be skipped or called in a different order, as
+ * they are identified by *code location* rather than by invocation order.  (You
+ * can even use them inside of loops, they'll just always return the same result
+ * for every iteration!)
+ *
+ * (Also unlike React hooks, they can also be used in nested functions, as long
+ * as those functions are only called from within the relevant signal.)
+ *
+ * @category Singletons & Caching
+ */
+export function $(template: TemplateStringsArray): <T>(factory: () => T, deps?: Deps) => T
+
+export function $<T>(key: Factory<T> | TemplateStringsArray): T | ((factory: () => T, deps?: Deps) => T) {
+    var factory: Factory<T>
+    if (isFunction(key)) {
+        // It's a factory, create (or return) an instance
+        return constants.has(key) ? constants.get(key) : setMap(constants, key,
+            (isClass(factory = factories.has(key) ? factories.get(key) : key) ? new factory : factory())
+        )
+    }
+    // It's a template, return a function
+    return ((factory: () => T, deps?: Deps) => {
+        const hooks = getHooks(currentCell || getCell("$``() "))
+        return staleDeps(hooks, key, deps, 2) ? setMemo(hooks, 2, factory()) : getMemo(hooks, 2)
+    })
+}
+
+/**
+ * Utilities for manipulating the singleton cache (e.g. for testing)
+ *
+ * @category Singletons & Caching
+ * @namespace
+ */
+export const $cache = {
+    /**
+     * Set the cached singleton instance for a given factory.  (e.g. for
+     * testing)
+     *
+     * All subsequent calls to `$(factory)` will return the given result, until
+     * manually set again, or reset via {@link $cache.unset}.
+     */
+    set<T>(factory: Factory<T>, result: T) {
+        constants.set(factory, result)
+    },
+
+    /**
+     * Unset the cached singleton for a given factory, such that the next call
+     * to `$(factory)` will create a new instance.
+     */
+    unset<T>(factory: Factory<T>) {
+        constants.delete(factory)
+    },
+
+    /**
+     * Replace the implementation for a given factory, such that future calls to
+     * `$(factory)` will call or construct the replacement instead.
+     *
+     * If the replacement is omitted, null, or undefined, future calls will
+     * invoke the original factory again.
+     *
+     * (Note: in all cases the replacement will not take effect if there's
+     * already a cached singleton, so you may wish to call
+     * {@link $cache.unset}() to ensure a future call is actually executed.)
+     */
+    replace<T>(factory: Factory<T>, replacement?: Factory<T>) {
+        (replacement != null && replacement !== factory) ? factories.set(factory, replacement) : factories.delete(factory)
+    }
+}

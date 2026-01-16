@@ -1,6 +1,7 @@
-import { Yielding, must, newRoot, root, sleep, start } from "../mod.ts";
-import { expiring, fork, service } from "../src/shared.ts"
-import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts";
+import { Yielding, must, newRoot, root, sleep, start } from "../mod.ts"
+import { $, $cache, expiring, fork, service } from "../src/shared.ts"
+import { cached, value } from "../src/signals.ts"
+import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts"
 
 describe("expiring()", () => {
     it("returns a proxy that becomes inaccessible after job end", () => {
@@ -169,5 +170,149 @@ describe("service()", () => {
             // Then it should return a fork()ed generator
             expect(root.run(() => fork(res))).to.equal(res)
         });
+    })
+})
+
+describe("Singletons and memos", () => {
+
+    function counter(count=0) { return () => ++count }
+
+    describe("$(factory)", () => {
+        it("returns the same value until $cache.unset", () => {
+            // Given a function that returns a new value on each call
+            const inc = counter()
+            // When $() is called on it more than once
+            // Then the value should be the same each time
+            expect($(inc)).to.equal(1)
+            expect($(inc)).to.equal(1)
+            expect($(inc)).to.equal(1)
+            // And when $cache.unset() is called on it
+            $cache.unset(inc)
+            // Then the function should be called again
+            expect($(inc)).to.equal(2)
+            // And the new value should be cached
+            expect($(inc)).to.equal(2)
+            expect($(inc)).to.equal(2)
+        })
+        it("uses new() if given an ES6 class", () => {
+            class thingy { foo: "bar" }
+            const first = $(thingy)
+            expect(first).to.be.instanceOf(thingy)
+            expect($(thingy)).to.equal(first)
+        })
+        it("uses new() if given an ES5 class", () => {
+            // Given some ES5 classes
+            function ES5BaseWithMethods() {}
+            ES5BaseWithMethods.prototype.aMethod = function aMethod() {}
+            function ES5Subclass () {}
+            Object.setPrototypeOf(ES5Subclass.prototype, ES5BaseWithMethods.prototype)
+
+            // When $() is called on a base class
+            const base = $(ES5BaseWithMethods)
+            // Then it should return an instance of that class
+            expect(base).to.be.instanceOf(ES5BaseWithMethods)
+            // On every subsequent call
+            expect($(ES5BaseWithMethods)).to.equal(base)
+
+            // And when $() is called on the subclass
+            const sub = $(ES5Subclass)
+            // Then it should return an instance of that class
+            expect(sub).to.be.instanceOf(ES5Subclass)
+            // On every subsequent call
+            expect($(ES5Subclass)).to.equal(sub)
+        })
+    })
+    describe("$cache", () => {
+        describe(".set", () => {
+            it("overrides the return for a specific factory", () => {
+                // Given a factory function with a $cache.set()
+                const factory = () => 42
+                $cache.set(factory, 21)
+                // When $(factory) is called
+                // Then the value set is returned
+                expect($(factory)).to.equal(21)
+                // And if a new value is set
+                $cache.set(factory, 19)
+                // Then the new value is returned
+                expect($(factory)).to.equal(19)
+                // Until an .unset is done
+                $cache.unset(factory)
+                // And then the factory is invoked
+                expect($(factory)).to.equal(42)
+            })
+        })
+        describe(".replace", () => {
+            it("replaces/unreplaces a factory", () => {
+                // Given a factory and a registered replacement
+                const factory = () => 42, replaced = () => 21
+                $cache.replace(factory, replaced)
+                // When $(factory) is called
+                // Then the replacement should be invoked
+                expect($(factory)).to.equal(21)
+                // And even if the replacement is removed
+                $cache.replace(factory)
+                // Then the replacement's result should still be cached
+                expect($(factory)).to.equal(21)
+                // Until the cache is unset for that factory
+                $cache.unset(factory)
+                // And then the original factory should be invoked
+                expect($(factory)).to.equal(42)
+            })
+        })
+    })
+    describe("$``(factory, deps?)", () => {
+        it("caches a different value per enclosing signal", () => {
+            // Given two signals using the same lexical cache
+            const inc = counter(), tick = value(0)
+            function get() { tick(); const v = $``(inc); log(v); return v }
+            const s1 = cached(get), s2 = cached(get)
+            // When called
+            // Then they should call the underlying function once each
+            expect(s1()).to.equal(1); see("1")
+            expect(s2()).to.equal(2); see("2")
+            // And then retain the cached values on subsequent calls
+            ++tick.value
+            expect(s1()).to.equal(1); see("1")
+            expect(s2()).to.equal(2); see("2")
+        })
+        it("cache locations are lexically distinct", () => {
+            // Given a signal using two lexical caches
+            const inc = counter(), tick = value(0)
+            const s = cached(() => { tick(); const v = [$``(inc),  $``(inc)]; log(v); return v.join(",") })
+            // When called
+            // Then each location should cache its value separately
+            expect(s()).to.equal("1,2"); see("1,2")
+            // And then retain the cached values on subsequent calls
+            ++tick.value
+            expect(s()).to.equal("1,2"); see("1,2")
+        })
+        it("discards the cache when deps change", () => {
+            // Given a signal for a $``, dependent on two values (one of which
+            // is a dependency)
+            const v1 = value(1), v2 = value(2)
+            const s = cached(() => {
+                log(`outer: ${v1()}`)
+                return $``(() => { log(`inner: ${v2()}`); return v1() * v2() }, [v2()])
+            })
+            // When called more than once with no change of values
+            // Then the value should not be recalculated
+            expect(s()).to.equal(2); see("outer: 1", "inner: 2")
+            expect(s()).to.equal(2); see()
+            // And if the only non-dep value is changed
+            ++v1.value
+            // Then the cached value should be used
+            expect(s()).to.equal(2); see("outer: 2")
+            // But if the dep value is changed
+            ++v2.value
+            // Then the cached value should be recomputed
+            expect(s()).to.equal(6); see("outer: 2", "inner: 3")
+        })
+        it("throws if used outside a signal", () => {
+            // Given a $``
+            const f = $``
+            // When it's invoked outside of any signal
+            // Then it should throw
+            expect(() => f(() => 42)).to.throw("$``() must be called from a reactive expression")
+        })
     })
 })
