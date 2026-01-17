@@ -43,10 +43,19 @@ module.exports = {
     navigationLinks: {
         Github: "https://github.com/pjeby/uneventful/"
     },
+    externalSymbolLinkMappings: {
+        "typescript": {
+            "Promise": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise"
+        }
+    },
     projectDocuments: ["CHANGELOG.md"],
     sort: [
         "alphabetical"
     ],
+    /** @param {import('markdown-it').default} parser */
+    markdownItLoader(parser) {
+        parser.use(require('markdown-it-footnote'))
+    },
     sortEntryPoints: false
 };
 

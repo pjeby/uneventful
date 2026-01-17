@@ -246,6 +246,18 @@ class _Throttle implements Throttle {
 
 const defaultInlet: Inlet = throttle();
 
+export function pipe<A,B,C,D,E,F,G,H,I,J>(input: A, ...fns: Chain9<A,J,B,C,D,E,F,G,H,I>): J
+export function pipe<A,B,C,D,E,F,G,H,I>  (input: A, ...fns: Chain8<A,I,B,C,D,E,F,G,H>):   I
+export function pipe<A,B,C,D,E,F,G,H>    (input: A, ...fns: Chain7<A,H,B,C,D,E,F,G>):     H
+export function pipe<A,B,C,D,E,F,G>      (input: A, ...fns: Chain6<A,G,B,C,D,E,F>):       G
+export function pipe<A,B,C,D,E,F>        (input: A, ...fns: Chain5<A,F,B,C,D,E>):         F
+export function pipe<A,B,C,D,E>          (input: A, ...fns: Chain4<A,E,B,C,D>):           E
+export function pipe<A,B,C,D>            (input: A, ...fns: Chain3<A,D,B,C>):             D
+export function pipe<A,B,C>              (input: A, ...fns: Chain2<A,C,B>):               C
+export function pipe<A,B>                (input: A, ...fns: Chain1<A,B>):                 B
+export function pipe<A>                  (input: A): A
+export function pipe(input: any, ...fns: Array<(v: any) => any>): any;
+
 /**
  * Pipe a stream (or anything else) through a series of single-argument
  * functions/operators
@@ -279,22 +291,22 @@ const defaultInlet: Inlet = throttle();
  *
  * @category Stream Operators
  */
-export function pipe<A,B,C,D,E,F,G,H,I,J>(input: A, ...fns: Chain9<A,J,B,C,D,E,F,G,H,I>): J
-export function pipe<A,B,C,D,E,F,G,H,I>  (input: A, ...fns: Chain8<A,I,B,C,D,E,F,G,H>):   I
-export function pipe<A,B,C,D,E,F,G,H>    (input: A, ...fns: Chain7<A,H,B,C,D,E,F,G>):     H
-export function pipe<A,B,C,D,E,F,G>      (input: A, ...fns: Chain6<A,G,B,C,D,E,F>):       G
-export function pipe<A,B,C,D,E,F>        (input: A, ...fns: Chain5<A,F,B,C,D,E>):         F
-export function pipe<A,B,C,D,E>          (input: A, ...fns: Chain4<A,E,B,C,D>):           E
-export function pipe<A,B,C,D>            (input: A, ...fns: Chain3<A,D,B,C>):             D
-export function pipe<A,B,C>              (input: A, ...fns: Chain2<A,C,B>):               C
-export function pipe<A,B>                (input: A, ...fns: Chain1<A,B>):                 B
-export function pipe<A>                  (input: A): A
-export function pipe(input: any, ...fns: Array<(v: any) => any>): any;
 export function pipe<A,X>(): X {
     var v = arguments[0];
     for (var i=1; i<arguments.length; i++) v = arguments[i](v);
     return v;
 }
+
+export function compose<A,B,C,D,E,F,G,H,I,J>(...fns: Chain9<A,J,B,C,D,E,F,G,H,I>): (a: A) => J
+export function compose<A,B,C,D,E,F,G,H,I>  (...fns: Chain8<A,I,B,C,D,E,F,G,H>):   (a: A) => I
+export function compose<A,B,C,D,E,F,G,H>    (...fns: Chain7<A,H,B,C,D,E,F,G>):     (a: A) => H
+export function compose<A,B,C,D,E,F,G>      (...fns: Chain6<A,G,B,C,D,E,F>):       (a: A) => G
+export function compose<A,B,C,D,E,F>        (...fns: Chain5<A,F,B,C,D,E>):         (a: A) => F
+export function compose<A,B,C,D,E>          (...fns: Chain4<A,E,B,C,D>):           (a: A) => E
+export function compose<A,B,C,D>            (...fns: Chain3<A,D,B,C>):             (a: A) => D
+export function compose<A,B,C>              (...fns: Chain2<A,C,B>):               (a: A) => C
+export function compose<A,B>                (...fns: Chain1<A,B>):                 (a: A) => B
+export function compose<A>                  (): (a: A) => A
 
 /**
  * Compose a series of single-argument functions/operators in application order.
@@ -315,20 +327,11 @@ export function pipe<A,X>(): X {
  *
  * @category Stream Operators
  */
-export function compose<A,B,C,D,E,F,G,H,I,J>(...fns: Chain9<A,J,B,C,D,E,F,G,H,I>): (a: A) => J
-export function compose<A,B,C,D,E,F,G,H,I>  (...fns: Chain8<A,I,B,C,D,E,F,G,H>):   (a: A) => I
-export function compose<A,B,C,D,E,F,G,H>    (...fns: Chain7<A,H,B,C,D,E,F,G>):     (a: A) => H
-export function compose<A,B,C,D,E,F,G>      (...fns: Chain6<A,G,B,C,D,E,F>):       (a: A) => G
-export function compose<A,B,C,D,E,F>        (...fns: Chain5<A,F,B,C,D,E>):         (a: A) => F
-export function compose<A,B,C,D,E>          (...fns: Chain4<A,E,B,C,D>):           (a: A) => E
-export function compose<A,B,C,D>            (...fns: Chain3<A,D,B,C>):             (a: A) => D
-export function compose<A,B,C>              (...fns: Chain2<A,C,B>):               (a: A) => C
-export function compose<A,B>                (...fns: Chain1<A,B>):                 (a: A) => B
-export function compose<A>                  (): (a: A) => A
 export function compose(...fns: ((v:any)=>any)[]) {
     return (val:any) => (pipe as any)(val, ...fns);
 }
 
+/** @inline */
 type Chain1<A,R>                 = [(v: A) => R];
 type Chain2<A,R,B>               = [...Chain1<A,B>, ...Chain1<B,R>];
 type Chain3<A,R,B,C>             = [...Chain1<A,B>, ...Chain2<B,R,C>];

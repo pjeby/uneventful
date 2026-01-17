@@ -23,6 +23,15 @@ div.tsd-accordion-details>ul.tsd-nested-navigation:not(
 div.tsd-signature + div.tsd-description { margin-top: 1em; }
 ul.tsd-signatures > li { margin-bottom: 2.5em; }
 
+/* Ensure in-page anchors (esp. signatures) don't get hidden under header.
+   (scroll-margin-top doesn't work right on signature anchors.)
+*/
+html { scroll-padding-top: calc(var(--dim-header-height) + 0.5rem); }
+:target { scroll-margin-top: unset; }
+
+/* Give footnotes some breathing room */
+hr.footnotes-sep { margin-top: 2em; }
+
 /* Readable text width, except for code blocks */
 .col-content { max-width: 45em; }
 .col-content .tsd-panel > pre { max-width: unset; }
@@ -96,7 +105,6 @@ a.tsd-index-link {
 
 li.tsd-signature.tsd-anchor-link,
 .tsd-member .tsd-anchor + h3.tsd-anchor-link,
-.tsd-typography p,
 .tsd-typography ul,
 .tsd-typography ol,
 .tsd-typography h4,

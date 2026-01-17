@@ -4,5 +4,13 @@
     "deno.unstable": true,
     "deno.config": "deno.jsonc",
     "deno.cacheOnSave": true,
+    // Workaround for Rewrap extension sometimes inserting nulls in comments
+    // (https://github.com/dnut/Rewrap/issues/47)
+    //
+    "editor.codeActionsOnSave": {"source.applyReplacements": "always"},
+    "betterReplaceOnSave.replacements": [{
+        "search": "\u0000",  "replace": " ",
+        "languages": [ "typescript", "javascript" ]
+    }],
     "typescript.tsdk": "node_modules\\typescript\\lib"
 }

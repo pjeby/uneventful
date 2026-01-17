@@ -77,9 +77,25 @@ export function expiring<T extends object>(obj: T): T {
     return p.proxy
 }
 
+export function fork<T>(gen: Yielding<T>): Yielding<T>
+export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F): F
+/** @hidden TC39 decorator */
+export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F, ctx: {kind: "method"}): F
+/** @hidden legacy decorator */
+export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {value?: F}>(clsOrProto:any, name: string|symbol, desc: D): D
+// Implementation
 /**
  * Wrap a generator, generator function, or generator method to run in parallel
  * and have a result that can be waited on in parallel as well.
+ *
+ * | Expression          | Returns | Behavior |
+ * | ------------------- | ------- | -------- |
+ * | `fork(Yielding<T>)`   | {@link Yielding `Yielding<T>`} | [Fork a generator](#fork) |
+ * | `fork(function *(...): Yielding<T>)` | `(...) => Yielding<T>` | [Wrap a generator function to fork on call](#fork-1) |
+ * | `@fork *method(): Yielding<T>`   | `Yielding<T>`          | Decorate[^1] a method to fork on call |
+ *
+ * [^1]: Both TC39 decorators and "legacy" TypeScript/Babel decorators are
+ * supported.
  *
  * Normally, when you `yield *` to a generator in a job function, you're
  * *pausing* the current function until that generator is finished.  And
@@ -127,14 +143,6 @@ export function expiring<T extends object>(obj: T): T {
  *
  * @category Resources
  */
-export function fork<T>(gen: Yielding<T>): Yielding<T>
-export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F): F
-/** @hidden TC39 decorator */
-export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F, ctx: {kind: "method"}): F
-/** @hidden legacy decorator */
-export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {value?: F}>(clsOrProto:any, name: string|symbol, desc: D): D
-
-// Implementation
 export function fork<T, F extends (...args: any[]) => Yielding<T>>(
     genOrFunc:Yielding<T> | ((...args: any[]) => Yielding<T>), ...args: any[]
 ) {
@@ -170,10 +178,6 @@ const constants = new WeakMap(), factories = new WeakMap<Factory<any>, Factory<a
  * constructed, if it's a class) and the result (if not an error) is cached for
  * future calls.
  *
- * @summary Return a singleton instance for the given factory, or create a
- * per-signal call-site cache (a bit like React's `useMemo()`).
- *
- * @category Singletons & Caching
  */
 export function $<T>(factory: Factory<T>): T
 
@@ -201,11 +205,21 @@ export function $<T>(factory: Factory<T>): T
  *
  * (Also unlike React hooks, they can also be used in nested functions, as long
  * as those functions are only called from within the relevant signal.)
- *
- * @category Singletons & Caching
  */
 export function $(template: TemplateStringsArray): <T>(factory: () => T, deps?: Deps) => T
 
+/**
+ * Return a singleton instance for the given factory, or create a per-signal
+ * call-site cache (a bit like React's `useMemo`, but more flexible).
+ *
+ * | Expression                    | Returns | Behavior |
+ * | ----------------------------- | ------- | -------- |
+ * | `$(() => T \| new () => T)`   | `T`     | [Get or make a singleton instance](#-)     |
+ * | ```$``(() =>``` `T,` `deps?)` | `T`     | [Return a per-signal memoized value](#--1) |
+ *
+ * @category Singletons & Caching
+ * @experimental
+ */
 export function $<T>(key: Factory<T> | TemplateStringsArray): T | ((factory: () => T, deps?: Deps) => T) {
     var factory: Factory<T>
     if (isFunction(key)) {
@@ -226,6 +240,7 @@ export function $<T>(key: Factory<T> | TemplateStringsArray): T | ((factory: () 
  *
  * @category Singletons & Caching
  * @namespace
+ * @experimental
  */
 export const $cache = {
     /**
