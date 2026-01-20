@@ -6,9 +6,7 @@
  * @disableGroups
  */
 
-import { currentCell } from "./ambient.ts"
-import { getCell } from "./cells.ts"
-import { Deps, getHooks, getMemo, setMemo, staleDeps } from "./hooks.ts"
+import { CallSite, perSignal } from "./hooks.ts"
 import { must, start } from "./jobutils.ts"
 import { noop } from "./results.ts"
 import { root, newRoot } from "./tracking.ts"
@@ -182,63 +180,90 @@ const constants = new WeakMap(), factories = new WeakMap<Factory<any>, Factory<a
 export function $<T>(factory: Factory<T>): T
 
 /**
- * Create a per-signal call-site cache (ala React `useMemo`), via
- * ```$``()```
+ * Create a per-signal lazy constant, via ```$``()```
  *
- * When you call ```$``(factory, deps)``` inside a given signal function for the
- * first time, `factory()` will be called and returned, and the result cached
- * for future calls *at the same location in that specific signal*.  If the
- * values provided in the optional `deps` array differ from one call to the
- * next, the cached value is discarded and recomputed. An error results if
- * called outside a signal function.
+ * When you call ```$``(factory)``` inside a given signal function for the first
+ * time, `factory()` will be called (or constructed, if it's a class) and
+ * returned, and the result cached for future calls *at the same location in
+ * that specific signal*.  An error results if called outside a signal function.
  *
- * If you're familiar with React, you can think of this as being like calling
- * `useMemo()`, with less of an ordering constraint.  (Which is why it's not
- * *called* useMemo, as some aggressive linters may complain about it not being
- * used in a React component.)
+ * The primary difference between this and the singleton operator (plain `$()`),
+ * is that lazy constants are singletons *per call-site*, *per signal*.  A
+ * specific invocation of ```$``()``` in a specific signal will always return
+ * the same value.
  *
- * While React hooks must all be called in the same order on every component
- * refresh, ```$``()``` calls can be skipped or called in a different order, as
- * they are identified by *code location* rather than by invocation order.  (You
- * can even use them inside of loops, they'll just always return the same result
- * for every iteration!)
+ * @remarks
+ * Lazy constants are somewhat similar in concept to a React `useMemo()`, but
+ * also *very* different. React requires hooks to always be invoked in the same
+ * order to match them up with their targets, but lazy constants do not need
+ * this: they're tied to the line of code where they're called, and you can
+ * branch, loop, skip, or call them out of order with no consequence.  (They'll
+ * just always return the same value each time if running in the same signal -
+ * even in a loop or called in another function with different arguments, and
+ * they don't support dependencies because you can use signals instead.)
  *
  * (Also unlike React hooks, they can also be used in nested functions, as long
- * as those functions are only called from within the relevant signal.)
+ * as those functions are only invoked from within a relevant signal.
+ * Conversely, because they're keyed to a specific code location, you can't just
+ * call a wrapping function more than once in a signal, and expect to get
+ * different results: a lazy constant is a per-signal *constant*, not a React
+ * hook!)
  */
-export function $(template: TemplateStringsArray): <T>(factory: () => T, deps?: Deps) => T
+export function $(callSite: CallSite): <T>(factory: Factory<T>) => T
 
 /**
  * Return a singleton instance for the given factory, or create a per-signal
- * call-site cache (a bit like React's `useMemo`, but more flexible).
+ * lazy constant (a bit like React's `useMemo`, but without the deps or ordering
+ * constraints).
  *
  * | Expression                    | Returns | Behavior |
  * | ----------------------------- | ------- | -------- |
  * | `$(() => T \| new () => T)`   | `T`     | [Get or make a singleton instance](#-)     |
- * | ```$``(() =>``` `T,` `deps?)` | `T`     | [Return a per-signal memoized value](#--1) |
+ * | ```$``(() => T \| new () => T)``` | `T` | [Return a per-signal lazy constant](#--1) |
  *
- * @category Singletons & Caching
+ * #### Lazy-Initialized Singletons
+ * In complex programs and frameworks, it's often beneficial to both 1) have a
+ * single access point for some functionality, and 2) not to need a specific
+ * point where that access is explicitly initialized.  [The `$()` function](#-)
+ * lets you unobtrusively request a singleton instance to be instantiated on
+ * demand, then shared with all other access points in the program, and it does
+ * so without requiring any change to the target class or classes.  (You can
+ * even {@link $cache.set override the target instance} or
+ * {@link $cache.replace replace its factory}, as one might with a
+ * dependency-injection container.)
+ *
+ * #### Lazy Constants in Signal Functions
+ * Within functions, there's often a need to have some state that carries across
+ * multiple calls to the function.  (Like what other languages do with
+ * function-static variables.)
+ *
+ * You can do something like this with a closure, of course, but it often
+ * increases code complexity, especially when writing signal functions. So [the
+ * lazy-constant operator (```$``()```) ](#--1) lets you write expressions like
+ * ```const myMap = $``(WeakMap<...>)``` instead of needing to initialize (or at
+ * least define) `myMap` outside the signal function body.
+ *
+ * @category Singletons & Lazy Constants
  * @experimental
  */
-export function $<T>(key: Factory<T> | TemplateStringsArray): T | ((factory: () => T, deps?: Deps) => T) {
-    var factory: Factory<T>
+export function $<T>(key: Factory<T> | CallSite): T | ((factory: Factory<T>) => T) {
     if (isFunction(key)) {
         // It's a factory, create (or return) an instance
         return constants.has(key) ? constants.get(key) : setMap(constants, key,
-            (isClass(factory = factories.has(key) ? factories.get(key) : key) ? new factory : factory())
+            callOrConstruct(factories.has(key) ? factories.get(key) : key)
         )
     }
-    // It's a template, return a function
-    return ((factory: () => T, deps?: Deps) => {
-        const hooks = getHooks(currentCell || getCell("$``() "))
-        return staleDeps(hooks, key, deps, 2) ? setMemo(hooks, 2, factory()) : getMemo(hooks, 2)
-    })
+    // It's a call site for ``, return a function
+    return perSignal<(factory: Factory<T>) => T>(callOrConstruct, key, "$``() ")
 }
+
+/** Call or construct a zero-arg factory */
+function callOrConstruct<T>(f: Factory<T>): T { return isClass(f) ? new f : f() }
 
 /**
  * Utilities for manipulating the singleton cache (e.g. for testing)
  *
- * @category Singletons & Caching
+ * @category Singletons & Lazy Constants
  * @namespace
  * @experimental
  */

@@ -286,33 +286,15 @@ describe("Singletons and memos", () => {
             ++tick.value
             expect(s()).to.equal("1,2"); see("1,2")
         })
-        it("discards the cache when deps change", () => {
-            // Given a signal for a $``, dependent on two values (one of which
-            // is a dependency)
-            const v1 = value(1), v2 = value(2)
-            const s = cached(() => {
-                log(`outer: ${v1()}`)
-                return $``(() => { log(`inner: ${v2()}`); return v1() * v2() }, [v2()])
-            })
-            // When called more than once with no change of values
-            // Then the value should not be recalculated
-            expect(s()).to.equal(2); see("outer: 1", "inner: 2")
-            expect(s()).to.equal(2); see()
-            // And if the only non-dep value is changed
-            ++v1.value
-            // Then the cached value should be used
-            expect(s()).to.equal(2); see("outer: 2")
-            // But if the dep value is changed
-            ++v2.value
-            // Then the cached value should be recomputed
-            expect(s()).to.equal(6); see("outer: 2", "inner: 3")
-        })
         it("throws if used outside a signal", () => {
-            // Given a $``
-            const f = $``
-            // When it's invoked outside of any signal
+            // When $`` is used outside of any signal
             // Then it should throw
-            expect(() => f(() => 42)).to.throw("$``() must be called from a reactive expression")
+            expect(() => $``).to.throw("$``() must be called from a reactive expression")
+            // And given a $`` callback
+            const cb = cached(() => $``)()
+            // When it is used outside a signal
+            // Then it should also throw
+            expect(() => cb(() => 42)).to.throw("$``() must be called from a reactive expression")
         })
     })
 })

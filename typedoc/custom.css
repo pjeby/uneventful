@@ -110,7 +110,7 @@ li.tsd-signature.tsd-anchor-link,
 .tsd-typography h4,
 .tsd-typography h5,
 .tsd-typography h6 {
-    margin: 0 0 1em;
+    margin-bottom: 0;
 }
 
 pre { margin-bottom: 1em; }
