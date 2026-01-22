@@ -19,6 +19,7 @@ import { next } from "./sinks.ts";  // needed for documentation link
 export type * from "./rules.ts"
 export { rule, runRules } from "./rules.ts"
 export { WriteConflict, CircularDependency } from "./cells.ts";
+export * from "./reactive-functions.ts";
 
 /**
  * An observable value, as a zero-argument callable with extra methods.

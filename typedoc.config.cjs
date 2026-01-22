@@ -55,6 +55,8 @@ module.exports = {
     /** @param {import('markdown-it').default} parser */
     markdownItLoader(parser) {
         parser.use(require('markdown-it-footnote'))
+        // Use footnote tag to generate the anchor ID - lets you dedupe between sections
+        parser.renderer.rules.footnote_anchor_name = (tokens, idx) => tokens[idx].meta.label
     },
     sortEntryPoints: false
 };

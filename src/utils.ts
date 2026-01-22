@@ -92,6 +92,27 @@ export function isFunction(f: any): f is Function {
     return typeof f === "function";
 }
 
+/**
+ * Is the given value a plain synchronous function?
+ *
+ * Returns false if the function is an ES6 class (non-emulated!), async,
+ * generator, or async generator function.  Returns true for regular, arrow, and
+ * bound regular functions.
+ *
+ * Note: a function can return a promise or generator or implement a class, and
+ * yet still not *be* an async function, generator function, or native class.
+ * This function doesn't detect/reject any *emulated* versions of those things,
+ * only native-to-the-engine async/generator functions and classes.  (It also
+ * returns false for {@link CallableObject} instances, or similarly-created
+ * function subclasses.)
+ *
+ * @category Functions and Decorators
+ */
+export function isPlainFunction(f: any): f is Function {
+    const t = functionType(f, Fn.ES6_CLASS)
+    return t === Fn.PLAIN || t === Fn.BOUND
+}
+
 const enum Fn { NON_FUNC = 0, PLAIN, BOUND, ES6_CLASS, ES5_CLASS, EXOTIC }
 function functionType(fn: any, checkClass?: Fn.ES5_CLASS | Fn.ES6_CLASS) {
     var prot: any

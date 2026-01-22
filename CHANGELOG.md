@@ -8,6 +8,7 @@ title: Changelog
 - Removed the deprecated `detached` and `rule.detached` APIs
 
 `uneventful/signals`
+- Added the {@link uneventful/signals.fn `fn()`} and {@link uneventful/signals.fx `fx()`} functions as the easiest way to create computed signals and effects, respectively.  Both allow creating simple signals/effects, method decorators, functions that create and apply signals/effects on the fly as extensions of arbitrary objects, and inline-cached, per-signal, per-location variants.  `fx()` are rule-like in that they can be called from any job and trigger observation of anything they depend on, but unlike rules they are started synchronously and can be shared by multiple jobs and even called/observed by other signals, providing idempotent actions and side-effects.
 - Signals that gain their first (or lose their last) observer now run their setup or cleanup as part of the active rule batch (if applicable), instead of waiting for the next microtask.  This makes side effects (such as DOM manipulation) happen closer to the time when the rules controlling them are run (at the cost of possible thrashing if a sole controlling rule is terminated and replaced with one on a different scheduler).
 
 `uneventful/shared`

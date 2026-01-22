@@ -1,6 +1,8 @@
 import { describe, expect, it, log, see } from "./dev_deps.ts"
-import { GeneratorBase, arrayEq, call, decorateMethod, isClass, isGeneratorFunction, isPlainObject } from "../src/utils.ts"
+import { GeneratorBase, arrayEq, call, decorateMethod, isClass, isGeneratorFunction, isPlainFunction, isPlainObject } from "../src/utils.ts"
 import { readFileSync } from "node:fs"
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 
 describe("Utilities", () => {
     describe("arrayEq()", () => {
@@ -89,6 +91,24 @@ describe("Utilities", () => {
 
         function functionToWrap() { return 99; }
     })
+    describe("isPlainFunction()", () => {
+        it("accepts plain functions, rejects native classes and exotic functions", () => {
+            expect(isPlainFunction(literalObject)).to.be.false
+            expect(isPlainFunction(anArrowFunc)).to.be.true
+            expect(isPlainFunction(aPlainFunc)).to.be.true
+            expect(isPlainFunction(aGenfunc)).to.be.false
+            expect(isPlainFunction(anAsyncGenFunc)).to.be.false
+            expect(isPlainFunction(anAsyncFunc)).to.be.false
+            if (realm) {
+                expect(isPlainFunction(realm.literalObject)).to.be.false
+                expect(isPlainFunction(realm.anArrowFunc)).to.be.true
+                expect(isPlainFunction(realm.aPlainFunc)).to.be.true
+                expect(isPlainFunction(realm.aGenfunc)).to.be.false
+                expect(isPlainFunction(realm.anAsyncGenFunc)).to.be.false
+                expect(isPlainFunction(realm.anAsyncFunc)).to.be.false
+            }
+        })
+    })
     describe("isPlainObject()", () => {
         it("returns true for literals, new Object, and Object.create", () => {
             expect(isPlainObject(literalObject)).to.be.true
@@ -163,10 +183,11 @@ const realm = (() => {
         vm.runInNewContext(code, ctx)
         expect(Object.keys(ctx)).to.deep.equal([
             'anAsyncFunc', 'anAsyncGenFunc', 'aGenfunc', 'aPlainFunc', 'ES5BaseWithMethods',
-            'ES5Subclass', 'aClass', 'literalObject', 'newObject', 'created'
+            'ES5Subclass', 'anArrowFunc', 'aClass', 'literalObject', 'newObject', 'created'
         ])
         return ctx as any
     } catch (e) {
+        console.warn("error setting up vm module; skipping realm-related tests")
         console.error(e)
     }
 })()
@@ -176,7 +197,7 @@ async function anAsyncFunc() {}
 async function *anAsyncGenFunc() {}
 function *aGenfunc() {}
 function aPlainFunc() {}
-const anArrowFunc = () => {}
+var anArrowFunc = () => {}
 var aClass = (class aClass {})
 
 function ES5BaseWithMethods() {}
