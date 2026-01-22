@@ -394,7 +394,7 @@ export class Cell {
     }
 
     doRecalc() {
-        pushCtx(this.job, this);
+        pushCtx(undefined, this);
         if (this.flags & Is.Stateful) {
             this.job?.restart();
         }
@@ -545,6 +545,7 @@ export class Cell {
     }
 
     getJob() {
+        if (!this.isObserved()) throw new Error("Job API used in unobserved signal or peek()")
         if (this.job) return this.job;
         this.flags |= Is.Stateful;
         return this.job = makeJob()

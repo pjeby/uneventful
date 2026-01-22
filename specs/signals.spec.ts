@@ -4,7 +4,7 @@ import {
     action, stable, stableArray
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
-import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob } from "../src/mod.ts";
+import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob, isJobActive } from "../src/mod.ts";
 import { currentCell, currentJob } from "../src/ambient.ts";
 import { defaultQ, demandChanges, staleStreams } from "../src/cells.ts";
 
@@ -266,10 +266,11 @@ describe("Signal Constructors/Interfaces", () => {
                 // Given a cached that does job functions
                 const c = cached(() => { log("do"); must(msg("undo")); });
                 // When called without subscription
-                // Then the job should run and immediately restart
-                c(); see("do", "undo");
+                // Then the job should run and immediately throw
+                expect(c).to.throw("Job API used in unobserved signal")
+                see("do")
                 // But when subscribed, and the demand is updated
-                const r1 = rule(() => void c()); runRules();
+                const r1 = rule(() => { try { c() } catch (e) {} }); runRules();
                 // Then it should be queued for re-run, but not restart
                 see("do");
                 // And when unsubscribed (w/demand update)
@@ -285,11 +286,11 @@ describe("Signal Constructors/Interfaces", () => {
 
             it("doesn't recalc with no sources, even if timestamp changes", () => {
                 // Given a value, and a cached that does job functions w/no deps
-                const v = value(42), c = cached(() => { log("do"); must(msg("undo")); })
+                const v = value(42), c = cached(() => { log("do"); if (isObserved()) must(msg("undo")); })
                 // When called while unobserved
-                // Then it initially runs and then rolls back
-                v.value++; c(); see("do", "undo")
-                // But then stops re-running, since it "knows" it will just run/rollback again
+                // Then it calculates once
+                v.value++; c(); see("do")
+                // But then stops re-running, since it "knows" it won't do anything new
                 v.value++; c(); see()
                 v.value++; c(); see()
                 // And When it's tracked by a rule
@@ -523,14 +524,26 @@ describe("Dependency tracking", () => {
                 // Then it should still throw a write conflict
                 expect(runRules).to.throw(WriteConflict);
             });
-            it("without blocking access to an enclosing rule's job", () => {
+            it("blocks access to an enclosing rule's job", () => {
                 // Given a rule with a peek() block that accesses the current job
                 const stop = rule(() => { peek(getJob); })
                 // When it's run
-                runRules()
-                // Then it should not produce an error
+                // Then it should throw an error
+                expect(runRules).to.throw("Job API used in unobserved signal")
                 stop()
             });
+            it("makes isObserved() and isJobActive() false", () => {
+                // Given a rule with a peek() and unpeeked queries of job/observed states
+                const stop = rule(() => {
+                    log(peek(isObserved)); log(peek(isJobActive))
+                    log(isObserved()); log(isJobActive())
+                })
+                // When it's run
+                runRules()
+                // Then the peek'd queries should be false, and the unpeek'd ones true
+                see("false", "false", "true", "true")
+                stop()
+            })
         })
     });
     describe("action()", () => {

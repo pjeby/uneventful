@@ -1,4 +1,4 @@
-import { currentJob, popCtx, pushCtx } from "./ambient.ts";
+import { currentCell, currentJob, popCtx, pushCtx } from "./ambient.ts";
 import { getJob, makeJob } from "./tracking.ts";
 import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
 import { apply } from "./utils.ts";
@@ -76,7 +76,7 @@ export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T
  *
  * @category Jobs
  */
-export function isJobActive() { return !!currentJob; }
+export function isJobActive() { return !!(currentJob || currentCell?.isObserved()); }
 
 
 const timers = new WeakMap<Job,

@@ -1,7 +1,7 @@
 import { describe, it } from "mocha";
 import { cellJob, currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
 import { root, Job } from "../src/mod.ts";
-import { Cell } from "../src/cells.ts";
+import { Cell, defaultQ } from "../src/cells.ts";
 import { expect } from "chai";
 
 function expectJobCell(job?: Job, cell?: Cell) {
@@ -43,7 +43,7 @@ describe("Ambient Context API", () => {
     });
     describe("cellJob() creates a job for the cell", () => {
         it("if cell and no job", () => {
-            const c = new Cell;
+            const c = new Cell; c.setQ(defaultQ)
             // Given a cell and no job on the context stack
             pushCtx(undefined, c)
             try {

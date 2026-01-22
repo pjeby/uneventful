@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts
 import { runRules, value, cached, rule, CircularDependency, WriteConflict, stableArray } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
-import { IsStream, must } from "../mod.ts";
+import { IsStream, isObserved, must } from "../mod.ts";
 import { arrayEq } from "../src/utils.ts";
 
 describe("Demand management", () => {
@@ -22,9 +22,9 @@ describe("Demand management", () => {
         });
         it("doesn't double-recalc an observed cell", () => {
             // Given a cached that does job functions,
-            const c = Cell.mkCached(() => { log("do"); must(msg("undo")); });
+            const c = Cell.mkCached(() => { log("do"); if (isObserved()) must(msg("undo")); });
             // That is both stateful
-            c.getValue(); see("do", "undo");  // it's stateful now
+            c.getValue(); see("do");  // it's stateful now
             expect(demandChanges.isEmpty()).to.be.true;
             // And observed (and queued for demand update)
             c.setQ(defaultQ);
@@ -35,6 +35,11 @@ describe("Demand management", () => {
             expect(demandChanges.isEmpty()).to.be.true;
             // And not scheduled for recalc when the queue flushes
             demandChanges.flush(); runRules(); see();
+            // And when it's no longer observed
+            c.setQ(null);
+            expect(demandChanges.isEmpty()).to.be.false;
+            // Then it should shut down after demand is updated
+            demandChanges.flush(); see("undo");
         });
     });
     describe("Queue changes", () => {
