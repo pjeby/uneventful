@@ -1,6 +1,6 @@
 import { currentCell, popCtx, pushCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { getJob, makeJob } from "./tracking.ts";
+import { _Job, getJob } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
@@ -548,7 +548,7 @@ export class Cell {
         if (!this.isObserved()) throw new Error("Job API used in unobserved signal or peek()")
         if (this.job) return this.job;
         this.flags |= Is.Stateful;
-        return this.job = makeJob()
+        return this.job = new _Job
     }
 
     updateDemand() {
@@ -577,7 +577,7 @@ export class Cell {
                 return
             }
             if (job) return;
-            job = makeJob<void>(root).do(r => {
+            job = new _Job<void>(root).do(r => {
                 if (isError(r)) {
                     cell.setValue(markHandled(r), true);
                 } else {

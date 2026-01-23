@@ -121,8 +121,7 @@ export type StartObj<T> = Yielding<T> | Promise<T> | PromiseLike<T>
  * canceled (using {@link Job.end \.end()} or
  * {@link Job.restart \.restart()}).
  *
- * Jobs can be created using {@link start}(), {@link root}.start(), and
- * {@link makeJob}().
+ * Jobs can be created using {@link start}() and {@link root}.start().
  *
  * @category Types and Interfaces
  */

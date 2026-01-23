@@ -1,5 +1,5 @@
 import { currentCell, currentJob, popCtx, pushCtx } from "./ambient.ts";
-import { getJob, makeJob } from "./tracking.ts";
+import { getJob } from "./tracking.ts";
 import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
 import { apply } from "./utils.ts";
 
@@ -177,7 +177,7 @@ export function abortSignal(job: Job = getJob()) {
 export function restarting<F extends AnyFunction>(task: F): F
 export function restarting(): (task: () => OptionalCleanup) => void
 export function restarting<F extends AnyFunction>(task?: F): F {
-    const outer = getJob(), inner = makeJob<never>(outer), {end} = inner;
+    const outer = getJob(), inner = outer.start<never>(), {end} = inner;
     task ||= <F>((f: () => OptionalCleanup) => { inner.must(f()); });
     inner.asyncCatch(e => outer.asyncThrow(e));
     return <F>function(this: ThisParameterType<F>) {

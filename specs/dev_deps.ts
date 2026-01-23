@@ -55,7 +55,7 @@ export async function waitAndSee(...args: Array<string|RegExp>) {
 import { after, before, reporters } from "mocha";
 reporters.Base.colors.pending = 93;
 
-import { makeJob, root } from "../src/tracking.ts";
+import { root } from "../src/tracking.ts";
 import { isCancel } from "../src/results.ts";
 import { popCtx, pushCtx } from "../src/ambient.ts";
 import { beforeEach, afterEach } from "mocha";
@@ -67,7 +67,7 @@ export const runPulls = pulls.flush;
 
 /** Arrange for each test in the current suite to be wrapped in a root job */
 export function useRoot() {
-    var f = makeJob();
+    var f = root.start().restart();
     beforeEach(() => { pushCtx(f); log.clear(); });
     afterEach(() => { f.restart(); popCtx(); log.clear(); });
 }

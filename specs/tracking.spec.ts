@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, clock, describe, expect, it, log, logUncaught, see, spy, useClock, useRoot } from "./dev_deps.ts";
 import { currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
 import {
-    CleanupFn, Job, JobResult, Suspend, getJob, getResult, isCancel, isHandled, isJobActive, isValue, makeJob,
+    CleanupFn, Job, JobResult, Suspend, getJob, getResult, isCancel, isHandled, isJobActive, isValue,
     must, nativePromise, newRoot, noop, restarting, root, start
 } from "../mod.ts";
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
+import { _Job } from "../src/tracking.ts";
 
-describe("makeJob()", () => {
-    it("returns new standalone jobs", () => {
-        const job1 = makeJob(), job2 = makeJob();
+describe("Job Implementation", () => {
+    it("creates new standalone jobs", () => {
+        const job1 = new _Job(), job2 = new _Job();
         expect(job1.end).to.be.a("function");
         expect(job2.end).to.be.a("function");
         expect(job1).to.not.equal(job2);
@@ -18,7 +19,7 @@ describe("makeJob()", () => {
         useClock();
         it("doesn't permanently terminate the job", () => {
             // Given a restarted job
-            const f = makeJob(); f.restart();
+            const f = new _Job(); f.restart();
             // When new cleanups are added to the job
             f.must(() => log("must()"));
             f.release(() => log("release()"));
@@ -32,7 +33,7 @@ describe("makeJob()", () => {
             f.end(); see("release()2", "must()2");
         });
         it("passes CancelResult to cleanups", () => {
-            const f = makeJob();
+            const f = new _Job();
             f.must(r => log(isCancel(r)));
             f.restart();
             see("true");
@@ -40,14 +41,14 @@ describe("makeJob()", () => {
         describe("won't revive an ended job", () => {
             it("after the end()", () => {
                 // Given an ended job
-                const r = makeJob(); r.end();
+                const r = new _Job(); r.end();
                 // When restart is called
                 // Then it should throw
                 expect(() => r.restart()).to.throw("Job already ended")
             });
             it("during the end()", () => {
                 // Given a job with a callback that runs restart
-                const f = makeJob();
+                const f = new _Job();
                 f.must(() => {
                     try { f.restart(); } catch(e) { log(e); }
                 })
@@ -62,7 +63,7 @@ describe("makeJob()", () => {
         useClock();
         it("makes future must() + un-canceled release() run async+asap", () => {
             // Given an ended job with some cleanups
-            const f = makeJob(); f.end();
+            const f = new _Job(); f.end();
             // When new cleanups are added to the job
             f.must(() => log("must()"));
             f.release(() => log("release()"));
@@ -71,7 +72,7 @@ describe("makeJob()", () => {
         });
         it("doesn't run canceled release()", () => {
             // Given an ended job with a cleanup
-            const f = makeJob(); f.end();
+            const f = new _Job(); f.end();
             f.must(() => log("this should still run"));
             // When a release() is added and canceled
             f.release(() => log("this won't"))();
@@ -82,22 +83,22 @@ describe("makeJob()", () => {
     });
     describe("creates nested jobs,", () => {
         var f: Job, cb = spy();
-        beforeEach(() => { cb = spy(); f = makeJob(); });
+        beforeEach(() => { cb = spy(); f = new _Job(); });
         it("calling the stop function if outer is cleaned up", () => {
-            makeJob(f, cb);
+            new _Job(f, cb);
             expect(cb).to.not.have.been.called;
             f.end();
             expect(cb).to.have.been.calledOnce;
         });
         it("not calling the stop function if inner is cleaned up", () => {
-            const inner = makeJob(f, cb);
+            const inner = new _Job(f, cb);
             expect(cb).to.not.have.been.called;
             inner.end();
             f.end();
             expect(cb).to.not.have.been.called;
         });
         it("cleaning up the inner as the default stop action", () => {
-            const inner = makeJob(f);
+            const inner = new _Job(f);
             inner.must(cb);
             expect(cb).to.not.have.been.called;
             f.end();
@@ -229,7 +230,7 @@ describe("Job API", () => {
     it("isJobActive() is true during run()", () => {
         var tested: boolean;
         expect(isJobActive(), "Shouldn't be active before run()").to.be.false;
-        makeJob().run(()=> {
+        new _Job().run(()=> {
             expect(isJobActive(), "Should be active during run()").to.be.true;
             tested = true;
         })
@@ -238,7 +239,7 @@ describe("Job API", () => {
     });
     describe("calls methods on the active job", () => {
         var t1: Job, cb = spy();
-        beforeEach(() => { t1 = makeJob(); cb = spy(); pushCtx(t1); });
+        beforeEach(() => { t1 = new _Job(); cb = spy(); pushCtx(t1); });
         afterEach(() => { popCtx(); });
         it("must()", () => {
             const m = spy(t1, "must");
@@ -256,7 +257,7 @@ describe("Job API", () => {
 describe("Job instances", () => {
     // Given a job
     var f: Job;
-    beforeEach(() => { f = makeJob(); });
+    beforeEach(() => { f = new _Job(); });
     describe(".must()", () => {
         it("can be called without a callback", () => {
             f.must(); f.end();
@@ -338,9 +339,9 @@ describe("Job instances", () => {
         it("propagates on an already ended job", () => {
             f.end();
             f.throw("boom"); see("Uncaught: boom");
-            f = makeJob(); f.return(99);
+            f = new _Job(); f.return(99);
             f.throw("boom"); see("Uncaught: boom");
-            f = makeJob(); f.throw("blah"); see("Uncaught: blah");
+            f = new _Job(); f.throw("blah"); see("Uncaught: blah");
             f.throw("boom"); see("Uncaught: boom");
         });
         it("passes an ErrorResult to callbacks", () => {
@@ -353,9 +354,9 @@ describe("Job instances", () => {
         it("Fails on an already ended job", () => {
             f.end();
             expect(() => f.return(42)).to.throw("Job already ended");
-            f = makeJob(); f.return(99);
+            f = new _Job(); f.return(99);
             expect(() => f.return(42)).to.throw("Job already ended");
-            f = makeJob(); f.throw("blah"); see("Uncaught: blah");
+            f = new _Job(); f.throw("blah"); see("Uncaught: blah");
             expect(() => f.return(42)).to.throw("Job already ended");
         });
         it("passes a ValueResult to callbacks", () => {
@@ -390,7 +391,7 @@ describe("Job instances", () => {
             expect(isJobActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
-            const f1 = makeJob();
+            const f1 = new _Job();
             expect(isJobActive()).to.be.false;
             f.run(() => {
                 expect(getJob()).to.equal(f);
@@ -417,7 +418,7 @@ describe("Job instances", () => {
         useClock();
         it("can be observed by a rule or signal", () => {
             // Given a rule observing a pending job
-            const j = makeJob();
+            const j = new _Job();
             const end = rule(() => {
                 const res = j.result()
                 if (j.result()) log(`done: ${getResult(res)}`); else log(`loading...`);
@@ -438,7 +439,7 @@ describe("Job instances", () => {
             expect(isJobActive()).to.be.false;
         });
         it("restores the context, even on error", () => {
-            const f1 = makeJob();
+            const f1 = new _Job();
             expect(isJobActive()).to.be.false;
             f.bind(() => {
                 expect(getJob()).to.equal(f);
@@ -536,7 +537,7 @@ describe("Job instances", () => {
 describe("restarting()", () => {
     it("runs functions in call-specific, restarting jobs, until enclosing job ends", () => {
         // Given a restarting wrapper created in an outer job
-        const outer = makeJob(), w = outer.bind(restarting)();
+        const outer = new _Job(), w = outer.bind(restarting)();
         let f1: Job, f2: Job;
         // When it's called with a function
         w(() => { f1 = getJob(); log("called"); must(() => log("undo")); });
@@ -557,7 +558,7 @@ describe("restarting()", () => {
     });
     it("uses a different job for each wrapper", () => {
         // Given two restarting wrappers created in an outer job
-        const outer = makeJob(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
+        const outer = new _Job(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
         let f1: Job, f2: Job;
         // When they are called
         w1(() => { f1 = getJob(); });
@@ -570,7 +571,7 @@ describe("restarting()", () => {
     });
     it("when given a function, matches its signature", () => {
         // Given a restarting wrapper around a function
-        const outer = makeJob(), w = outer.bind(restarting)((a,b,c) => { log(a); log(b); log(c); return 42; });
+        const outer = new _Job(), w = outer.bind(restarting)((a,b,c) => { log(a); log(b); log(c); return 42; });
         // When it is called
         const res = w("a", 22, 54);
         // Then it should receive any arguments
@@ -580,7 +581,7 @@ describe("restarting()", () => {
     });
     it("rolls back when a synchronous error is thrown", () => {
         // Given a restarting wrapper around a function that synchronously throws
-        const outer = makeJob(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
+        const outer = new _Job(), w = outer.bind(restarting)(() => { must(()=> log("undo")); throw "whoops"; });
         // When the function is called, it should throw
         expect(w).to.throw("whoops");
         // And Then it should end the job
@@ -591,7 +592,7 @@ describe("restarting()", () => {
     });
     it("throws async errors to its calling job from sub-jobs", () => {
         // Given a restarting wrapper around a function that async-throws
-        const outer = makeJob().asyncCatch(e => { log(`caught: ${e}`)});
+        const outer = new _Job().asyncCatch(e => { log(`caught: ${e}`)});
         const w = outer.bind(restarting)(() => { start().throw("whoops"); });
         // When the wrapper is called
         w()
@@ -603,7 +604,7 @@ describe("restarting()", () => {
     });
     it("throws direct async errors to its calling job", () => {
         // Given a restarting wrapper around a function getJob().throw()s
-        const outer = makeJob().asyncCatch(e => { log(`caught: ${e}`)});
+        const outer = new _Job().asyncCatch(e => { log(`caught: ${e}`)});
         const w = outer.bind(restarting)(() => { getJob().throw("whoops"); });
         // When the wrapper is called
         w()
@@ -615,7 +616,7 @@ describe("restarting()", () => {
     });
     it("can be used as a method", () => {
         // Given a restarting-wrapped method
-        const w = {m: makeJob().bind(restarting)(function (this: any) { log(this === w); })};
+        const w = {m: new _Job().bind(restarting)(function (this: any) { log(this === w); })};
         // When called as a method
         w.m();
         // Then its `this` should be the object

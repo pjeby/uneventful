@@ -35,16 +35,7 @@ function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
 // The set of jobs whose callbacks need running during an end() sweep
 var inProcess = new Set<_Job<any>>;
 
-class _Job<T> implements Job<T> {
-    /** @internal */
-    static create<T>(parent?: Job, stop?: CleanupFn): Job<T> {
-        const job = new _Job<T>;
-        if (parent || stop) {
-            job.must((parent ||= getJob()).release(stop || job.end));
-            owners.set(job, parent);
-        }
-        return job;
-    }
+export class _Job<T> implements Job<T> {
 
     do(cleanup: CleanupFn<T>): this {
         unshift(this._chain(), cleanup);
@@ -167,7 +158,7 @@ class _Job<T> implements Job<T> {
     start<T>(fn?: StartFn<T> | StartObj<T>): Job<T>;
     start<T, This>(ctx: This, fn: StartFn<T, This>): Job<T>;
     start<T, This>(fnOrCtx: StartFn<T> | StartObj<T>|This, fn?: StartFn<T, This>) {
-        if (!fnOrCtx) return makeJob(this);
+        if (!fnOrCtx) return new _Job(this);
         let init: StartFn<T, This>, result: StartObj<T> | OptionalCleanup;
         if (isFunction(fn)) {
             init = fn.bind(fnOrCtx as This);
@@ -178,7 +169,7 @@ class _Job<T> implements Job<T> {
         } else {
             result = fnOrCtx as StartObj<T>;
         }
-        const job = makeJob<T>(this);
+        const job = new _Job<T>(this);
         try {
             if (init) result = job.run(init as StartFn<T>, job);
             if (result != null) {
@@ -220,7 +211,12 @@ class _Job<T> implements Job<T> {
         return this.start(job => void src(sink, job, inlet));
     }
 
-    protected constructor() {};
+    constructor(parent?: Job, stop?: CleanupFn) {
+        if (parent || stop) {
+            this.must((parent ||= getJob()).release(stop || this.end));
+            owners.set(this, parent);
+        }
+    }
 
     run<F extends PlainFunction>(fn: F, ...args: Parameters<F>): ReturnType<F> {
         pushCtx(this);
@@ -303,28 +299,25 @@ export function nativePromise<T>(job: Job<T>): Promise<T> {
 }
 
 /**
- * Return a new {@link Job}.  If *either* a parent parameter or stop function
- * are given, the new job is linked to the parent.
+ * This function is deprecated.  Please move to using `.start()` instead, as
+ * shown:
  *
- * @remarks You should generally use `start()`, `parent.start()` or
- * `root.start()` instead of this, unless you're creating a special kind of job
- * that needs a custom stop function.
+ * | Old | New |
+ * | --- | --- |
+ * | `makeJob()`<br>`makeJob(null/undefined)` | `root.start()` |
+ * | `makeJob(parent)` | `parent.start()` |
  *
- * @param parent The parent job to which the new job should be attached.
- * Defaults to the currently-active job if none given (assuming a stop parameter
- * is provided).
+ * If for some reason you are currently using a custom `stop` function and need
+ * to keep it for backward compatibility, you can use `.restart()` on the new
+ * job to remove the default stop function from its parent, then replace it with
+ * `.must(parent.release(stop))`.
  *
- * @param stop The function to call to destroy the nested job.  Defaults to the
- * {@link Job.end} method of the new job if none is given (assuming a parent
- * parameter is provided).
- *
- * @returns A new job.  The job is a child job if any arguments are given, or
- * a detached (parentless) job otherwise.
- *
+ * @deprecated
  * @category Jobs
- * @function
  */
-export const makeJob: <T>(parent?: Job, stop?: CleanupFn) => Job<T> = _Job.create;
+export function makeJob<T>(parent?: Job, stop?: CleanupFn): Job<T> {
+    return new _Job<T>(parent, stop);
+}
 
 /**
  * The "main" job of the program or bundle, which all other jobs should be a
@@ -379,7 +372,7 @@ newRoot()
  */
 export function newRoot(): Job<unknown> {
     root?.end()
-    const job = root = makeJob().asyncCatch(defaultCatch)
+    const job = root = new _Job().asyncCatch(defaultCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
     job.release(() => root === job && (root = null))
     return root;

@@ -1,12 +1,13 @@
 import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logUncaught } from "./dev_deps.ts";
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, fromIterable,
-    IsStream, backpressure, sleep, isHandled, Connection, makeJob,
+    IsStream, backpressure, sleep, isHandled, Connection,
     CancelError, throttle, next, root
 } from "../src/mod.ts";
 import { value, cached, runRules, until } from "../src/signals.ts";
 import { runPulls } from "./dev_deps.ts";
 import { catchers, defaultCatch } from "../src/internals.ts";
+import { _Job } from "../src/tracking.ts";
 
 const noop = () => ({ *[Symbol.iterator]() {} });
 
@@ -503,7 +504,7 @@ describe("Job instances", () => {
 describe("Error Handling", () => {
     it("unhandled errors go to direct parent", () => {
         // Given a fresh job with a parent catcher
-        const j1 = makeJob(); j1.asyncCatch(e => log("caught"));
+        const j1 = new _Job(); j1.asyncCatch(e => log("caught"));
         const j2 = j1.start();
         // When the job throws
         j2.throw("thrown");
@@ -512,7 +513,7 @@ describe("Error Handling", () => {
     });
     it("goes to root if no parent", () => {
         // Given a job with no parent
-        const j = makeJob();
+        const j = new _Job();
         // When it throws
         j.throw("boom");
         // Then it should be caught by the root job
@@ -525,7 +526,7 @@ describe("Error Handling", () => {
 
         it("calls job.throw() if no asyncCatch", () => {
             // Given a job without an asyncCatch
-            const j = makeJob().onError(e => log(`Err: ${e}`));
+            const j = new _Job().onError(e => log(`Err: ${e}`));
             // When it's async-thrown to
             j.asyncThrow("boom")
             // Then it should have its .throw() called
@@ -533,7 +534,7 @@ describe("Error Handling", () => {
         });
         it("calls asyncCatch handler if any", () => {
             // Given a job with an asyncCatch
-            const j = makeJob()
+            const j = new _Job()
                 .onError(e => log(`Err: ${e}`))
                 .asyncCatch(e => log(`Caught: ${e}`))
             ;
@@ -544,7 +545,7 @@ describe("Error Handling", () => {
         });
         it("removes the asyncCatch handler if it throws", () => {
             // Given a job with a handler that throws
-            const j = makeJob().asyncCatch(() => { throw "whoops"; });
+            const j = new _Job().asyncCatch(() => { throw "whoops"; });
             // When it's asyncThrown
             j.asyncThrow("boom");
             // Then both errors should be passed up the chain
@@ -568,7 +569,7 @@ describe("Error Handling", () => {
     describe(".asyncCatch", () => {
         it("removes the handler if given a null", () => {
             // Given a job with a handler
-            const j = makeJob().asyncCatch(log);
+            const j = new _Job().asyncCatch(log);
             expect(catchers.get(j)).to.equal(log);
             // When asyncCatch is called with null
             j.asyncCatch(null);
