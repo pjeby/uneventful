@@ -7,6 +7,7 @@ import {
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
 import { _Job } from "../src/tracking.ts";
+import { owners } from "../src/internals.ts";
 
 describe("Job Implementation", () => {
     it("creates new standalone jobs", () => {
@@ -147,6 +148,15 @@ describe("newRoot()", () => {
         // Then our overridden handler should catch it
         see("caught blah")
     });
+    it("becomes the effective parent of restarted child jobs ", () => {
+        // Given a detached job created via root.start()
+        const oldRoot = root
+        const job = root.start().restart()
+        // When a new root is created
+        const r = newRoot().asyncCatch(logUncaught)
+        // Then the job should not point to the old root
+        expect(owners.get(job)).to.not.equal(oldRoot)
+    })
 });
 
 describe("start(action)", () => {

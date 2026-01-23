@@ -214,7 +214,7 @@ export class _Job<T> implements Job<T> {
     constructor(parent?: Job, stop?: CleanupFn) {
         if (parent || stop) {
             this.must((parent ||= getJob()).release(stop || this.end));
-            owners.set(this, parent);
+            (parent===root) || owners.set(this, parent);
         }
     }
 
