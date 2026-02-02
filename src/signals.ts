@@ -310,7 +310,7 @@ export function action<F extends AnyFunction, D extends {value?: F}>(
 ): D
 
 export function action<F extends AnyFunction, D extends {value?: F}>(fn: F, _ctx?: any, desc?: D): D | F {
-    if (desc) return {...desc, value: action(desc.value)};
+    if (desc) return {...desc, value: action(desc.value!)};
     return <F> function (this: ThisParameterType<F>, ...args) {
         return currentCell ? currentCell.peek(fn, this, args) : apply(fn, this, args)
     }

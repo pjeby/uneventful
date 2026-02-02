@@ -1,5 +1,5 @@
 import { log, see, describe, it, useRoot, msg, expect, logUncaught } from "./dev_deps.ts";
-import { must, DisposeFn, root, newRoot } from "../mod.ts";
+import { must, DisposeFn, root, newRoot, noop } from "../mod.ts";
 import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
 describe("@rule.method", () => {
@@ -36,7 +36,7 @@ describe("@rule.method", () => {
 describe("rule.setScheduler()", () => {
     it("assigns the scheduler of the rule", () => {
         // Given a rule that sets its scheduler
-        let cb: () => unknown;
+        let cb: () => unknown = undefined!;
         const s = value<SchedulerFn|undefined>(f => cb = f)
         const r = rule.root(() => {
             rule.setScheduler(s());
@@ -81,7 +81,7 @@ describe("rule.stop()", () => {
     });
     it("is bound to the rule where it was retrieved", () => {
         // Given a rule that saves rule.stop
-        let f: DisposeFn
+        let f: DisposeFn = noop
         rule.root(() => { f = rule.stop; return msg("stopped"); })
         runRules(); see();
         // When the function is called outside the rule

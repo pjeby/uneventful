@@ -7,15 +7,16 @@
 
 import type { Job } from "./types.ts";
 import type { Cell } from "./cells.ts";
+import { Maybe } from "./internals.ts";
 
 /** The current context */
-export var currentJob: Job, currentCell: Cell;
+export var currentJob: Maybe<Job> | undefined, currentCell: Maybe<Cell>;
 
 /** Context stacks */
-const cells = [] as Cell[], jobs = [] as Job[];
+const cells = [] as Maybe<Cell>[], jobs = [] as Maybe<Job>[];
 
 /** Set a temporary context */
-export function pushCtx(job?: Job | null, cell?: Cell | null) {
+export function pushCtx(job?: Maybe<Job>, cell?: Maybe<Cell>) {
     jobs.push(currentJob)
     cells.push(currentCell)
     currentJob = job

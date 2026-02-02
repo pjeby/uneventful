@@ -4,6 +4,7 @@ import { getJob, root } from "./tracking.ts";
 import { must, start } from "./jobutils.ts";
 import { DisposeFn } from "./types.ts";
 import { isCancel, isError, isUnhandled, markHandled, noop } from "./results.ts";
+import { Maybe } from "./internals.ts";
 
 /**
  * A function that emits events, with a .source they're emitted from
@@ -62,7 +63,7 @@ export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
     return (sink, conn=start(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.asyncIterator]();
-        if (iter.return) must(() => iter.return());
+        if (iter.return) must(() => iter.return!());
         return ready(next), IsStream;
         function next() {
             iter.next().then(({value, done}) => {
@@ -125,7 +126,7 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
     return (sink, conn=start(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.iterator]();
-        if (iter.return) must(() => iter.return());
+        if (iter.return) must(() => iter.return!());
         return ready(loop), IsStream;
         function loop() {
             try {
@@ -242,7 +243,7 @@ export interface MockSource<T> extends Emitter<T> {
  * @category Stream Producers
  */
 export function mockSource<T>(): MockSource<T> {
-    let write: Sink<T>, outlet: Connection, ready: Backpressure;
+    let write: Maybe<Sink<T>>, outlet: Maybe<Connection>, ready: Maybe<Backpressure>;
     const emit: MockSource<T> = (val: T) => { if (write) write(val); };
     emit.source = (sink, conn, inlet) => {
         write = sink; outlet = conn; ready = backpressure(inlet);
@@ -251,7 +252,7 @@ export function mockSource<T>(): MockSource<T> {
     };
     emit.end = () => outlet?.return();
     emit.throw = (e: any) => outlet?.throw(e);
-    emit.ready = (cb?: () => any) => ready(cb);
+    emit.ready = (cb?: () => any) => ready?.(cb) || false;
     return emit;
 }
 
@@ -286,7 +287,7 @@ export function never(): Source<never> {
  * @category Stream Operators
  */
 export function share<T>(source: Stream<T>): Source<T> {
-    let uplink: Connection;
+    let uplink: Maybe<Connection>;
     const
         links = new Set<[sink: Sink<T>, conn: Connection]>,
         inlets = new Map<Inlet, number>(),  // refcounts of incoming inlets
@@ -320,7 +321,7 @@ export function share<T>(source: Stream<T>): Source<T> {
         conn.must(() => {
             links.delete(self);
             if (inlet) {
-                inlets.set(inlet, inlets.get(inlet)-1);
+                inlets.set(inlet, inlets.get(inlet)!-1);
                 if (!inlets.get(inlet)) inlets.delete(inlet);
             }
             if (!links.size) uplink?.end();

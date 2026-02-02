@@ -23,11 +23,11 @@ export function getJob<T=unknown>() {
 }
 
 /** RecalcSource factory for jobs (so you can wait on a job result in a signal or rule) */
-function recalcJob(job: Job<any>): RecalcSource { return (cb => { currentJob.must(job.release(cb)); }); }
+function recalcJob(job: Job<any>): RecalcSource { return (cb => { getJob().must(job.release(cb)); }); }
 
 function runChain<T>(res: JobResult<T>, cbs: Chain<CleanupFn<T>>): undefined {
     let cb: CleanupFn<T>;
-    while (cb = pop(cbs)) try { cb(res); } catch (e) { root.asyncThrow(e); }
+    while (cb = pop(cbs)!) try { cb(res); } catch (e) { root.asyncThrow(e); }
     cbs && recycle(cbs);
     return undefined;
 }
@@ -70,11 +70,11 @@ export class _Job<T> implements Job<T> {
 
         const ct = inProcess.size; pushCtx();
         // Put a placeholder on the queue if it's empty
-        if (!ct) inProcess.add(null);
+        if (!ct) inProcess.add(null!);
 
         // Give priority to the release() chain so we get breadth-first flagging
         // of all child jobs as canceled immediately
-        if (cbs && cbs.u) cbs.u = runChain(res, cbs.u);
+        if (cbs && cbs.u) cbs.u = (runChain(res, cbs.u), undefined!);
 
         // Put ourselves on the queue *after* our children, so their cleanups run first
         inProcess.add(this);
@@ -83,11 +83,11 @@ export class _Job<T> implements Job<T> {
         if (ct) { popCtx(); return; }
 
         // don't need the placeholder any more
-        inProcess.delete(null);
+        inProcess.delete(null!);
 
         // Queue was empty, so it's up to us to run everybody's must/do()s
         for (const item of inProcess) {
-            if (item._cbs) item._cbs = runChain(item._done, item._cbs);
+            if (item._cbs) item._cbs = (runChain(item._done, item._cbs), undefined!);
             inProcess.delete(item);
             if (isUnhandled(item._done)) item.throw(markHandled(item._done));
         }
@@ -106,7 +106,7 @@ export class _Job<T> implements Job<T> {
         } else {
             this._end(CancelResult);
         }
-        this._done = undefined;
+        this._done = undefined!;
         promises.delete(this);  // don't reuse any now-cancelled promise!
         return this;
     }
@@ -171,7 +171,7 @@ export class _Job<T> implements Job<T> {
         }
         const job = new _Job<T>(this);
         try {
-            if (init) result = job.run(init as StartFn<T>, job);
+            if (init!) result = job.run(init as StartFn<T>, job);
             if (result != null) {
                 if (isFunction(result)) {
                     job.must(result);
@@ -261,10 +261,10 @@ export class _Job<T> implements Job<T> {
         return this;
     }
 
-    protected _done: JobResult<T> = undefined;
+    protected _done: JobResult<T> = undefined!;
 
     // Chain whose .u stores a second chain for `release()` callbacks
-    protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined;
+    protected _cbs: Chain<CleanupFn<T>, Chain<CleanupFn<T>>> = undefined!;
     protected _chain() {
         if (this._done && isEmpty(this._cbs)) defer(this.end);
         return this._cbs ||= chain();
@@ -292,10 +292,11 @@ export function nativePromise<T>(job: Job<T>): Promise<T> {
     if (!promises.has(job)) {
         promises.set(job, new Promise((res, rej) => {
             const toPromise = (fulfillPromise<T>).bind(null, res, rej);
-            if (job.result()) toPromise(job.result()); else job.do(toPromise);
+            const result = job.result()
+            if (result) toPromise(result); else job.do(toPromise);
         }));
     }
-    return promises.get(job);
+    return promises.get(job)!;
 }
 
 /**
@@ -374,14 +375,14 @@ export function newRoot(): Job<unknown> {
     root?.end()
     const job = root = new _Job().asyncCatch(defaultCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
-    job.release(() => root === job && (root = null))
+    job.release(() => root === job && (root = null!))
     return root;
 }
 
 function runGen<R>(g: Yielding<R>, job: Job<R>) {
     let it = g[Symbol.iterator](), running = true, j = job, ct = 0;
     let done = job.release(() => {
-        job = undefined;
+        job = undefined!;
         ++ct; // disable any outstanding request(s)
         // XXX this should be deferred to cleanup phase, or must() instead of release
         // (release only makes sense here if you can run more than one generator in a job)
@@ -405,7 +406,7 @@ function runGen<R>(g: Yielding<R>, job: Job<R>) {
                     const {done, value} = it[method](arg);
                     if (done) {
                         job && job.return(value);
-                        job = undefined;
+                        job = undefined!;
                         break;
                     } else if (!isFunction(value)) {
                         method = "throw";
@@ -423,13 +424,13 @@ function runGen<R>(g: Yielding<R>, job: Job<R>) {
                     }
                 }
             } catch(e) {
-                it = job = undefined;
+                it = job = undefined!;
                 j.throw(e);
             }
             // Iteration is finished; disconnect from job
-            it = undefined;
+            it = undefined!;
             done?.();
-            done = undefined;
+            done = undefined!;
         } finally {
             popCtx();
             running = false;

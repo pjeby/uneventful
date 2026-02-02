@@ -7,6 +7,7 @@ import { isFunction } from "./utils.ts";
 import { Signal, until, cached } from "./signals.ts";  // the until and cached are needed for documentation links
 import { callOrWait, mustBeSourceOrSignal } from "./call-or-wait.ts";
 import { currentCell } from "./ambient.ts";
+import { Maybe } from "./internals.ts";
 
 /**
  * The result type returned from calls to {@link Each}.next()
@@ -61,7 +62,7 @@ export type Each<T> = IterableIterator<EachResult<T>>
  * @category Stream Consumers
  */
 export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
-    let yielded = false, waiter: Request<void>;
+    let yielded = false, waiter: Maybe<Request<void>>;
     const result: IteratorYieldResult<EachResult<T>> = {value: {item: undefined as T, next}, done: false};
     const t = throttle(), conn = connect(src, v => {
         t.pause();
@@ -89,10 +90,11 @@ export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
     function next(r: Request<void>) {
         if (waiter) throw new Error("Multiple `yield next` in loop");
         yielded = true;
-        if (conn.result()) {
-            result.value = undefined;
+        const res = conn.result()
+        if (res) {
+            (result as IteratorResult<any>).value = undefined;
             (result as IteratorResult<any>).done = true;
-            fulfillPromise(resolver(r), rejecter(r), conn.result())
+            fulfillPromise(resolver(r), rejecter(r), res)
         } else {
             waiter = r;
             t.resume();
@@ -247,7 +249,7 @@ export function recalcWhen(src: RecalcSource): void;
  */
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
-    currentCell?.recalcWhen<T>(fnOrKey as T, fn);
+    currentCell?.recalcWhen<T>(fnOrKey as T, fn!);
 }
 
 /**

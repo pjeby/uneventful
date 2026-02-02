@@ -7,7 +7,7 @@ import {
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
 import { _Job } from "../src/tracking.ts";
-import { owners } from "../src/internals.ts";
+import { Maybe, owners } from "../src/internals.ts";
 
 describe("Job Implementation", () => {
     it("creates new standalone jobs", () => {
@@ -238,7 +238,7 @@ describe("start(action)", () => {
 
 describe("Job API", () => {
     it("isJobActive() is true during run()", () => {
-        var tested: boolean;
+        var tested: Maybe<boolean>;
         expect(isJobActive(), "Shouldn't be active before run()").to.be.false;
         new _Job().run(()=> {
             expect(isJobActive(), "Should be active during run()").to.be.true;
@@ -325,7 +325,7 @@ describe("Job instances", () => {
             expect(c1).to.have.been.calledOnce
         });
         it("runs callbacks without an active job or cell", () => {
-            let hasJobOrCell: boolean = undefined;
+            let hasJobOrCell: Maybe<boolean>;
             f.must(() => hasJobOrCell = !!(currentJob || currentCell));
             pushCtx(f, {} as Cell);
             try { f.end(); } finally { popCtx(); }
@@ -394,7 +394,7 @@ describe("Job instances", () => {
     });
     describe(".run()", () => {
         it("makes the job active", () => {
-            var active: Job;
+            var active: Maybe<Job>;
             expect(isJobActive()).to.be.false;
             f.run(() => { active = getJob(); });
             expect(active).to.equal(f);
@@ -431,7 +431,7 @@ describe("Job instances", () => {
             const j = new _Job();
             const end = rule(() => {
                 const res = j.result()
-                if (j.result()) log(`done: ${getResult(res)}`); else log(`loading...`);
+                if (res) log(`done: ${getResult(res)}`); else log(`loading...`);
             });
             // When rules are run, it should see the undefined result
             runRules(); see("loading...");
@@ -442,7 +442,7 @@ describe("Job instances", () => {
     });
     describe(".bind() returns a function that", () => {
         it("makes the job active", () => {
-            var active: Job;
+            var active: Maybe<Job>;
             expect(isJobActive()).to.be.false;
             f.bind(() => { active = getJob(); })();
             expect(active).to.equal(f);
@@ -548,7 +548,7 @@ describe("restarting()", () => {
     it("runs functions in call-specific, restarting jobs, until enclosing job ends", () => {
         // Given a restarting wrapper created in an outer job
         const outer = new _Job(), w = outer.bind(restarting)();
-        let f1: Job, f2: Job;
+        let f1: Maybe<Job>, f2: Maybe<Job>;
         // When it's called with a function
         w(() => { f1 = getJob(); log("called"); must(() => log("undo")); });
         // Then the function should run in a distinct job
@@ -569,7 +569,7 @@ describe("restarting()", () => {
     it("uses a different job for each wrapper", () => {
         // Given two restarting wrappers created in an outer job
         const outer = new _Job(), w1 = outer.bind(restarting)(), w2 = outer.bind(restarting)();
-        let f1: Job, f2: Job;
+        let f1: Maybe<Job>, f2: Maybe<Job>;
         // When they are called
         w1(() => { f1 = getJob(); });
         w2(() => { f2 = getJob(); });

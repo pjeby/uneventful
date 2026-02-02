@@ -79,7 +79,7 @@ describe("Batch", () => {
         });
         it("won't reschedule itself if called while flushing", () => {
             // Given a queue that reaps and runs callbacks
-            var scheduledFlush: () => unknown;
+            var scheduledFlush: () => unknown = undefined!;
             const q = batch<() => void>(
                 runCallbacks,
                 f => { scheduledFlush = f; log("scheduled")}
@@ -98,7 +98,7 @@ describe("Batch", () => {
     describe(".flush()", () => {
         it("calls the reap function with added items", () => {
             // Given an Batch with some added items
-            let items: Set<any>
+            let items: Set<any> = undefined!
             const q = batch<any>(q => { items = q; }, noop);
             q.add(52); q.add(47);
             // When flush is called
@@ -133,7 +133,7 @@ describe("Batch", () => {
         });
         it("will reschedule itself after reap if items are still queued", () => {
             // Given a queue that reaps and runs callbacks
-            var scheduledFlush: () => unknown;
+            var scheduledFlush: () => unknown = noop;
             const q = batch<() => void>(
                 runCallbacks,
                 f => { scheduledFlush = f; log("scheduled")},

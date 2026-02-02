@@ -255,7 +255,7 @@ export function fx<Instance extends WeakKey, D extends {value?: Method<Instance>
  */
 export function fx<Instance extends WeakKey>(
     f: GetFactory<Instance> | Get<void> | Method<Instance> | TemplateStringsArray, ...args: any[]
-): ((ob?: Instance) => void) | DeferredFx {
+): ((ob: Instance) => void) | (() => void) | DeferredFx {
     if (args.length) {
         // @fx
         return decorateMethod(method => {
@@ -282,12 +282,12 @@ export function fx<Instance extends WeakKey>(
                 // Called from job instead of signal - track active calling jobs and
                 // activate or deactivate accordingly
                 if (!sosHas(jobs, getJob())) {
-                    const job = currentJob
+                    const job = currentJob!
                     jobs = sosAdd(jobs, job)
                     sosSize(jobs) > 1 || (cell.setQ(defaultQ), defaultQ.delete(cell))
                     must(() => {
                         jobs = sosDel(jobs, job)
-                        if (!sosSize(jobs)) cell.setQ(null)
+                        if (!sosSize(jobs)) cell.setQ()
                     })
                 }
                 // Ensure that the effect is synchronously up-to-date

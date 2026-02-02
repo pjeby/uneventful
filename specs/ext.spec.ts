@@ -170,8 +170,8 @@ describe("Extensions", () => {
                 expect(job.result()).to.be.undefined
                 // But eventually yields the underlying instance
                 clock.runAll()
-                expect(job.result().val).to.be.instanceOf(AsyncExt)
-                expect(job.result().val.of).to.equal(t)
+                expect(job.result()!.val).to.be.instanceOf(AsyncExt)
+                expect(job.result()!.val!.of).to.equal(t)
             })
         })
 

@@ -41,7 +41,7 @@ import { AnyFunction } from "./types.ts";
 export function decorateMethod<F extends AnyFunction, D extends { value?: F; }>(
     decorate: (fn: F) => F, fn: F, _ctxOrName: string | symbol | { kind: "method"; }, desc?: D
 ): F | D {
-    const method = decorate(desc ? desc.value : fn);
+    const method = decorate(desc ? desc.value! : fn);
     return desc ? { ...desc, value: method } : method as F;
 }
 

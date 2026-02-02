@@ -187,13 +187,13 @@ export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inl
  *
  * @category Stream Consumers
  */
-export function throttle(job: Job = currentJob): Throttle {
+export function throttle(job = currentJob): Throttle {
     return new _Throttle(job);
 }
 
 class _Throttle implements Throttle {
     /** @internal */
-    protected _callbacks: Map<Flush, DisposeFn> = undefined;
+    protected _callbacks: Map<Flush, DisposeFn> = undefined!;
 
     /** @internal */
     constructor(protected _job?: Job) {}

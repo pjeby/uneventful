@@ -67,7 +67,7 @@ export function start<T>(init?: StartFn<T> | StartObj<T>): Job<T>;
  */
 export function start<T, This>(thisArg: This, fn: StartFn<T, This>): Job<T>;
 export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T, This>) {
-    return getJob().start(init as This, fn);
+    return getJob().start(init as This, fn!);
 }
 
 /**
@@ -125,7 +125,7 @@ export function timeout(ms = 0, job: Job = getJob()) {
     return job;
 }
 
-const abortSignals = new WeakMap<Job, AbortSignal>();
+const abortSignals = new WeakMap<Job, AbortSignal|null>();
 
 /**
  * Get an AbortSignal that aborts when the job ends or is restarted.
@@ -255,7 +255,7 @@ export function task<T, A extends any[], C, D extends {value?: (this:C, ...args:
     clsOrProto: any, name: string|symbol, desc: D
 ): D
 
-export function task<T, A extends any[], C, D extends {value?: (this:C, ...args: A) => StartObj<T>}>(
+export function task<T, A extends any[], C, D extends {value: (this:C, ...args: A) => StartObj<T>}>(
     fn: (this: C, ...args: A) => StartObj<T>, _ctx?: any, desc?: D
 ): D | ((this: C, ...args: A) => Job<T>) {
     if (desc) return {...desc, value: task(desc.value)};

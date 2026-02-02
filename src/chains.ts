@@ -13,7 +13,7 @@ export type Chain<T, U=any> = Node<T, number, U>;
  *
  * @category Chains
  */
-export function chain<T, U=DisposeFn>(): Chain<T, U> { return link<number, U>(0, undefined, undefined); }
+export function chain<T, U=DisposeFn>(): Chain<T, U> { return link<number, U>(0, undefined!, undefined!); }
 
 /**
  * Recycle a chain entirely - only safe if no references to it remain anywhere!
@@ -93,9 +93,9 @@ class Node<T, V=T, U=DisposeFn> {
     /** The previous node (or the end node if this is a chain head) */
     p: Node<T> = this as Node<T, any>;
     /** The value held by the node (or the chain length if this is a chain head) */
-    v: V = undefined;
+    v: V = undefined!;
     /** The most recently created undo callback for this node */
-    u: U = undefined;
+    u: U = undefined!;
 }
 
 /** Recycling list for chain nodes, to reduce constructor/alloc overhead */
@@ -125,7 +125,7 @@ function unlink<T>(c: Chain<any>, node: Node<T>) {
     var v = node.v, u = node.u;
     node.n && (node.n.p = node.p);
     node.p && (node.p.n = node.n);
-    node.u = node.v = node.p = undefined;
+    node.u = node.v = node.p = undefined!;
     node.n = free; free = node;
     if (u) u();  // drop refs to node+chain
     return v;
@@ -143,7 +143,7 @@ function unlinker(chain: Chain<any>, node: Node<any>) {
             // otherwise, the node has already been removed and/or recycled for use in
             // a different chain (or a different value in this one!)
             if (u === node.u) unlink(chain, node);
-            u = chain = node = undefined;
+            u = chain = node = undefined!;
         }
     })
     return u;

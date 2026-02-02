@@ -274,9 +274,9 @@ describe("Operators", () => {
             // Given a shared mockSource tracking the connection
             const m = mockSource<number>();
             let conn: Connection;
-            const s = share((s, c) => m.source(s, conn=c));
-            const c = connect(s, v => log(v)).onError(e => log("outer-error"));
-            see(); conn.must(r=>log(isHandled(r))).do(r=>log(isHandled(r)));
+            const s = share((s, c) => m.source(s, conn=c!));
+            connect(s, v => log(v)).onError(e => log("outer-error"));
+            see(); conn!.must(r=>log(isHandled(r))).do(r=>log(isHandled(r)));
             // When the underlying source throws
             m.throw("boom");
             // Then its connection error should be marked handled

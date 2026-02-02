@@ -22,11 +22,11 @@ describe("Ambient Context API", () => {
             try {
                 // Then the current cell and job should match
                 expectJobCell(f, c);
-                // Until nulls are pushed
-                pushCtx(null, null);
+                // Until undefineds are pushed
+                pushCtx(undefined, undefined);
                 try {
-                    // And then the current cell and job should be null
-                    expectJobCell(null, null);
+                    // And then the current cell and job should be undefined
+                    expectJobCell(undefined, undefined);
                 } finally {
                     // Until the context is popped
                     popCtx()

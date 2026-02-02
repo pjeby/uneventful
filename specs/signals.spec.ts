@@ -627,7 +627,7 @@ describe("Dependency tracking", () => {
         useRoot()
         it("subscribes and unsubscribes on demand", () => {
             // Given a rule that depends on a mock source
-            let changed: () => void;
+            let changed: () => void = undefined!;
             const src: RecalcSource = (cb) => { changed = cb; log("sub"); must(()=> log("unsub")); }
             const end = rule(() => { recalcWhen(src); log("ping"); });
             // When the rule is run
@@ -658,11 +658,11 @@ describe("Dependency tracking", () => {
         });
         it("supports key+factory for creating sources on the fly", () => {
             // Given rules keyed to different sources
-            type o = {n: number, cb?: DisposeFn};
+            type o = {n: number, cb: DisposeFn};
             const factory = (key: o): RecalcSource => (cb) => {
                 key.cb = cb; log(`sub ${key.n}`); must(()=> log(`unsub ${key.n}`));
             }
-            const o1: o = {n:1}, o2: o = {n:2};
+            const o1: o = {n:1, cb: undefined!}, o2: o = {n:2, cb: undefined!};
             const r1 = rule(() => { recalcWhen(o1, factory); log("ping 1"); });
             const r2 = rule(() => { recalcWhen(o2, factory); log("ping 2"); });
             // When they are run

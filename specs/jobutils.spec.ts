@@ -123,7 +123,7 @@ describe("task()", () => {
 
         // And the wrapped function's eventual return
         // goes to the enclosing job
-        expect(getResult(job.result())).to.equal(42);
+        expect(getResult(job.result()!)).to.equal(42);
     });
     it("only supplies exact arguments", () => {
         // Given a task-wrapped function
@@ -161,7 +161,7 @@ describe("task()", () => {
 
         // And the wrapped function's eventual return
         // goes to the enclosing job
-        expect(getResult(start(job).result())).to.equal(42);
+        expect(getResult(start(job).result()!)).to.equal(42);
 
     });
 });

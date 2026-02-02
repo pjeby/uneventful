@@ -86,15 +86,17 @@ process.on("unhandledRejection", (e, p) => {
 });
 
 export let clock: sinon.SinonFakeTimers;
+export const unset: any = undefined
+
 export function useClock() {
     before(() => { clock = sinon.useFakeTimers(new Date); setDefer(f => setTimeout(f, 0)); });
-    after(() => { clock.restore(); clock = undefined; setDefer(queueMicrotask); });
+    after(() => { clock.restore(); clock = unset; setDefer(queueMicrotask); });
     afterEach(() => clock?.runAll());
 }
 
 export function noClock() {
     after(() => { clock = sinon.useFakeTimers(new Date); setDefer(f => setTimeout(f, 0)); });
-    before(() => { clock.restore(); clock = undefined; setDefer(queueMicrotask); });
+    before(() => { clock.restore(); clock = unset; setDefer(queueMicrotask); });
 }
 
 chai.use(function ({Assertion}, {flag, addProperty}) {

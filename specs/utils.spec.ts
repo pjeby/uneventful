@@ -180,7 +180,7 @@ const realm = (() => {
         const vm = require("node:vm") as typeof import("node:vm")
         const code = readFileSync("specs/utils.spec.ts", "utf-8").split("// ==== Fixtures ====\n").pop()
         const ctx = {}
-        vm.runInNewContext(code, ctx)
+        vm.runInNewContext(code!, ctx)
         expect(Object.keys(ctx)).to.deep.equal([
             'anAsyncFunc', 'anAsyncGenFunc', 'aGenfunc', 'aPlainFunc', 'ES5BaseWithMethods',
             'ES5Subclass', 'anArrowFunc', 'aClass', 'literalObject', 'newObject', 'created'

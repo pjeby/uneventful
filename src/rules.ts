@@ -186,16 +186,16 @@ class RF extends CallableObject<RuleFunction> implements RuleFactory {
 
     get method(): GenericMethodDecorator<(...args: any[]) => OptionalCleanup> {
         const self = this;
-        return (
+        return ((
             fn: object | ((...args: any[]) => OptionalCleanup),
             _ctxOrName?: any,
             desc?: { value?: (...args: any[]) => OptionalCleanup; }
         ) => {
-            if (desc) return void (desc.value = this.method(desc.value));
+            if (desc) return void (desc.value = this.method(desc.value!));
             return function (this: any, ...args: any[]): DisposeFn {
                 return self(() => apply(fn as any, this, args));
             };
-        }
+        }) as GenericMethodDecorator<(...args: any[]) => OptionalCleanup>
     }
 
     factory(scheduleFn: SchedulerFn): RuleFactory {

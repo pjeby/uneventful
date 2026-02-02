@@ -56,7 +56,7 @@ export function ext<Target extends WeakKey, ExtType extends Object>(
     factory: (tgt: Target, map: WeakMap<Target, ExtType>) => ExtType,
     map = new WeakMap<Target, ExtType>()
 ): (tgt: Target) => ExtType {
-    return (tgt: Target) =>  map.has(tgt) ? map.get(tgt) : setMap(map, tgt, factory(tgt, map))
+    return (tgt: Target) =>  map.has(tgt) ? map.get(tgt)! : setMap(map, tgt, factory(tgt, map))
 }
 
 /**

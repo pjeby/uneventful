@@ -1,5 +1,6 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
 import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, pipe } from "../mod.ts";
+import { Maybe } from "../src/internals.ts";
 
 describe("each()", () => {
     useRoot();
@@ -38,11 +39,11 @@ describe("each()", () => {
     });
     it("throws if stream ends with error", () => {
         // Given an emitter and a job iterating over it
-        let conn: Connection;
+        let conn: Connection = undefined!;
         const e = mockSource<number>(), job = iterStream(
             // Capture the connection so we can make sure its errors
             // are marked handled
-            (s,c) => e.source(s, conn=c)
+            (s,c) => e.source(s, conn=c!)
         );
         clock.tick(1); e(1); clock.tick(10); see("1")
         conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
@@ -56,8 +57,8 @@ describe("each()", () => {
     it("throws if stream is canceled", () => {
         // Given an emitter and a job iterating over it
         const e = mockSource<number>();
-        let c: Connection
-        const s = (sink: Sink<number>, conn: Connection) => { c = conn; return e.source(sink, conn); }
+        let c: Connection = undefined!
+        const s = (sink: Sink<number>, conn?: Connection) => { c = conn!; return e.source(sink, conn); }
         start(function*() {
             for (const {item, next} of yield *each(s)) {
                 log(item);
@@ -121,7 +122,7 @@ describe("forEach()", () => {
     it("calls the source w/a restarting sink, the job, and the inlet", () => {
         // Given a mock source and throttle
         const emit = mockSource<number>(), t = throttle();
-        let received: Job;
+        let received: Maybe<Job>;
         // When iterated with forEach
         const conn = forEach((s, j, i) => {
             received = j;
@@ -143,7 +144,7 @@ describe("forEach()", () => {
     it("works as a pipe() target", () => {
         // Given a mock source and throttle
         const emit = mockSource<number>(), t = throttle();
-        let received: Job;
+        let received: Maybe<Job>;
         const src = (s: Sink<number>, j: Connection, i: Inlet) => {
             received = j;
             log(i === t);

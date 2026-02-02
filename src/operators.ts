@@ -2,6 +2,7 @@ import { fromIterable } from "./sources.ts";
 import { Connection, IsStream, Source, Sink, Stream, Transformer, backpressure, throttle } from "./streams.ts";
 import { isValue, noop } from "./results.ts";
 import { start } from "./jobutils.ts";
+import { Maybe } from "./internals.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -35,16 +36,16 @@ export function concat<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T>
  */
 export function concatAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
-        let inner: Connection;
+        let inner: Maybe<Connection>;
         const inputs: Stream<T>[] = [], t = throttle();
-        let outer = conn.connect(sources, s => {
+        let outer: Maybe<Connection> = conn.connect(sources, s => {
             inputs.push(s); startNext(); t.pause();
         }, t).do(r => {
             outer = undefined
             inputs.length || inner || !isValue(r) || conn.return();
         });
         function startNext() {
-            inner ||= conn.connect(inputs.shift(), sink, inlet).do(r => {
+            inner ||= conn.connect(inputs.shift()!, sink, inlet).do(r => {
                 inner = undefined;
                 inputs.length ? startNext() : (outer ? t.resume() : !isValue(r) || conn.return());
             });
@@ -127,7 +128,7 @@ export function merge<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T> 
 export function mergeAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
         const uplinks: Set<Connection> = new Set;
-        let outer = conn.connect(sources, (s) => {
+        let outer: Maybe<Connection> = conn.connect(sources, (s) => {
             const c = conn.connect(s, sink, inlet).do(r => {
                 uplinks.delete(c);
                 uplinks.size || outer || !isValue(r) || conn.return();
@@ -223,7 +224,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
         conn.connect(src, (v): void => {
             buffer.push(v);
             if (!draining && ready()) return void drain();
-            while (buffer.length > max) { dropped((size < 0) ? buffer.pop() : buffer.shift()); }
+            while (buffer.length > max) { dropped((size < 0) ? buffer.pop()! : buffer.shift()!); }
             if (buffer.length === max) { t.pause(); paused = true; }
             if (buffer.length) ready(drain);
         }, t).do(r => {
@@ -234,7 +235,7 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
             draining = true;
             try {
                 while(buffer.length) {
-                    sink(buffer.shift());
+                    sink(buffer.shift()!);
                     if (paused && ready()) {
                         paused = false; t.resume();
                     }
@@ -267,8 +268,8 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
  */
 export function switchAll<T>(sources: Stream<Stream<T>>): Source<T> {
     return (sink, conn=start(), inlet) => {
-        let inner: Connection;
-        let outer = conn.connect(sources, s => {
+        let inner: Maybe<Connection>;
+        let outer: Maybe<Connection> = conn.connect(sources, s => {
             inner?.end();
             inner = conn.connect(s, sink, inlet).do(r => {
                 inner = undefined;

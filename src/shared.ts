@@ -46,14 +46,14 @@ import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap
  * @category Resources
  */
 export function service<T>(factory: () => T): () => T {
-    let known = false, value: T = undefined;
+    let known = false, value: T = undefined!;
     if (isGeneratorFunction<JobIterator<any>>(factory)) factory = fork(factory)
     return () => {
         if (known) return value
         root.start(() => {
             value = factory()
             known = true
-            must(() => { value = undefined; known = false; })
+            must(() => { value = undefined!; known = false; })
         })
         return value
     }
@@ -250,7 +250,7 @@ export function $<T>(key: Factory<T> | CallSite): T | ((factory: Factory<T>) => 
     if (isFunction(key)) {
         // It's a factory, create (or return) an instance
         return constants.has(key) ? constants.get(key) : setMap(constants, key,
-            callOrConstruct(factories.has(key) ? factories.get(key) : key)
+            callOrConstruct(factories.has(key) ? factories.get(key)! : key)
         )
     }
     // It's a call site for ``, return a function

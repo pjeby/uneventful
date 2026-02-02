@@ -94,7 +94,8 @@ export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
 export type JobResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
 
 function mkResult<T>(op: "next", val?: T): ValueResult<T>;
-function mkResult(op: "throw", val: undefined|null, err: any): ErrorResult;
+function mkResult(op: "throw", val: null, err: any): HandledError;
+function mkResult(op: "throw", val: undefined, err: any): UnhandledError;
 function mkResult(op: "cancel"): CancelResult;
 function mkResult<T>(op: string, val?: T, err?: any): JobResult<T> {
     return {op, val, err} as JobResult<T>
@@ -197,7 +198,7 @@ export function getResult<T>(res: JobResult<T>): T {
         res.op; // throw if not defined
         fulfillPromise(noop, e => { throw e; }, res);
     }
-    return res.val;
+    return res.val as T;
 }
 
 /**

@@ -23,3 +23,6 @@ export const owners = new WeakMap<Job, Job>();
 export const pulls = /* @__PURE__ */ batch<{ doPull(): void; }>(pulls => {
     for (const conn of pulls) { pulls.delete(conn); conn.doPull(); }
 }, defer);
+
+/** An optional value @inline */
+export type Maybe<T> = T | undefined

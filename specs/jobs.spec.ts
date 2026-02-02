@@ -2,11 +2,11 @@ import { log, see, describe, expect, it, useClock, clock, useRoot, noClock, logU
 import {
     start, Suspend, Request, to, resolve, reject, resolver, rejecter, Yielding, must, fromIterable,
     IsStream, backpressure, sleep, isHandled, Connection,
-    CancelError, throttle, next, root
+    CancelError, throttle, next, root, StartFn
 } from "../src/mod.ts";
 import { value, cached, runRules, until } from "../src/signals.ts";
 import { runPulls } from "./dev_deps.ts";
-import { catchers, defaultCatch } from "../src/internals.ts";
+import { Maybe, catchers, defaultCatch } from "../src/internals.ts";
 import { _Job } from "../src/tracking.ts";
 
 const noop = () => ({ *[Symbol.iterator]() {} });
@@ -205,7 +205,7 @@ describe("Job instances", () => {
                     const j2 = start(function*() { log(yield* j1); });
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with a value
-                    resolve(req, 42);
+                    resolve(req!, 42);
                     // Then it should see the value
                     see("42");
                 });
@@ -218,7 +218,7 @@ describe("Job instances", () => {
                     const j2 = start(function*() { log(yield* j1); }).onError(noop);
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with an error
-                    reject(req, "an error");
+                    reject(req!, "an error");
                     // Then the waiting job should see the error
                     await j2.catch(log);
                     see("an error");
@@ -423,7 +423,7 @@ describe("Job instances", () => {
         it("require functions to receive the request", () => {
             // Given a job that yields a non-function
             var err: any
-            start(function*(){ try { yield; } catch(e) { err = e; } });
+            start((function*(){ try { yield; } catch(e) { err = e; } }) as StartFn<unknown>);
             // When it runs
             clock.tick(0);
             // Then it should throw an error
@@ -442,7 +442,7 @@ describe("Job instances", () => {
                 let req: Request<any>
                 start(function*(): Yielding<any> { log(yield r => req = r); }); clock.tick(0);
                 // When resolved
-                resolve(req, 42);
+                resolve(req!, 42);
                 // Then it should resume immediately
                 see("42");
             });
@@ -455,7 +455,7 @@ describe("Job instances", () => {
                     log("complete");
                 }); clock.tick(0);
                 // When resolved more than once
-                resolve(req, 43); resolve(req, 42);
+                resolve(req!, 43); resolve(req!, 42);
                 // Then it should only see the first call
                 see("43");
                 // And resume at its normal place
@@ -476,7 +476,7 @@ describe("Job instances", () => {
                 start(function*(): Yielding<any> { try { log(yield r => req = r); } catch(e) { log(`err: ${e}`)}; });
                 clock.tick(0);
                 // When rejected
-                reject(req, "boom!");
+                reject(req!, "boom!");
                 // Then it should resume immediately
                 see("err: boom!");
             });
@@ -489,7 +489,7 @@ describe("Job instances", () => {
                     log("complete");
                 }); clock.tick(0);
                 // When rejected more than once
-                reject(req, "headshot!"); reject(req, "boom!");
+                reject(req!, "headshot!"); reject(req!, "boom!");
                 // Then it should only see the first call
                 see("err: headshot!");
                 // And resume at its normal place
@@ -655,10 +655,10 @@ describe("Async Ops", () => {
                 runPulls(); see("22");
             });
             it("throwing on throw", () => {
-                let conn: Connection;
+                let conn: Maybe<Connection>;
                 // When a suspended next() on a throwing stream is run
-                suspendOn(next((_,c) => { backpressure(throttle(conn = c))(() => c.throw("boom")); return IsStream; }));
-                conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
+                suspendOn(next((_,c) => { backpressure(throttle(conn = c))(() => c!.throw("boom")); return IsStream; }));
+                conn!.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
                 // Then the job should throw once pulls run (and mark the error handled)
                 runPulls(); see("false", "true", "err: boom");
@@ -731,10 +731,10 @@ describe("Async Ops", () => {
                 runPulls(); see("22");
             });
             it("throwing on throw", () => {
-                let conn: Connection;
+                let conn: Maybe<Connection>;
                 // When a suspended until() on a throwing stream is run
-                suspendOn(until((_,c) => { backpressure(throttle(conn = c))(() => c.throw("boom")); return IsStream; }));
-                conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
+                suspendOn(until((_,c) => { backpressure(throttle(conn = c))(() => c!.throw("boom")); return IsStream; }));
+                conn!.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
                 // Then the job should throw once pulls run (and mark the error handled)
                 runPulls(); see("false", "true", "err: boom");

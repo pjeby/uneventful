@@ -1,17 +1,17 @@
 import { currentCell, popCtx, pushCtx } from "./ambient.ts";
 import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { _Job, getJob } from "./tracking.ts";
+import { _Job, getJob, root } from "./tracking.ts";
 import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { defer } from "./defer.ts";
 import { Batch, batch } from "./scheduling.ts";
-import { root } from "./tracking.ts";
+import { Maybe } from "./internals.ts";
 
 const ruleQueues = new WeakMap<Function, RuleQueue>();
 export function ruleQueue(scheduleFn: (cb: () => unknown) => unknown = defer) {
     ruleQueues.has(scheduleFn) || ruleQueues.set(scheduleFn, batch<Cell>(runRules, scheduleFn));
-    return ruleQueues.get(scheduleFn);
+    return ruleQueues.get(scheduleFn)!;
 }
 
 export type RuleQueue = Batch<Cell>;
@@ -32,7 +32,7 @@ function runRules(this: RuleQueue, q: Set<Cell>) {
                 q.delete(currentRule);
             }
         } finally {
-            currentQueue = currentRule = undefined;
+            currentQueue = currentRule = unset;
         }
         demandChanges.flush()
     }
@@ -90,7 +90,7 @@ const dirtyStack: Cell[] = [];
 function markDependentsDirty(cell: Cell) {
     // We don't set validThrough here because that's how we tell the cell's been read/depended on
     const latestSource = cell.latestSource = timestamp;
-    for(; cell; cell = dirtyStack.pop()) {
+    for(; cell; cell = dirtyStack.pop()!) {
         for (let sub=cell.subscribers; sub; sub = sub.nT) {
             const tgt = sub.tgt;
             if (tgt.latestSource >= latestSource) continue;
@@ -151,16 +151,19 @@ type Subscription = {
 
 var freesubs: Subscription;
 
+/** Sentinel value for end of linked lists */
+const unset: any = undefined;
+
 function mksub(source: Cell, target: Cell) {
     let sub: Subscription = freesubs;
     if (sub) {
         freesubs = sub.old;
-        sub.src = source; sub.nS = undefined; sub.pS = target.sources;
-        sub.tgt = target; sub.nT = sub.pT = undefined;
+        sub.src = source; sub.nS = unset; sub.pS = target.sources;
+        sub.tgt = target; sub.nT = sub.pT = unset;
         sub.ts = source.lastChanged; sub.old = source.adding;
     } else sub = {
-        src: source, nS: undefined, pS: target.sources,
-        tgt: target, nT: undefined, pT: undefined,
+        src: source, nS: unset, pS: target.sources,
+        tgt: target, nT: unset, pT: unset,
         ts: source.lastChanged, old: source.adding
     }
     // Add subscription to tail of target's sources
@@ -186,7 +189,7 @@ function delsub(sub: Subscription) {
     sub.src.unsubscribe(sub);
     if (sub.nS) sub.nS.pS = sub.pS;
     if (sub.pS) sub.pS.nS = sub.nS;
-    sub.src = sub.tgt = sub.nS = sub.pS = sub.nT = sub.pT = undefined;
+    sub.src = sub.tgt = sub.nS = sub.pS = sub.nT = sub.pT = unset;
     sub.old = freesubs;
     freesubs = sub;
 }
@@ -230,14 +233,14 @@ export class Cell {
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
     flags = 0;
-    job: Job = undefined;
+    job?: Job<never> = undefined;
     /** The subscription being added during the current calculation - used for uniqueness */
-    adding: Subscription = undefined;
+    adding: Subscription = unset;
     /** Linked list of sources */
-    sources: Subscription = undefined;
+    sources: Subscription = unset;
     /** Linked list of targets */
-    subscribers: Subscription = undefined;
-    queue: RuleQueue = undefined;
+    subscribers: Subscription = unset;
+    queue?: RuleQueue = undefined;
 
     /**
      * The computation to be performed (if {@link Is.Compute}) or the
@@ -277,7 +280,7 @@ export class Cell {
                     if (s.nS) { // if not at end, move it
                         s.nS.pS = s.pS;
                         if (s.pS) s.pS.nS = s.nS;
-                        s.nS = undefined;
+                        s.nS = unset;
                         s.pS = dep.sources;
                         dep.sources.nS = s;
                         dep.sources = s;
@@ -434,11 +437,11 @@ export class Cell {
             }
             popCtx();
             // reset this.src to the head of the list, dropping stale subscriptions
-            let head: Subscription;
+            let head: Subscription = unset;
             for(let sub = this.sources; sub; ) {
                 const pS = sub.pS;
                 sub.src.adding = sub.old;
-                sub.old = undefined;
+                sub.old = unset;
                 if (sub.ts === -1) delsub(sub); else head = sub;
                 sub = pS;
             }
@@ -479,14 +482,14 @@ export class Cell {
     }
 
     stop() {
-        this.setQ(null);
+        this.setQ();
         // force immediate stop unless we're running (in which case doRecalc
         // will handle it for us, since we have no demand any more):
         if (this.flags & Is.Running) { this.flags |= Is.Stopped; } else this.updateDemand();
         ruleStops.get(this)?.();
     }
 
-    setQ(queue: RuleQueue|null = defaultQ) {
+    setQ(queue?: RuleQueue) {
         if (queue == this.queue) return;  // use `==` to ignore null/undefined
         if (!this.subscribers) {
             // Without subscribers, adding/removing a queue will change demand,
@@ -523,7 +526,7 @@ export class Cell {
         if (sub.nT) sub.nT.pT = sub.pT;
         if (sub.pT) sub.pT.nT = sub.nT;
         if (this.subscribers === sub) this.subscribers = sub.nT;
-        sub.nT = sub.pT = undefined;
+        sub.nT = sub.pT = unset;
         if (!this.subscribers && !this.queue) {
             // 1->0 subs, remove demand (unless we still have it via queue)
             unsubscribeAll(this);
@@ -554,7 +557,7 @@ export class Cell {
     updateDemand() {
         demandChanges.delete(this);
         if (monitors.has(this)) {
-            monitors.get(this)();
+            monitors.get(this)!();
         } else if (this.flags & Is.Observed) {
             // Trigger an async update so we run on the right scheduler
             this.shouldWrite(true);
@@ -568,11 +571,11 @@ export class Cell {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stateful | Is.Stream;
         const write = (v: T) => { cell.setValue(v, false);  };
-        let job: Job<void>;
+        let job: Maybe<Job<void>>;
         monitors.set(cell, () => {
             if (!cell.subscribers) {
                 // Last subscriber is gone, so reset to default value
-                write(val);
+                write(val!);
                 job?.end();  // unsubscribe from source
                 return
             }
@@ -583,7 +586,7 @@ export class Cell {
                 } else {
                     cell.setValue(val, false);
                 }
-                job = undefined;
+                job = unset;
             });
             pushCtx(job);
             try {
@@ -610,7 +613,7 @@ export class Cell {
 
     recalcWhen(src: RecalcSource): void;
     recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
-    recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
+    recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn: (key: T) => RecalcSource = unset) {
         // Don't track if peeking
         if (this.flags & Is.Peeking) return;
         let trackers: WeakMap<WeakKey, () => number> = fn ?

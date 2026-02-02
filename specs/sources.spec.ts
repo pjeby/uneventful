@@ -288,7 +288,7 @@ describe("Sources", () => {
         });
         it("should resolve promise-like objects", async () => {
             // Given a fromPromise() of a "thenable"
-            const s = fromPromise({then(onV) { onV(42); }});
+            const s = fromPromise({then(onV) { onV!(42); }});
             // When the stream is connected
             connect(s, log.emit).do(logClose);
             // Then it should emit the resolved value asynchronously
@@ -309,7 +309,7 @@ describe("Sources", () => {
         useClock();
         it("should subscribe w/pusher after defer, and unsub on close", () => {
             // Given a subscribe function
-            let pusher: (v: any) => void;
+            let pusher: (v: any) => void = undefined!;
             const unsub = spy(), subscribe = spy(cb  => ((pusher = cb), unsub));
             // And a fromSubscribe() source
             const s = fromSubscribe(subscribe);

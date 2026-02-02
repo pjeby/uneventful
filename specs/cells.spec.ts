@@ -36,7 +36,7 @@ describe("Demand management", () => {
             // And not scheduled for recalc when the queue flushes
             demandChanges.flush(); runRules(); see();
             // And when it's no longer observed
-            c.setQ(null);
+            c.setQ();
             expect(demandChanges.isEmpty()).to.be.false;
             // Then it should shut down after demand is updated
             demandChanges.flush(); see("undo");
@@ -54,7 +54,7 @@ describe("Demand management", () => {
             demandChanges.flush();
             expect(demandChanges.isEmpty()).to.be.true;
             // And when the queue is removed again
-            c.setQ(null);
+            c.setQ();
             // Then it should be scheduled again
             expect(demandChanges.isEmpty()).to.be.false;
             demandChanges.flush();
@@ -74,7 +74,7 @@ describe("Demand management", () => {
             // Then the subscription state should not change
             expect(s.subscribers.tgt).to.equal(c);
             // Until the queue is removed entirely
-            c.setQ(null);
+            c.setQ();
             // And then it should be unsubscribed
             expect(s.subscribers).to.be.undefined;
         });
@@ -425,7 +425,7 @@ describe("rule.factory()", () => {
             s(() => log("inner flush"));
             // Which has therefore scheduled itself
             const flush = v();
-            v.set(undefined);  // clear value so we can tell when it's scheduled again
+            v.set(undefined!);  // clear value so we can tell when it's scheduled again
             // and a (main-schedule) rule that flushes it
             rule(() => {
                 flush();

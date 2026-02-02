@@ -301,7 +301,7 @@ export interface Job<T=any> extends Yielding<T>, Promise<T> {
      *
      * @category Obtaining Results
      */
-    do(action: (res?: JobResult<T>) => unknown): this;
+    do(action: (res: JobResult<T>) => unknown): this;
 
     /**
      * Invoke a callback if the job ends with an error.
