@@ -1,5 +1,5 @@
 import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
-import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, pipe } from "../mod.ts";
+import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, pipe } from "../src/mod.ts";
 import { Maybe } from "../src/internals.ts";
 
 describe("each()", () => {

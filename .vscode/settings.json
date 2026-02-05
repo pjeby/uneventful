@@ -1,9 +1,4 @@
 {
-    "deno.enable": false,
-    "deno.lint": false,
-    "deno.unstable": true,
-    "deno.config": "deno.jsonc",
-    "deno.cacheOnSave": true,
     // Workaround for Rewrap extension sometimes inserting nulls in comments
     // (https://github.com/dnut/Rewrap/issues/47)
     //

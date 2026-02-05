@@ -1,4 +1,4 @@
-import { Yielding, must, newRoot, root, sleep, start } from "../mod.ts"
+import { Yielding, must, newRoot, root, sleep, start } from "../src/mod.ts"
 import { $, $cache, expiring, fork, service } from "../src/shared.ts"
 import { cached, value } from "../src/signals.ts"
 import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts"

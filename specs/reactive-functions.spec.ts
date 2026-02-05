@@ -1,4 +1,4 @@
-import { must, noop, start } from "../mod.ts"
+import { must, noop, start } from "../src/mod.ts"
 import { demandChanges } from "../src/cells.ts"
 import { cached, fn, fx, rule, runRules, value } from "../src/signals.ts"
 import { describe, expect, it, log, see, useRoot } from "./dev_deps.ts"

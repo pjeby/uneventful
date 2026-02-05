@@ -31,6 +31,6 @@
     },
     "exclude": ["./specs/*"],
     "include": [
-        "./src/*.ts", "./mod.ts", "./specs/*.ts"
+        "./src/*.ts", "./specs/*.ts",
     ]
 }

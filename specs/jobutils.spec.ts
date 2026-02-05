@@ -1,5 +1,5 @@
 import { describe, expect, it, useClock, clock, log, useRoot, see } from "./dev_deps.ts";
-import { timeout, abortSignal, task, getJob, getResult, Yielding, start, root } from "../mod.ts";
+import { timeout, abortSignal, task, getJob, getResult, Yielding, start, root } from "../src/mod.ts";
 
 describe("timeout()", () => {
     useClock();

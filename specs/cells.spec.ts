@@ -2,7 +2,7 @@ import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts
 import { runRules, value, cached, rule, CircularDependency, WriteConflict, stableArray } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
-import { IsStream, isObserved, must } from "../mod.ts";
+import { IsStream, isObserved, must } from "../src/mod.ts";
 import { arrayEq } from "../src/utils.ts";
 
 describe("Demand management", () => {

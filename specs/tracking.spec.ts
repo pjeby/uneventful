@@ -3,7 +3,7 @@ import { currentCell, currentJob, popCtx, pushCtx } from "../src/ambient.ts";
 import {
     CleanupFn, Job, JobResult, Suspend, getJob, getResult, isCancel, isHandled, isJobActive, isValue,
     must, nativePromise, newRoot, noop, restarting, root, start
-} from "../mod.ts";
+} from "../src/mod.ts";
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
 import { _Job } from "../src/tracking.ts";

@@ -1,7 +1,7 @@
 import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
 import { Connection, Throttle, backpressure, throttle } from "../src/streams.ts";
 import { runPulls } from "./dev_deps.ts";
-import { IsStream, connect, Sink, compose, pipe, must, start, isError, JobResult, root } from "../mod.ts";
+import { IsStream, connect, Sink, compose, pipe, must, start, isError, JobResult, root } from "../src/mod.ts";
 
 function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 

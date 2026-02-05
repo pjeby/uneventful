@@ -1,5 +1,5 @@
 import { log, see, describe, it, useRoot, msg, expect, logUncaught } from "./dev_deps.ts";
-import { must, DisposeFn, root, newRoot, noop } from "../mod.ts";
+import { must, DisposeFn, root, newRoot, noop } from "../src/mod.ts";
 import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
 describe("@rule.method", () => {
