@@ -6,7 +6,7 @@ specifiers:
   '@types/markdown-it': ^14.1.2
   '@types/markdown-it-footnote': ^3.0.4
   '@types/mocha': ^10.0.4
-  '@types/node': ^16
+  '@types/node': ^18
   '@types/sinon': ^17.0.1
   '@types/sinon-chai': ^3.2.12
   c8: ^10
@@ -23,7 +23,7 @@ specifiers:
   ts-node: ^10.9.1
   tsx: ^4.6.1
   typedoc: pjeby/typedoc#no-merged-comments
-  typescript: ^5.4.5
+  typescript: ^5.9.3
 
 devDependencies:
   '@types/chai': 4.3.10
@@ -31,7 +31,7 @@ devDependencies:
   '@types/markdown-it': 14.1.2
   '@types/markdown-it-footnote': 3.0.4
   '@types/mocha': 10.0.4
-  '@types/node': 16.18.61
+  '@types/node': 18.19.130
   '@types/sinon': 17.0.1
   '@types/sinon-chai': 3.2.12
   c8: 10.1.3
@@ -41,14 +41,14 @@ devDependencies:
   markdown-it-footnote: 4.0.0
   mocha: 10.2.0
   monkey-around: 3.0.0
-  pkgroll: 2.1.1_typescript@5.4.5
+  pkgroll: 2.1.1_typescript@5.9.3
   sinon: 17.0.1
   sinon-chai: 3.7.0_chai@4.3.10+sinon@17.0.1
   ts-expect: 1.3.0
-  ts-node: 10.9.1_26myjxnguasdza5zoqavtckj3y
+  ts-node: 10.9.1_hkghs6z2rq6shetevas5snmzni
   tsx: 4.19.3
-  typedoc: github.com/pjeby/typedoc/4f09c69f66a25aa7245727820599c0f5e8864d18_typescript@5.4.5
-  typescript: 5.4.5
+  typedoc: github.com/pjeby/typedoc/4f09c69f66a25aa7245727820599c0f5e8864d18_typescript@5.9.3
+  typescript: 5.9.3
 
 packages:
 
@@ -918,8 +918,10 @@ packages:
     resolution: {integrity: sha512-xKU7bUjiFTIttpWaIZ9qvgg+22O1nmbA+HRxdlR+u6TWsGfmFdXrheJoK4fFxrHNVIOBDvDNKZG+LYBpMHpX3w==}
     dev: true
 
-  /@types/node/16.18.61:
-    resolution: {integrity: sha512-k0N7BqGhJoJzdh6MuQg1V1ragJiXTh8VUBAZTWjJ9cUq23SG0F0xavOwZbhiP4J3y20xd6jxKx+xNUhkMAi76Q==}
+  /@types/node/18.19.130:
+    resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
+    dependencies:
+      undici-types: 5.26.5
     dev: true
 
   /@types/resolve/1.20.2:
@@ -1802,7 +1804,7 @@ packages:
     engines: {node: '>=8.6'}
     dev: true
 
-  /pkgroll/2.1.1_typescript@5.4.5:
+  /pkgroll/2.1.1_typescript@5.9.3:
     resolution: {integrity: sha512-ZQjWkcfY+RvzQhavoOvXZ6UvYZL8qwJjGoJvU2yrTwfUybL9QG4SblhYXV+uRwh0GRRvo1JtEg0htzD0RGr9CA==}
     engines: {node: '>=18'}
     hasBin: true
@@ -1822,7 +1824,7 @@ packages:
       esbuild: 0.20.2
       magic-string: 0.30.10
       rollup: 4.18.0
-      typescript: 5.4.5
+      typescript: 5.9.3
     dev: true
 
   /punycode.js/2.3.1:
@@ -2024,7 +2026,7 @@ packages:
     resolution: {integrity: sha512-e4g0EJtAjk64xgnFPD6kTBUtpnMVzDrMb12N1YZV0VvSlhnVT3SGxiYTLdGy8Q5cYHOIC/FAHmZ10eGrAguicQ==}
     dev: true
 
-  /ts-node/10.9.1_26myjxnguasdza5zoqavtckj3y:
+  /ts-node/10.9.1_hkghs6z2rq6shetevas5snmzni:
     resolution: {integrity: sha512-NtVysVPkxxrwFGUUxGYhfux8k78pQB3JqYBXlLRZgdGUqTO5wU/UyHop5p70iEbGhB7q5KmiZiU0Y3KlJrScEw==}
     hasBin: true
     peerDependencies:
@@ -2043,14 +2045,14 @@ packages:
       '@tsconfig/node12': 1.0.11
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
-      '@types/node': 16.18.61
+      '@types/node': 18.19.130
       acorn: 8.11.2
       acorn-walk: 8.3.0
       arg: 4.1.3
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 5.4.5
+      typescript: 5.9.3
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
     dev: true
@@ -2071,14 +2073,18 @@ packages:
     engines: {node: '>=4'}
     dev: true
 
-  /typescript/5.4.5:
-    resolution: {integrity: sha512-vcI4UpRgg81oIRUFwR0WSIHKt11nJ7SAVlYNIu+QpqeyXP+gpQJy/Z4+F0aGxSE4MqwjyXvW/TzgkLAx2AGHwQ==}
+  /typescript/5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
     hasBin: true
     dev: true
 
   /uc.micro/2.1.0:
     resolution: {integrity: sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A==}
+    dev: true
+
+  /undici-types/5.26.5:
+    resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
     dev: true
 
   /v8-compile-cache-lib/3.0.1:
@@ -2199,7 +2205,7 @@ packages:
     engines: {node: '>=10'}
     dev: true
 
-  github.com/pjeby/typedoc/4f09c69f66a25aa7245727820599c0f5e8864d18_typescript@5.4.5:
+  github.com/pjeby/typedoc/4f09c69f66a25aa7245727820599c0f5e8864d18_typescript@5.9.3:
     resolution: {tarball: https://codeload.github.com/pjeby/typedoc/tar.gz/4f09c69f66a25aa7245727820599c0f5e8864d18}
     id: github.com/pjeby/typedoc/4f09c69f66a25aa7245727820599c0f5e8864d18
     name: typedoc
@@ -2215,6 +2221,6 @@ packages:
       lunr: 2.3.9
       markdown-it: 14.1.0
       minimatch: 9.0.5
-      typescript: 5.4.5
+      typescript: 5.9.3
       yaml: 2.8.2
     dev: true
