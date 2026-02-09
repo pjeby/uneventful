@@ -3,7 +3,7 @@ title: Changelog
 ---
 # Changelog
 
-### 0.0.13 (Unreleased)
+### 0.0.13 (2026-02-09)
 
 `uneventful`
 - Removed the deprecated `detached` and `rule.detached` APIs
