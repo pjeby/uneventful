@@ -92,7 +92,7 @@
         "ts-expect": "^1.3.0",
         "ts-node": "^10.9.1",
         "tsx": "^4.6.1",
-        "typedoc": "pjeby/typedoc#no-merged-comments",
+        "typedoc": "^0.28.17",
         "typescript": "^5.9.3"
     }
 }
