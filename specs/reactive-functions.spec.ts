@@ -195,6 +195,29 @@ describe("Reactive Functions", () => {
             f1.multiplier.set(16); runRules()
             see()
         })
+        it("recalculates when demand is restored", () => {
+            // Given an fx
+            const m = new Fixture("f1").monitor
+
+            // When monitored directly from a job
+            const j1 = start(m)
+            // Then it should run until the job ends/restarts
+            see("f1: 1")
+            j1.restart()
+
+            // And when it's monitored by a rule
+            const r = rule(m)
+            runRules()
+            // Then it should start again, until the rule ends
+            see("f1: 1")
+            r()
+
+            // And when monitored by a job again
+            j1.run(m)
+            // Then it should start again, until the job ends/restarts
+            see("f1: 1")
+            j1.restart()
+        })
         it("runs only in observed signals", () => {
             // Given a signal wrapping an fx
             const f1 = new Fixture("f1")
@@ -215,7 +238,7 @@ describe("Reactive Functions", () => {
             const j = start(fx(() => s()))
             demandChanges.flush(); runRules()
             // Then it should re-activate
-            see("calculate", "activating")
+            see("calculate", "activating", "f1: 1")
             // And when the effect is ended (via its job)
             j.end()
             demandChanges.flush()

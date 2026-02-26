@@ -3,6 +3,12 @@ title: Changelog
 ---
 # Changelog
 
+### 0.0.14 (Unreleased)
+
+`uneventful/signals`
+- Fix: `fx()` should *immediately* recalculate when they transition to being in-demand, as their side-effects can't be cached.
+
+
 ### 0.0.13 (2026-02-09)
 
 `uneventful`

@@ -277,8 +277,12 @@ export function fx<Instance extends WeakKey>(
         return () => {
             if (currentCell) {
                 // Silent no-op if unobserved
-                if (currentCell.isObserved()) cell.getValue()
+                if (currentCell.isObserved()) {
+                    cell.isObserved() || (cell.validThrough = 0)
+                    cell.getValue()
+                }
             } else {
+                cell.isObserved() || (cell.validThrough = 0)
                 // Called from job instead of signal - track active calling jobs and
                 // activate or deactivate accordingly
                 if (!sosHas(jobs, getJob())) {
