@@ -249,7 +249,7 @@ export function recalcWhen(src: RecalcSource): void;
  */
 export function recalcWhen<T extends WeakKey>(key: T, factory: (key: T) => RecalcSource): void;
 export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (key: T) => RecalcSource) {
-    currentCell?.recalcWhen<T>(fnOrKey as T, fn!);
+    currentCell && currentCell.recalcWhen<T>(fnOrKey as T, fn!);
 }
 
 /**
@@ -277,5 +277,5 @@ export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (k
  * @category Signals
  */
 export function isObserved(): boolean | undefined  {
-    return currentCell?.isObserved();
+    return currentCell ? currentCell.isObserved() : undefined;
 }

@@ -26,3 +26,18 @@ export const pulls = /* @__PURE__ */ batch<{ doPull(): void; }>(pulls => {
 
 /** An optional value @inline */
 export type Maybe<T> = T | undefined
+
+/** @inline */
+export type Factory<T> = (() => T) | (new () => T)
+
+export let lazyConstants: WeakMap<Factory<unknown>, unknown>;
+export let rootId = 0
+
+/**
+ * Prepare for a new root job by clearing the lazy constants cache and
+ * invalidating service caches.
+ */
+export function resetConstants() {
+    ++rootId
+    lazyConstants = new WeakMap
+}

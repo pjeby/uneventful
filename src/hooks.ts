@@ -1,4 +1,4 @@
-import { currentCell } from "./ambient.ts"
+import { currentCell, popCtx, pushCtx } from "./ambient.ts"
 import { getCell } from "./cells.ts"
 import { PlainFunction } from "./types.ts"
 import { arrayEq, setMap } from "./utils.ts"
@@ -119,7 +119,10 @@ export function perSignal<F extends PlainFunction>(func: F, site: CallSite, name
             if (findOrCreateMemos(hooks, site, 1)) {
                 return getMemo<F>(hooks, 1)()
             } else {
-                const result = func(...args)
+                // Run w/o job context and block reading signals
+                let result: unknown
+                pushCtx(undefined, false)
+                try { result = func(...args) } finally { popCtx() }
                 setMemo(hooks, 1, () => result)
                 return result;
             }

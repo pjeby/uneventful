@@ -1,5 +1,5 @@
 import { pushCtx, popCtx, currentJob, currentCell, cellJob } from "./ambient.ts";
-import { catchers, defaultCatch, owners } from "./internals.ts";
+import { catchers, defaultCatch, owners, resetConstants } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, StartFn, OptionalCleanup, JobIterator, RecalcSource, StartObj } from "./types.ts";
 import { defer } from "./defer.ts";
 import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
@@ -57,7 +57,7 @@ export class _Job<T> implements Job<T> {
     result(): JobResult<T> | undefined {
         // If we're done, we're done; otherwise make signals/rules reading this
         // recalc when we're done (handy for rendering "loading" states).
-        return this._done || currentCell?.recalcWhen(this, recalcJob) || undefined;
+        return this._done || (currentCell && currentCell.recalcWhen(this, recalcJob)) || undefined;
     }
 
     get [Symbol.toStringTag]() { return "Job"; }
@@ -373,6 +373,7 @@ newRoot()
  */
 export function newRoot(): Job<unknown> {
     root?.end()
+    resetConstants()
     const job = root = new _Job().asyncCatch(defaultCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
     job.release(() => root === job && (root = null!))

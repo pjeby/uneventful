@@ -76,7 +76,7 @@ export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T
  *
  * @category Jobs
  */
-export function isJobActive() { return !!(currentJob || currentCell?.isObserved()); }
+export function isJobActive() { return !!(currentJob || (currentCell && currentCell.isObserved())) }
 
 
 const timers = new WeakMap<Job,

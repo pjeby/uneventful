@@ -1,7 +1,10 @@
-import { Yielding, must, newRoot, root, sleep, start } from "../src/mod.ts"
-import { $, $cache, expiring, fork, service } from "../src/shared.ts"
+import { Yielding, getJob, isJobActive, must, newRoot, root, sleep, start } from "../src/mod.ts"
+import { $, expiring, fork, service } from "../src/shared.ts"
 import { cached, value } from "../src/signals.ts"
 import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts"
+
+function counter(count=0) { return () => ++count }
+function msgCounter(count=0) { return () => { log(`call #${++count}`); return count } }
 
 describe("expiring()", () => {
     it("returns a proxy that becomes inaccessible after job end", () => {
@@ -131,13 +134,11 @@ describe("fork()", () => {
 
 describe("service()", () => {
     describe("returns an accessor that", () => {
+        useClock()
         afterEach(() => void newRoot().asyncCatch(logUncaught))
         it("calls the factory at most once per root", () => {
             // Given a service for a factory that logs and returns a new value each time
-            let count = 0, svc = service(() => {
-                log(`call #${++count}`)
-                return count
-            })
+            const svc = service(msgCounter())
             // When it is called more than once
             const r1 = svc(), r2 = svc(), r3 = svc()
             // Then it should not call the factory more than once
@@ -161,7 +162,18 @@ describe("service()", () => {
             newRoot().asyncCatch(logUncaught)
             // Then the cleanups should run
             see("cleanup")
-        });
+        })
+        it("creates instances in the root job", () => {
+            service(() => log(getJob() === root))()
+            see("true")
+        })
+        it("instantiates classes", () => {
+            class foo {}
+            expect(service(foo)()).to.be.instanceOf(foo)
+        })
+        it("blocks reactive reads while creating", () => {
+            expect(service(value())).to.throw(/Reactive values can't be used/)
+        })
         it("fork()s the factory if it's a generator function", () => {
             // Given an async service
             const svc = service(function*(){})
@@ -169,16 +181,84 @@ describe("service()", () => {
             const res = svc()
             // Then it should return a fork()ed generator
             expect(root.run(() => fork(res))).to.equal(res)
-        });
+            // And when a new root is created after the generator finishes
+            clock.tick(0); newRoot().asyncCatch(logUncaught)
+            // Then the cached instance should have been discarded
+            expect(svc()).to.not.equal(res)
+        })
+        it("can default to another service", () => {
+            // Given a service derived from another service
+            const base = service(() => 1), derived = service(base)
+            // When the derived service is used
+            // Then it should default to the base service's value
+            expect(derived()).to.equal(1)
+            // And when the derived service is replaced
+            derived.replace(() => 2)
+            derived.unset()
+            // Then the replacement should apply without affecting the base
+            expect(derived()).to.equal(2)
+            expect(base()).to.equal(1)
+        })
+        describe("is configurable", () => {
+            it("returns values updated by .set() and .unset()", () => {
+                // Given a service accessor
+                const factory = counter(), svc = service(factory)
+                expect(svc()).to.equal(1)
+                // When its value is .set()
+                svc.set(42)
+                // Then calls should return the new value
+                expect(svc()).to.equal(42)
+                // And when it is .unset()
+                svc.unset()
+                // Then the factory should re-run
+                expect(svc()).to.equal(2)
+            })
+            it("even before the service is first used", () => {
+                // Given a service that has not been resolved yet
+                const svc = service(() => 1)
+                // When its implementation is replaced
+                svc.replace(() => 2)
+                // Then the replacement should be used
+                expect(svc()).to.equal(2)
+            })
+            it("by setting a value", () => {
+                // Given a service
+                const svc = service(counter())
+                // When a value is set using the accessor as the key
+                svc.set(42)
+                // Then the accessor should return the value
+                expect(svc()).to.equal(42)
+            })
+            it("by replacing the implementation and unsetting", () => {
+                // Given a resolved service
+                const factory = counter(), svc = service(factory)
+                expect(svc()).to.equal(1)
+                // When its implementation is replaced and the cache unset
+                svc.replace(() => 42)
+                svc.unset()
+                // Then the accessor should use the replacement
+                expect(svc()).to.equal(42)
+            })
+            it("by removing the replacement to restore the default", () => {
+                // Given a service whose implementation was replaced and then used
+                const svc = service(() => 1)
+                svc.replace(() => 2)
+                svc.unset()
+                expect(svc()).to.equal(2)
+                // When the replacement is removed without a substitute
+                svc.replace()
+                svc.unset()
+                // Then the default implementation should be restored
+                expect(svc()).to.equal(1)
+            })
+        })
     })
 })
 
-describe("Singletons and memos", () => {
-
-    function counter(count=0) { return () => ++count }
-
+describe("Lazy constants", () => {
     describe("$(factory)", () => {
-        it("returns the same value until $cache.unset", () => {
+        useRoot()
+        it("returns the same value until newRoot()", () => {
             // Given a function that returns a new value on each call
             const inc = counter()
             // When $() is called on it more than once
@@ -186,13 +266,30 @@ describe("Singletons and memos", () => {
             expect($(inc)).to.equal(1)
             expect($(inc)).to.equal(1)
             expect($(inc)).to.equal(1)
-            // And when $cache.unset() is called on it
-            $cache.unset(inc)
+            // And after newRoot() is called
+            newRoot().asyncCatch(logUncaught)
             // Then the function should be called again
             expect($(inc)).to.equal(2)
             // And the new value should be cached
             expect($(inc)).to.equal(2)
             expect($(inc)).to.equal(2)
+        })
+        it("creates a new value after newRoot()", () => {
+            // Given a function that returns a new value on each call
+            const inc = counter()
+            expect($(inc)).to.equal(1)
+            expect($(inc)).to.equal(1)
+            // When a newRoot is created
+            newRoot().asyncCatch(logUncaught)
+            // Then the value should be different afterward
+            expect($(inc)).to.equal(2)
+        })
+        it("creates instances without an active job", () => {
+            $(() => log(isJobActive()))
+            see("false")
+        })
+        it("blocks reactive reads while creating", () => {
+            expect(() => $(value())).to.throw(/Reactive values can't be used/)
         })
         it("uses new() if given an ES6 class", () => {
             class thingy { foo: "bar" }
@@ -221,42 +318,45 @@ describe("Singletons and memos", () => {
             // On every subsequent call
             expect($(ES5Subclass)).to.equal(sub)
         })
-    })
-    describe("$cache", () => {
-        describe(".set", () => {
-            it("overrides the return for a specific factory", () => {
-                // Given a factory function with a $cache.set()
-                const factory = () => 42
-                $cache.set(factory, 21)
-                // When $(factory) is called
-                // Then the value set is returned
-                expect($(factory)).to.equal(21)
-                // And if a new value is set
-                $cache.set(factory, 19)
-                // Then the new value is returned
-                expect($(factory)).to.equal(19)
-                // Until an .unset is done
-                $cache.unset(factory)
-                // And then the factory is invoked
-                expect($(factory)).to.equal(42)
+        describe("detects factory cycles", () => {
+            function expectCycle(fn: () => unknown) {
+                expect(fn).to.throw("Factory depends on itself")
+            }
+            it("when a factory directly depends on itself", () => {
+                // Given a factory whose body re-requests itself (at most once,
+                // so a missing check can't recurse forever)
+                let calls = 0
+                const f: () => number = () => ++calls < 2 ? $(f) : 42
+                // When $() is called on it
+                // Then a cycle error should be thrown
+                expectCycle(() => $(f))
+                // And the factory should have been entered only once
+                expect(calls).to.equal(1)
             })
-        })
-        describe(".replace", () => {
-            it("replaces/unreplaces a factory", () => {
-                // Given a factory and a registered replacement
-                const factory = () => 42, replaced = () => 21
-                $cache.replace(factory, replaced)
-                // When $(factory) is called
-                // Then the replacement should be invoked
-                expect($(factory)).to.equal(21)
-                // And even if the replacement is removed
-                $cache.replace(factory)
-                // Then the replacement's result should still be cached
-                expect($(factory)).to.equal(21)
-                // Until the cache is unset for that factory
-                $cache.unset(factory)
-                // And then the original factory should be invoked
-                expect($(factory)).to.equal(42)
+            it("between two factories", () => {
+                // Given two factories that request each other (each recursing at
+                // most once, for the same reason as above)
+                let aCalls = 0, bCalls = 0
+                const a: () => number = () => ++aCalls < 2 ? $(b) : 1
+                const b: () => number = () => ++bCalls < 2 ? $(a) : 2
+                // When $() is called on either one
+                // Then a cycle error should be thrown
+                expectCycle(() => $(a))
+            })
+            it("even if the cycle point was previously resolved", () => {
+                // Given a factory that resolves cleanly, and is resolved once
+                let recurse = false, calls = 0
+                const f: () => number = () => {
+                    if (++calls > 2) return 42     // recursion guard: never recurse forever
+                    if (recurse) return $(f)       // self-request on demand
+                    return 7
+                }
+                expect($(f)).to.equal(7)
+                // When it is unset, then made to re-request itself during creation
+                newRoot().asyncCatch(logUncaught)
+                recurse = true
+                // Then the cycle error should still be thrown
+                expectCycle(() => $(f))
             })
         })
     })
@@ -295,6 +395,13 @@ describe("Singletons and memos", () => {
             // When it is used outside a signal
             // Then it should also throw
             expect(() => cb(() => 42)).to.throw("$``() must be called from a reactive expression")
+        })
+        it("creates instances without a job", () => {
+            cached(() => $``(() => log(isJobActive())))()
+            see("false")
+        })
+        it("blocks reactive reads while creating", () => {
+            expect(() => cached(() => $``(value()))()).to.throw(/Reactive values can't be used/)
         })
     })
 })

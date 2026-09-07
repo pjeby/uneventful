@@ -1,35 +1,36 @@
 /**
  * Tools for sharing tasks, values, services, etc., especially across job
- * boundaries.
+ * boundaries, but also across reactive expression lifetimes (similar to React
+ * hooks).
  *
  * @module uneventful/shared
  * @disableGroups
  */
 
+import { popCtx, pushCtx } from "./ambient.ts"
 import { CallSite, perSignal } from "./hooks.ts"
+import { lazyConstants, Factory, rootId } from "./internals.ts"
 import { must, start } from "./jobutils.ts"
 import { noop } from "./results.ts"
 import { root, newRoot } from "./tracking.ts"
-import { JobIterator, Yielding } from "./types.ts"
+import { Job, JobIterator, Yielding } from "./types.ts"
 import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap } from "./utils.ts"
 
 /**
- * Wrap a factory function to create a singleton service accessor
+ * Define a configurable service accessor
  *
- * The returned function, when called, will run the factory in a new job and
- * cache the result.  The job the factory ran in will end when the {@link root}
- * job does, after which the cached result will be cleared.
+ * The returned accessor function, when called, will run the factory in the
+ * {@link root} job and cache the result until/unless a new root is started.
  *
- * @param factory A function returning whatever result you want to share: a
- * value, a function, an object, etc.  It will be called at most once per root
- * job lifetime, in a job that is an immediate child of the root job.
+ * The factory and result can be overridden at runtime using the accessor's
+ * methods: i.e. `myService.set(obj)` sets the instance that `myService()` will
+ * return, `myService.replace(otherFactory)` changes the factory used to create
+ * it, and so on.
  *
- * (Note: if your factory is a native generator function, it is automatically
- * wrapped with {@link fork}() so that its job will not end when the generator
- * ends, and the result can be waited on by multiple callers.  If your factory
- * is *not* a native generator function but still returns a generator to produce
- * an async result, you should wrap that generator with {@link fork} before
- * returning it.)
+ * @param defaultFactory The {@link ServiceFactory} function or class whose
+ * shared/cached result the accessor returns by default.  See
+ * {@link ServiceFactory} for important details on how the factory is run and
+ * the restrictions on what it can do.
  *
  * @remarks Note that if you want your code to be testable with {@link newRoot},
  * you should avoid storing the *result* of calling the service accessor
@@ -45,19 +46,65 @@ import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap
  *
  * @category Resources
  */
-export function service<T>(factory: () => T): () => T {
-    let known = false, value: T = undefined!;
-    if (isGeneratorFunction<JobIterator<any>>(factory)) factory = fork(factory)
-    return () => {
-        if (known) return value
-        root.start(() => {
-            value = factory()
-            known = true
-            must(() => { value = undefined!; known = false; })
-        })
-        return value
+export function service<T>(defaultFactory: ServiceFactory<T>): ServiceAccessor<T> {
+    let validFor = -1
+    let value = noop as unknown as T // prebuild shape for object/function pointer
+    let currentFactory = defaultFactory
+    function get(): T {
+        return validFor === rootId ? value : (
+            value = createSingleton(get, currentFactory, root), validFor = rootId, value
+        )
     }
+    return Object.assign(get, {
+        set(result: T) {
+            validFor = rootId; value = result
+        },
+        unset() {
+            validFor = -1; value = undefined as unknown as T
+        },
+        replace(replacement: ServiceFactory<T> = defaultFactory) {
+            currentFactory = (replacement != null && replacement !== get) ? replacement : defaultFactory
+        }
+    })
 }
+
+/**
+ * A configurable access point for a lazily-created {@link service}.
+ *
+ * @category Types and Interfaces
+ */
+export interface ServiceAccessor<T> {
+    /** Return the service's current instance, creating it if necessary */
+    (): T
+    set(instance: T): void
+    unset(): void
+    replace(factory?: ServiceFactory<T>): void
+}
+
+/**
+ * A function, or class constructor producing a value that will be cached by a
+ * `service()` accessor for the life of the root job.  (Or until overridden via
+ * a service accessor's set/unset methods.)
+ *
+ * The function or constructor will be run in the then-current root job, and its
+ * value cached.  If the function is a native generator function, it is
+ * automatically wrapped with {@link fork}(), so that its job will not end when
+ * the generator ends, and the result can be waited on by multiple callers.  (If
+ * your factory is *not* a native generator function but still returns a
+ * generator to produce an async result, you should wrap that generator with
+ * {@link fork} before returning it.)
+ *
+ * Note: if an original or replacement factory directly or indirectly requests
+ * its own value (even via a {@link service}() accessor), an error is thrown to
+ * prevent infinite recursion.  An error is also thrown if a reactive value is
+ * directly or indirectly accessed during the factory's execution, to prevent
+ * your cached service from unintentionally retaining a stale value.  (Rules
+ * and {@link uneventful/signals.fx fx()} are unaffected, as they will update
+ * their state as needed.)
+ *
+ * @category Types and Interfaces
+ */
+export type ServiceFactory<T> = (() => T) | (new () => T)
 
 /**
  * Proxy an object so it "expires" (becomes inaccessible) with the calling job.
@@ -163,34 +210,52 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>>(
 const forks = new WeakMap<Yielding<any>, Yielding<any>>()
 
 
-/** @inline */
-type Factory<T> = (() => T) | (new () => T)
-const constants = new WeakMap(), factories = new WeakMap<Factory<any>, Factory<any>>()
 
 /**
- * Return a singleton instance for the given factory
+ * A function, or class constructor producing a value that will be cached by
+ * ```$``()``` as a permanent-per-signal constant at a given call site.
  *
- * Every call to `$()` with a given factory will return the same result. (Unless
- * overridden using {@link $cache.set}, {@link $cache.unset} or
- * {@link $cache.replace}.)  On first use, the factory is called (or
- * constructed, if it's a class) and the result (if not an error) is cached for
- * future calls.
+ * The function or constructor will be run *without* an active job, and its
+ * value cached.  While it runs, any attempt to directly access a reactive value
+ * or expression will be blocked by a thrown error, to prevent your cached
+ * result from capturing a stale value.
  *
+ * Note that unlike {@link ServiceFactory}, a ConstantFactory *cannot* use job
+ * APIs, rules, or fx(), nor is there any special handling for generator
+ * functions.  None of these things make any sense for a lazy constant, as there
+ * is no way to clean up after them: they simply exist for the life of the
+ * signal (or root job, for global constants) and so should be relatively
+ * stateless.
+ *
+ * @category Types and Interfaces
  */
-export function $<T>(factory: Factory<T>): T
+export type ConstantFactory<T> = (() => T) | (new () => T)
+
+/**
+ * Return a lazily-initialized constant value for the given factory
+ *
+ * Every call to `$()` with a given factory will return the same result.
+ * (Until/unless a new root job is started.)
+ *
+ * On first use, the factory is called (or constructed, if it's a class) and the
+ * result (if not an error) is cached for future calls.
+ *
+ * @param factory The {@link ConstantFactory} function or class whose
+ * shared/cached value you want to get.  (See {@link ConstantFactory} for
+ * important details on how the factory is run and the restrictions on what it
+ * can do.)
+ */
+export function $<T>(factory: ConstantFactory<T>): T
 
 /**
  * Create a per-signal lazy constant, via ```$``()```
  *
  * When you call ```$``(factory)``` inside a given signal function for the first
- * time, `factory()` will be called (or constructed, if it's a class) and
- * returned, and the result cached for future calls *at the same location in
- * that specific signal*.  An error results if called outside a signal function.
- *
- * The primary difference between this and the singleton operator (plain `$()`),
- * is that lazy constants are singletons *per call-site*, *per signal*.  A
- * specific invocation of ```$``()``` in a specific signal will always return
- * the same value.
+ * time, the {@link ConstantFactory} will be called (or constructed, if it's a
+ * class) and the returned result will be cached for ALL future calls *at the
+ * same code location in that specific signal*.  An error results if called
+ * outside a signal function.  See the {@link ConstantFactory} docs for more
+ * details on how the factory is called, and the restrictions on what it can do.
  *
  * @remarks
  * Lazy constants are somewhat similar in concept to a React `useMemo()`, but
@@ -208,97 +273,65 @@ export function $<T>(factory: Factory<T>): T
  * call a wrapping function more than once in a signal, and expect to get
  * different results: a lazy constant is a per-signal *constant*, not a React
  * hook!)
+ *
+ * @experimental
  */
-export function $(callSite: CallSite): <T>(factory: Factory<T>) => T
+export function $(callSite: CallSite): <T>(factory: ConstantFactory<T>) => T
 
 /**
- * Return a singleton instance for the given factory, or create a per-signal
- * lazy constant (a bit like React's `useMemo`, but without the deps or ordering
- * constraints).
+ * Return a lazy constant for the given factory, either globally or per-signal.
  *
- * | Expression                    | Returns | Behavior |
- * | ----------------------------- | ------- | -------- |
- * | `$(() => T \| new () => T)`   | `T`     | [Get or make a singleton instance](#-)     |
- * | ```$``(() => T \| new () => T)``` | `T` | [Return a per-signal lazy constant](#--1) |
+ * | Expression         | Behavior |
+ * | ------------------ | -------- |
+ * | `$(factory)`       | [Return a global lazy constant](#_)    |
+ * | ```$``(factory)``` | [Return a per-signal lazy constant](#_-1) |
  *
- * #### Lazy-Initialized Singletons
- * In complex programs and frameworks, it's often beneficial to both 1) have a
- * single access point for some functionality, and 2) not to need a specific
- * point where that access is explicitly initialized.  [The `$()` function](#-)
- * lets you unobtrusively request a singleton instance to be instantiated on
- * demand, then shared with all other access points in the program, and it does
- * so without requiring any change to the target class or classes.  (You can
- * even {@link $cache.set override the target instance} or
- * {@link $cache.replace replace its factory}, as one might with a
- * dependency-injection container.)
+ * #### Lazy-Initialized Constants
+ * In complex programs and frameworks, it's often beneficial to have a constant
+ * value that's lazily initialized.  [The `$()` function](#_) lets you
+ * unobtrusively request a constant to be instantiated on demand, then shared
+ * with all other access points in the program, without requiring any change to
+ * the initializer class or function.  (Note: if you want to have a
+ * *configurable* service that can be overridden for testing or selectable
+ * implementations, use {@link service}() instead.)
  *
- * #### Lazy Constants in Signal Functions
- * Within functions, there's often a need to have some state that carries across
- * multiple calls to the function.  (Like what other languages do with
- * function-static variables.)
+ * #### Per-callsite Lazy Constants in Signal Functions
+ * Within signal functions, there's often a need to have some state that carries
+ * across multiple calls to the function.  (Like what other languages do with
+ * function-static variables, or React does with `useMemo()`.)
  *
  * You can do something like this with a closure, of course, but it often
  * increases code complexity, especially when writing signal functions. So [the
- * lazy-constant operator (```$``()```) ](#--1) lets you write expressions like
- * ```const myMap = $``(WeakMap<...>)``` instead of needing to initialize (or at
- * least define) `myMap` outside the signal function body.
+ * per-signal lazy-constant operator (```$``()```) ](#_-1) lets you write
+ * expressions like ```const myMap = $``(WeakMap<...>)``` instead of needing to
+ * initialize (or at least define) `myMap` outside the signal function body.
  *
- * @category Singletons & Lazy Constants
- * @experimental
+ * @category Lazy Constants
  */
-export function $<T>(key: Factory<T> | CallSite): T | ((factory: Factory<T>) => T) {
+export function $<T>(key: ConstantFactory<T> | CallSite): T | ((factory: ConstantFactory<T>) => T) {
     if (isFunction(key)) {
         // It's a factory, create (or return) an instance
-        return constants.has(key) ? constants.get(key) : setMap(constants, key,
-            callOrConstruct(factories.has(key) ? factories.get(key)! : key)
-        )
+        return lazyConstants.has(key) ? lazyConstants.get(key) as T : setMap(
+            lazyConstants, key, createSingleton(key)
+        ) as T
     }
     // It's a call site for ``, return a function
-    return perSignal<(factory: Factory<T>) => T>(callOrConstruct, key, "$``() ")
+    return perSignal<(factory: ConstantFactory<T>) => T>(callOrConstruct, key, "$``() ")
+}
+
+const stack: ServiceFactory<unknown>[] = []
+
+/**
+ * Prevent cyclical, job, and reactive dependencies while constructing, and run
+ * factories in the root or empty job.
+ */
+function createSingleton<T>(key: Factory<T>, f = key, runIn?: Job): T {
+    if (stack.indexOf(key) > -1) throw new Error("Factory depends on itself")
+    if (runIn && isGeneratorFunction<JobIterator<unknown>>(f)) f = fork(f)
+    stack.unshift(key)
+    pushCtx(runIn, false) // block reactive reads & run in root
+    try { return callOrConstruct(f) } finally { stack.shift(); popCtx() }
 }
 
 /** Call or construct a zero-arg factory */
 function callOrConstruct<T>(f: Factory<T>): T { return isClass(f) ? new f : f() }
-
-/**
- * Utilities for manipulating the singleton cache (e.g. for testing)
- *
- * @category Singletons & Lazy Constants
- * @namespace
- * @experimental
- */
-export const $cache = {
-    /**
-     * Set the cached singleton instance for a given factory.  (e.g. for
-     * testing)
-     *
-     * All subsequent calls to `$(factory)` will return the given result, until
-     * manually set again, or reset via {@link $cache.unset}.
-     */
-    set<T>(factory: Factory<T>, result: T) {
-        constants.set(factory, result)
-    },
-
-    /**
-     * Unset the cached singleton for a given factory, such that the next call
-     * to `$(factory)` will create a new instance.
-     */
-    unset<T>(factory: Factory<T>) {
-        constants.delete(factory)
-    },
-
-    /**
-     * Replace the implementation for a given factory, such that future calls to
-     * `$(factory)` will call or construct the replacement instead.
-     *
-     * If the replacement is omitted, null, or undefined, future calls will
-     * invoke the original factory again.
-     *
-     * (Note: in all cases the replacement will not take effect if there's
-     * already a cached singleton, so you may wish to call
-     * {@link $cache.unset}() to ensure a future call is actually executed.)
-     */
-    replace<T>(factory: Factory<T>, replacement?: Factory<T>) {
-        (replacement != null && replacement !== factory) ? factories.set(factory, replacement) : factories.delete(factory)
-    }
-}

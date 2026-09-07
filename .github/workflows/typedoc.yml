@@ -20,7 +20,7 @@ jobs:
           node-version: 24.x
           cache: pnpm
       - run: pnpm install && pnpm run docs
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ./docs
   deploy:
@@ -33,4 +33,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         # https://github.com/actions/deploy-pages
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

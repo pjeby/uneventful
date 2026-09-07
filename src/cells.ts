@@ -290,6 +290,8 @@ export class Cell {
             }
             this.catchUp();
             if (this.adding === s) s.ts = this.lastChanged;
+        } else if (dep === false) {
+            throw new Error("Reactive values can't be used while creating services or lazy constants")
         } else this.catchUp();
         if (this.flags & Is.Error) throw this.value;
         return this.value;
