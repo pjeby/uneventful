@@ -3,15 +3,15 @@ title: Changelog
 ---
 # Changelog
 
-### Unreleased
+### 0.0.16 (2026-09-10)
 
 `uneventful/shared`
 
-The experimental `$cache` API has been dropped, replaced with configurable service accessors.  So `$` now returns "lazy constants" from both of its overloads, which now simply distinguish global vs. per-signal scope.  (That is, `$()` now returns a global lazy constant rather than a configurable singleton.)
+The experimental `$cache` API has been dropped, replaced with configurable service accessors.  So `$` now returns "lazy constants" from both of its overloads, with `$()` returning a global constant instead of a configurable singleton.  (Per-signal scoped constants are unchanged, but have some added execution restrictions.)
 
-{@link uneventful/shared.$ `$()`} has also been upgraded out of experimental status, with the following improvements:
+Both {@link uneventful/shared.$ `$`} overloads also been upgraded out of experimental status, with the following improvements/changes:
 
-- `$()` now forces all factories to run without access to reactive values, to avoid erroneously capturing stale context.$c
+- `$` now forces *all* factories to run without access to reactive values, to avoid erroneously capturing stale context.
 - Lazy constants are initialized with *no* active job, since they can't have meaningful side-effects requiring cleanup.
 
 {@link uneventful/shared.service `service()`} can now use classes as factories, and you can mock/replace/override their service implementations, among other improvements:

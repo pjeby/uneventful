@@ -76,8 +76,16 @@ export function service<T>(defaultFactory: ServiceFactory<T>): ServiceAccessor<T
 export interface ServiceAccessor<T> {
     /** Return the service's current instance, creating it if necessary */
     (): T
+    /** Replace the active service instance for future lookups */
     set(instance: T): void
+    /** Drop the active instance, to be recreated on demand */
     unset(): void
+    /**
+     * Change the factory used to create the instance, or reset to the
+     * original/default factory if none given.  Does not remove the current
+     * cached instance, if any: use {@link unset}() as well if you want it
+     * recreated on the next access.
+     */
     replace(factory?: ServiceFactory<T>): void
 }
 
@@ -240,10 +248,9 @@ export type ConstantFactory<T> = (() => T) | (new () => T)
  * On first use, the factory is called (or constructed, if it's a class) and the
  * result (if not an error) is cached for future calls.
  *
- * @param factory The {@link ConstantFactory} function or class whose
- * shared/cached value you want to get.  (See {@link ConstantFactory} for
- * important details on how the factory is run and the restrictions on what it
- * can do.)
+ * @param factory The function or class whose shared/cached value you want to
+ * get.  (See {@link ConstantFactory} for important details on how the factory
+ * is run and the restrictions on what it can do.)
  */
 export function $<T>(factory: ConstantFactory<T>): T
 
@@ -273,8 +280,6 @@ export function $<T>(factory: ConstantFactory<T>): T
  * call a wrapping function more than once in a signal, and expect to get
  * different results: a lazy constant is a per-signal *constant*, not a React
  * hook!)
- *
- * @experimental
  */
 export function $(callSite: CallSite): <T>(factory: ConstantFactory<T>) => T
 
