@@ -9,7 +9,7 @@
 
 import { popCtx, pushCtx } from "./ambient.ts"
 import { CallSite, perSignal } from "./hooks.ts"
-import { lazyConstants, Factory, rootId } from "./internals.ts"
+import { rootId } from "./tracking.ts"
 import { must, start } from "./jobutils.ts"
 import { noop } from "./results.ts"
 import { root, newRoot } from "./tracking.ts"
@@ -239,6 +239,9 @@ const forks = new WeakMap<Yielding<any>, Yielding<any>>()
  */
 export type ConstantFactory<T> = (() => T) | (new () => T)
 
+let lazyConstants: WeakMap<ConstantFactory<unknown>, unknown>;
+let validFor = -1
+
 /**
  * Return a lazily-initialized constant value for the given factory
  *
@@ -315,6 +318,10 @@ export function $(callSite: CallSite): <T>(factory: ConstantFactory<T>) => T
  */
 export function $<T>(key: ConstantFactory<T> | CallSite): T | ((factory: ConstantFactory<T>) => T) {
     if (isFunction(key)) {
+        if (validFor !== rootId) {
+            validFor = rootId
+            lazyConstants = new WeakMap
+        }
         // It's a factory, create (or return) an instance
         return lazyConstants.has(key) ? lazyConstants.get(key) as T : setMap(
             lazyConstants, key, createSingleton(key)
@@ -326,11 +333,13 @@ export function $<T>(key: ConstantFactory<T> | CallSite): T | ((factory: Constan
 
 const stack: ServiceFactory<unknown>[] = []
 
+type AnyFactory<T> = (() => T) | (new () => T)
+
 /**
  * Prevent cyclical, job, and reactive dependencies while constructing, and run
  * factories in the root or empty job.
  */
-function createSingleton<T>(key: Factory<T>, f = key, runIn?: Job): T {
+function createSingleton<T>(key: AnyFactory<T>, f = key, runIn?: Job): T {
     if (stack.indexOf(key) > -1) throw new Error("Factory depends on itself")
     if (runIn && isGeneratorFunction<JobIterator<unknown>>(f)) f = fork(f)
     stack.unshift(key)
@@ -339,4 +348,4 @@ function createSingleton<T>(key: Factory<T>, f = key, runIn?: Job): T {
 }
 
 /** Call or construct a zero-arg factory */
-function callOrConstruct<T>(f: Factory<T>): T { return isClass(f) ? new f : f() }
+function callOrConstruct<T>(f: AnyFactory<T>): T { return isClass(f) ? new f : f() }

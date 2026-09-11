@@ -1,10 +1,10 @@
 import { pushCtx, popCtx, currentJob, currentCell, cellJob } from "./ambient.ts";
-import { catchers, defaultCatch, owners, resetConstants } from "./internals.ts";
+import { catchers, defaultCatch, owners } from "./internals.ts";
 import { CleanupFn, Job, Request, Yielding, Suspend, PlainFunction, StartFn, OptionalCleanup, JobIterator, RecalcSource, StartObj } from "./types.ts";
 import { defer } from "./defer.ts";
-import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, noop, markHandled, isUnhandled, propagateResult } from "./results.ts";
+import { JobResult, ErrorResult, CancelResult, isCancel, ValueResult, isError, isValue, markHandled, isUnhandled, propagateResult } from "./results.ts";
 import { rejecter, resolver, getResult, fulfillPromise } from "./results.ts";
-import { Chain, chain, isEmpty, pop, push, pushCB, qlen, recycle, unshift } from "./chains.ts";
+import { Chain, chain, isEmpty, pop, push, pushCB, recycle, unshift } from "./chains.ts";
 import { Stream, Sink, Inlet, Connection } from "./streams.ts";
 import { GeneratorBase, apply } from "./utils.ts";
 import { isFunction } from "./utils.ts";
@@ -355,6 +355,7 @@ export function makeJob<T>(parent?: Job, stop?: CleanupFn): Job<T> {
  * @category Jobs
  */
 export let root: Job<unknown>;
+export let rootId = 0
 newRoot()
 
 /**
@@ -373,7 +374,7 @@ newRoot()
  */
 export function newRoot(): Job<unknown> {
     root?.end()
-    resetConstants()
+    ++rootId
     const job = root = new _Job().asyncCatch(defaultCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
     job.release(() => root === job && (root = null!))
