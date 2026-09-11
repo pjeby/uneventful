@@ -121,7 +121,7 @@ describe("rule.if()", () => {
 describe("rule.root()", () => {
     it("exits only when the root does", () => {
         // Given a rule.root created in a job
-        newRoot().asyncCatch(logUncaught)
+        newRoot()
         const j = root.start(() => {
             rule.root(() => msg("done"))
         })
@@ -131,7 +131,7 @@ describe("rule.root()", () => {
         j.end()
         see()
         // But when the root is ended
-        newRoot().asyncCatch(logUncaught)
+        newRoot()
         // Then the rule should finish
         see("done")
     });

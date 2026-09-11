@@ -3,6 +3,11 @@ title: Changelog
 ---
 # Changelog
 
+### Unreleased
+
+`uneventful`
+- `newRoot()` now carries over the `.asyncCatch()` handler from the previous root and only uses the default for the first root, or if the previous root's handler was explicitly unset.
+
 ### 0.0.16 (2026-09-10)
 
 `uneventful/shared`

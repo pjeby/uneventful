@@ -7,7 +7,7 @@ import {
 import { rule, runRules } from "../src/signals.ts";
 import { Cell } from "../src/cells.ts";
 import { _Job } from "../src/tracking.ts";
-import { Maybe, owners } from "../src/internals.ts";
+import { catchers, defaultCatch, Maybe, owners } from "../src/internals.ts";
 
 describe("Job Implementation", () => {
     it("creates new standalone jobs", () => {
@@ -109,13 +109,12 @@ describe("Job Implementation", () => {
 });
 
 describe("newRoot()", () => {
-    after(() => void newRoot().asyncCatch(logUncaught))
     it("returns a new job, ending the previous one", () => {
         // Given a root job
-        const r1 = newRoot().must(msg("old root stopped")).asyncCatch(logUncaught)
+        const r1 = newRoot().must(msg("old root stopped"))
         see()
         // When newRoot is called
-        const r2 = newRoot().asyncCatch(logUncaught)
+        const r2 = newRoot()
         // Then the old root should stop
         see("old root stopped")
         // And it should return the new root
@@ -125,35 +124,62 @@ describe("newRoot()", () => {
     });
     it("ensures root will be reset to null when the job ends", () => {
         // Given a root job
-        const r1 = newRoot().asyncCatch(logUncaught)
+        const r1 = newRoot()
         expect(root).to.equal(r1)
         // When the job ends
         r1.end()
         // Then root should be null
         expect(root).to.equal(null)
     });
-    it("configures a default asyncCatch", () => {
+    it("configures a default asyncCatch from the previous root", () => {
         // Given a new root
-        const r1 = newRoot().asyncCatch(logUncaught);
+        const r1 = newRoot()
         // When a child job asynchronously throws
         r1.start().throw("blah")
-        // Then our default test logger should catch it
+        // Then our default test logger should catch it (kept previous root default)
         see("Uncaught: blah")
         // And the root should not crash
         expect(root).to.equal(r1)
-        // But if we configure our own asyncCatch
-        r1.asyncCatch(e => log(`caught ${e}`))
-        // And do another async throw
-        r1.start().throw("blah")
-        // Then our overridden handler should catch it
-        see("caught blah")
+        try {
+            // But if we configure our own asyncCatch
+            r1.asyncCatch(e => log(`caught ${e}`))
+            // And do another async throw
+            r1.start().throw("blah1")
+            // Then our overridden handler should catch it
+            see("caught blah1")
+            // And when another root is created w/another throw
+            const r2 = newRoot()
+            r2.start().throw("blah2")
+            // Then our overridden handler should still be valid
+            see("caught blah2")
+        } finally {
+            newRoot().asyncCatch(logUncaught)
+        }
+    });
+    it("falls back to the default asyncCatch when the previous root's was cleared", async () => {
+        // Given a root with its inherited asyncCatch handler cleared
+        newRoot().asyncCatch(null)
+        // When a new root is created
+        const r2 = newRoot()
+        try {
+            // And a child job asynchronously throws
+            r2.start().throw("blah")
+            // Then the error should eventually reach the default handler
+            await new Promise(res => { setTimeout(res, 0) });
+            see("rejected: blah")
+            // And the new root should carry the default handler
+            expect(catchers.get(r2)).to.equal(defaultCatch)
+        } finally {
+            // Restore the test logging default for later suites
+            newRoot().asyncCatch(logUncaught)
+        }
     });
     it("becomes the effective parent of restarted child jobs ", () => {
         // Given a detached job created via root.start()
         const oldRoot = root
         const job = root.start().restart()
         // When a new root is created
-        const r = newRoot().asyncCatch(logUncaught)
+        const r = newRoot()
         // Then the job should not point to the old root
         expect(owners.get(job)).to.not.equal(oldRoot)
     })

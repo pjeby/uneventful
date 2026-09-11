@@ -9,10 +9,9 @@
 
 import { popCtx, pushCtx } from "./ambient.ts"
 import { CallSite, perSignal } from "./hooks.ts"
-import { rootId } from "./tracking.ts"
 import { must, start } from "./jobutils.ts"
 import { noop } from "./results.ts"
-import { root, newRoot } from "./tracking.ts"
+import { root, rootId, newRoot } from "./tracking.ts"
 import { Job, JobIterator, Yielding } from "./types.ts"
 import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap } from "./utils.ts"
 

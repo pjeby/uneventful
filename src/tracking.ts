@@ -356,13 +356,15 @@ export function makeJob<T>(parent?: Job, stop?: CleanupFn): Job<T> {
  */
 export let root: Job<unknown>;
 export let rootId = 0
+let latestCatch = defaultCatch
 newRoot()
 
 /**
  * Create a new root job (usually for testing purposes). If there is an existing
- * root job, it is ended first.  The new root is configured to convert async
- * errors into unhandled promise rejections by default, so if you need to change
- * that you can use its {@link Job.asyncCatch `.asyncCatch()`} method.
+ * root job, it is ended first.  The new root inherits the previous root job's
+ * {@link Job.asyncCatch `.asyncCatch()`} handler, if it had one.  (Otherwise, the
+ * new job is configured to convert async errors into unhandled promise
+ * rejections by default.)
  *
  * @returns The new root job.
  *
@@ -375,9 +377,9 @@ newRoot()
 export function newRoot(): Job<unknown> {
     root?.end()
     ++rootId
-    const job = root = new _Job().asyncCatch(defaultCatch)
+    const job = root = new _Job().asyncCatch(latestCatch)
     // Make attempts to use `root` fail, if they are during or after its cleanup
-    job.release(() => root === job && (root = null!))
+    job.release(() => root === job && (root = null!, latestCatch = catchers.get(job) || defaultCatch))
     return root;
 }
 

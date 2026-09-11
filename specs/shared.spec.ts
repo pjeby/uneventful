@@ -135,7 +135,7 @@ describe("fork()", () => {
 describe("service()", () => {
     describe("returns an accessor that", () => {
         useClock()
-        afterEach(() => void newRoot().asyncCatch(logUncaught))
+        afterEach(() => void newRoot())
         it("calls the factory at most once per root", () => {
             // Given a service for a factory that logs and returns a new value each time
             const svc = service(msgCounter())
@@ -146,7 +146,7 @@ describe("service()", () => {
             // But it should return the same value each timeframe
             expect([r1, r2, r3]).to.deep.equal([1, 1, 1])
             // Until a new root exists
-            newRoot().asyncCatch(logUncaught)
+            newRoot()
             // And Then it should call the factory once again
             const r4 = svc(), r5 = svc(), r6 = svc()
             see("call #2")
@@ -159,7 +159,7 @@ describe("service()", () => {
             svc()
             see()
             // When a new root is created
-            newRoot().asyncCatch(logUncaught)
+            newRoot()
             // Then the cleanups should run
             see("cleanup")
         })
@@ -182,7 +182,7 @@ describe("service()", () => {
             // Then it should return a fork()ed generator
             expect(root.run(() => fork(res))).to.equal(res)
             // And when a new root is created after the generator finishes
-            clock.tick(0); newRoot().asyncCatch(logUncaught)
+            clock.tick(0); newRoot()
             // Then the cached instance should have been discarded
             expect(svc()).to.not.equal(res)
         })
@@ -267,7 +267,7 @@ describe("Lazy constants", () => {
             expect($(inc)).to.equal(1)
             expect($(inc)).to.equal(1)
             // And after newRoot() is called
-            newRoot().asyncCatch(logUncaught)
+            newRoot()
             // Then the function should be called again
             expect($(inc)).to.equal(2)
             // And the new value should be cached
@@ -280,7 +280,7 @@ describe("Lazy constants", () => {
             expect($(inc)).to.equal(1)
             expect($(inc)).to.equal(1)
             // When a newRoot is created
-            newRoot().asyncCatch(logUncaught)
+            newRoot()
             // Then the value should be different afterward
             expect($(inc)).to.equal(2)
         })
@@ -353,7 +353,7 @@ describe("Lazy constants", () => {
                 }
                 expect($(f)).to.equal(7)
                 // When it is unset, then made to re-request itself during creation
-                newRoot().asyncCatch(logUncaught)
+                newRoot()
                 recurse = true
                 // Then the cycle error should still be thrown
                 expectCycle(() => $(f))
