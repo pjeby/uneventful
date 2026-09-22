@@ -393,7 +393,7 @@ function runGen<R>(g: Yielding<R>, job: Job<R>) {
         step("return", undefined);
     });
     // Start asynchronously
-    defer(() => { running = false; step("next", undefined); });
+    defer(() => { running = false; !job || step("next", undefined); });
 
     function step(method: "next" | "throw" | "return", arg: any): void {
         if (!it) return;

@@ -7,6 +7,7 @@ title: Changelog
 
 `uneventful`
 - `newRoot()` now carries over the `.asyncCatch()` handler from the previous root and only uses the default for the first root, or if the previous root's handler was explicitly unset.
+- **Behavior change**: if you use return() or throw() or otherwise cancel a `start()`ed generator/genfunc before it has a chance to start running (i.e., while still in the same microtask as the `start()` call), then the generator will *not* be started.  The previous behavior caused an unnecessary thrash, where the generator would run until the first yield, performing actions that would then be immediately rolled back.
 
 ### 0.0.16 (2026-09-10)
 

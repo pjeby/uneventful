@@ -265,14 +265,15 @@ describe("Job instances", () => {
                 // Then it should receive the error at the suspend point
                 see("err: headshot");
             });
-            it("asynchronously aborts a starting job", () => {
+            it("synchronously aborts a starting job", () => {
                 // Given a job
                 const j = start(function*() {
+                    log("starting")
                     yield r => setTimeout(resolver(r), 50);
                 }).onError(e => log(`err: ${e}`));
                 // When it'ts thrown before starting
                 j.throw("headshot"); clock.tick(0);
-                // Then it should receive the error at the first suspend point
+                // Then it shouldn't run, but just pass the error through
                 see("err: headshot");
             });
             it("doesn't affect a completed job", () => {
@@ -310,6 +311,7 @@ describe("Job instances", () => {
                 // Given a job that .return()s itself`
                 const j = start(function*(): Yielding<any> {
                     try {
+                        log("entering")
                         j.return(99);
                         yield r => setTimeout(resolver(r), 50);
                     } finally {
@@ -319,24 +321,25 @@ describe("Job instances", () => {
                 // When it next suspends
                 clock.tick(1);
                 // Then it should exit at the suspend point
-                see("exiting");
+                see("entering", "exiting");
                 // And return the value given
                 start(function*(){ log(yield *j); }); clock.tick(0);
                 see("99");
             });
-            it("asynchronously aborts a starting job", () => {
+            it("synchronously aborts a starting job", () => {
                 // Given a job
                 const j = start(function*(): Yielding<any> {
                     try {
+                        log("entering")
                         yield r => setTimeout(resolver(r), 50);
                     } finally {
                         log("exiting");
                     }
                 });
                 // When it's return()ed before starting
-                j.return(99); clock.tick(0);
-                // Then it should exit at the suspend point
-                see("exiting");
+                j.return(99); clock.tick(1);
+                // Then it shouldn't run at all
+                see();
                 // And return the value given
                 start(function*(){ log(yield *j); }); clock.tick(0);
                 see("99");
