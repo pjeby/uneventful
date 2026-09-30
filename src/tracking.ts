@@ -151,7 +151,13 @@ export class _Job<T> implements Job<T> {
             // XXX should this be a release(), so if the waiter dies we
             // don't bother? The downside is that it'd have to be mutual and
             // the resume is a no-op anyway in that case.
-            this.do(res => fulfillPromise(resolver(req), rejecter(req), res));
+            this.do(res => {
+                // Async resume: don't let generators run while listened-to job
+                // is cleaning up.  Deferring ensures the job is fully cleaned
+                // up before listeners resume.
+                defer(() => fulfillPromise(resolver(req), rejecter(req), res))
+                isError(res) && markHandled(res) // must be done early to prevent unhandled propagation
+            })
         }
     }
 

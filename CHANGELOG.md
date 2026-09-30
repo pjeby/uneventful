@@ -7,6 +7,7 @@ title: Changelog
 
 `uneventful`
 - `newRoot()` now carries over the `.asyncCatch()` handler from the previous root and only uses the default for the first root, or if the previous root's handler was explicitly unset.
+- **Behavior change**: Waiting on an unfinished job with `yield*` now resumes in a different microtask than the one where the job ends.  (Waiting on an already-finished job still resumes synchronously.)  This change was made to avoid waiters seeing partially-undone state and running arbitrary code during a job's end.  Now cleanup for an ending job is atomic from the point of view of its asynchronous waiters, whether they use `yield*` or `await`.
 - **Behavior change**: if you use return() or throw() or otherwise cancel a `start()`ed generator/genfunc before it has a chance to start running (i.e., while still in the same microtask as the `start()` call), then the generator will *not* be started.  The previous behavior caused an unnecessary thrash, where the generator would run until the first yield, performing actions that would then be immediately rolled back.
 
 ### 0.0.16 (2026-09-10)

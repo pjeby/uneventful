@@ -206,6 +206,7 @@ describe("Job instances", () => {
                     await Promise.resolve();  // ensure j2 reaches suspend point
                     // When the suspended job is resumed with a value
                     resolve(req!, 42);
+                    await Promise.resolve();  // wait for j2 to resume after j1 ends
                     // Then it should see the value
                     see("42");
                 });
@@ -655,7 +656,7 @@ describe("Async Ops", () => {
                 // When a suspended next() on a stream is run
                 suspendOn(next(fromIterable([22,23,24]))); clock.runAll();
                 // Then it should resume with the first value from the stream
-                runPulls(); see("22");
+                runPulls(); clock.tick(0); see("22");
             });
             it("throwing on throw", () => {
                 let conn: Maybe<Connection>;
@@ -664,13 +665,13 @@ describe("Async Ops", () => {
                 conn!.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
                 // Then the job should throw once pulls run (and mark the error handled)
-                runPulls(); see("false", "true", "err: boom");
+                runPulls(); clock.tick(0); see("false", "true", "err: boom");
             });
             it("throwing on early end", () => {
                 // When a suspended next() on an empty stream is run
                 suspendOn(next(fromIterable([]))); clock.runAll();
                 // Then it should throw a stream-ended error
-                runPulls(); see("err: Error: Stream ended");
+                runPulls(); clock.tick(0); see("err: Error: Stream ended");
             });
         });
         describe("handles signals", () => {
@@ -731,7 +732,7 @@ describe("Async Ops", () => {
                 // When a suspended until() on a stream is run
                 suspendOn(until(fromIterable([22,23,24]))); clock.runAll();
                 // Then it should resume with the first value from the stream
-                runPulls(); see("22");
+                runPulls(); clock.tick(0); see("22");
             });
             it("throwing on throw", () => {
                 let conn: Maybe<Connection>;
@@ -740,13 +741,13 @@ describe("Async Ops", () => {
                 conn!.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
                 clock.runAll();
                 // Then the job should throw once pulls run (and mark the error handled)
-                runPulls(); see("false", "true", "err: boom");
+                runPulls(); clock.tick(0); see("false", "true", "err: boom");
             });
             it("throwing on early end", () => {
                 // When a suspended until() on an empty stream is run
                 suspendOn(until(fromIterable([]))); clock.runAll();
                 // Then it should throw a stream-ended error
-                runPulls(); see("err: Error: Stream ended");
+                runPulls(); clock.tick(0); see("err: Error: Stream ended");
             });
         });
         describe("handles signals", () => {

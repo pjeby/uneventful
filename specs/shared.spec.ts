@@ -113,7 +113,7 @@ describe("fork()", () => {
             clock.tick(0)
             see("sleeping")
             // When the generator finishes
-            clock.tick(10)
+            clock.runAll()
             // Then all the jobs should receive the result
             see("done", "j1: 42", "j2: 42", "j3: 42")
         })

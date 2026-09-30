@@ -545,6 +545,7 @@ describe("Job instances", () => {
     });
     describe("[Symbol.iterator]", () => {
         describe("marks errors handled", () => {
+            useClock()
             it("synchronously, after error ", () => {
                 // Given a job iterator that's next()ed during throw
                 const j = root.start(), it = j[Symbol.iterator]();
@@ -562,9 +563,9 @@ describe("Job instances", () => {
                 // When its Suspend is awaited and the job thrown
                 (it.next().value as Suspend<any>)((op, _val, err) => { log(`${op}: ${err}`)});
                 j.must(r => log(isHandled(r))).do(r => log(isHandled(r)));
-                j.throw("boom");
+                j.throw("boom"); clock.tick(0)
                 // Then the error result should be marked handled when the suspend resumes
-                see("false", "throw: boom", "true");
+                see("false", "true", "throw: boom");
             });
         });
     });
