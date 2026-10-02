@@ -10,6 +10,10 @@ title: Changelog
 - **Behavior change**: Waiting on an unfinished job with `yield*` now resumes in a different microtask than the one where the job ends.  (Waiting on an already-finished job still resumes synchronously.)  This change was made to avoid waiters seeing partially-undone state and running arbitrary code during a job's end.  Now cleanup for an ending job is atomic from the point of view of its asynchronous waiters, whether they use `yield*` or `await`.
 - **Behavior change**: if you use return() or throw() or otherwise cancel a `start()`ed generator/genfunc before it has a chance to start running (i.e., while still in the same microtask as the `start()` call), then the generator will *not* be started.  The previous behavior caused an unnecessary thrash, where the generator would run until the first yield, performing actions that would then be immediately rolled back.
 
+`uneventful/signals`
+- The `runRules()` API now explicitly flushes demand changes (subscribing/unsubscribing jobs and external data sources) even if there are no rules on the selected queue, thus ensuring that if anything *would* be updated on that queue, it will happen before `runRules()` returns.
+- In addition, `runRules()` will now throw an error if run inside a rule, to make visible the fact that it is impossible to flush a queue while another queue (or the same queue!) is being flushed.  (Previously, this simply silently failed with no effect, running the rules asynchronously at the next scheduled opportunity.)
+
 ### 0.0.16 (2026-09-10)
 
 `uneventful/shared`

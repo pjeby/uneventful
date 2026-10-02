@@ -1,5 +1,5 @@
 import { defer } from "./defer.ts";
-import { Cell, RuleQueue, currentRule, defaultQ, ruleQueue } from "./cells.ts";
+import { Cell, RuleQueue, currentQueue, currentRule, defaultQ, demandChanges, ruleQueue } from "./cells.ts";
 import { AnyFunction, DisposeFn, OptionalCleanup } from "./types.ts";
 import { CallableObject, apply, setMap } from "./utils.ts";
 import { root } from "./tracking.ts";
@@ -261,10 +261,23 @@ export const rule: ((fn: () => OptionalCleanup) => DisposeFn) & RuleFactory = (
  * factory you wish to run pending rules for.  If not given, the default
  * {@link rule}() factory is targeted.
  *
+ * @remarks In addition to refreshing pending rules, this also updates "demand"
+ * changes for reactive functions with jobs, streams, and recalcWhen uses.  That
+ * is, in addition to running any pending rules on the specific scheduler, it
+ * also subscribes to things that gained demand, and unsubscribes/cleans up
+ * things that lost demand.
+ *
+ * This can cause thrashing (doing and undoing the same thing) if not used
+ * carefully, so again, try to reserve its use to either tests, or as the last
+ * action of a synchronous event handler with a response deadline.
+ *
  * @category Scheduling
  */
 export function runRules(scheduleFn?: SchedulerFn) {
-    (scheduleFn ? ruleQueue(scheduleFn) : defaultQ).flush();
+    if (currentQueue) throw new Error("Never call runRules() from inside a rule")
+    const q = scheduleFn ? ruleQueue(scheduleFn) : defaultQ;
+    if (q.isEmpty()) demandChanges.flush()
+    q.flush()
 }
 
 /**

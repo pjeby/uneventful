@@ -19,7 +19,7 @@ export var currentRule: Cell;
 export const ruleStops = new WeakMap<Cell, DisposeFn>();
 export const defaultQ = /* @__PURE__ */ ruleQueue(defer);
 
-var currentQueue: RuleQueue;
+export var currentQueue: RuleQueue;
 function runRules(this: RuleQueue, q: Set<Cell>) {
     // another queue is running? reschedule for later
     if (currentQueue) return;

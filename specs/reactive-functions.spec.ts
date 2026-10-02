@@ -191,7 +191,7 @@ describe("Reactive Functions", () => {
             see("deactivated")
 
             // And the inner fx should no longer be running
-            runRules(); demandChanges.flush()
+            runRules()
             f1.multiplier.set(16); runRules()
             see()
         })
@@ -236,7 +236,7 @@ describe("Reactive Functions", () => {
             see("deactivated")
             // And when the signal is observed by an effect
             const j = start(fx(() => s()))
-            demandChanges.flush(); runRules()
+            runRules()
             // Then it should re-activate
             see("calculate", "activating", "f1: 1")
             // And when the effect is ended (via its job)
