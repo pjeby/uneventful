@@ -1,4 +1,4 @@
-import { Job, Request } from "./types.ts";
+import { Checkpoint, Future, Request, Work } from "./types.ts";
 
 /**
  * Resolve a {@link Request} with a value.
@@ -41,15 +41,14 @@ export function rejecter(request: Request<any>): (err: any) => void { return req
 export function noop() {}
 
 /**
- * A {@link JobResult} that indicates the job was ended via a return() value.
+ * A {@link Result} that provides a return() value.
  *
  * @category Types and Interfaces
  */
 export type ValueResult<T> = {op: "next",    val: T,         err: undefined};
 
 /**
- * A {@link JobResult} that indicates the job was ended via a throw() or other
- * error.
+ * A {@link Result} that indicates a throw()n or other error.
  *
  * @category Types and Interfaces
  */
@@ -74,35 +73,38 @@ export type UnhandledError = {op: "throw",   val: undefined, err: any};
 export type HandledError   = {op: "throw",   val: null,      err: any};
 
 /**
- * A {@link JobResult} that indicates the job was canceled by its creator (via
- * end() or restart()).
+ * A {@link Result} that indicates the task was canceled by its creator (via
+ * end() or a parent {@link Checkpoint}'s reset()).
  *
  * @category Types and Interfaces
  */
 export type CancelResult   = {op: "cancel",  val: undefined, err: undefined};
 
 /**
- * A result passed to a job's cleanup callbacks, or supplied by its
- * .{@link Job.result result}() method.
+ * A result passed to a context's cleanup callbacks, or supplied by a future's
+ * .{@link Future.result result}() method.
  *
- * You can inspect a JobResult using functions like {@link isCancel}(),
+ * You can inspect a Result using functions like {@link isCancel}(),
  * {@link isError}(), and {@link isValue}().  {@link getResult}() can be used to
  * unwrap the value or throw the error.
  *
  * @category Types and Interfaces
  */
-export type JobResult<T> = ValueResult<T> | ErrorResult | CancelResult ;
+export type Result<T> = ValueResult<T> | ErrorResult | CancelResult ;
+
+/** @hidden @deprecated Please use {@link Result} instead */
+export type JobResult<T> = Result<T>
 
 function mkResult<T>(op: "next", val?: T): ValueResult<T>;
 function mkResult(op: "throw", val: null, err: any): HandledError;
 function mkResult(op: "throw", val: undefined, err: any): UnhandledError;
 function mkResult(op: "cancel"): CancelResult;
-function mkResult<T>(op: string, val?: T, err?: any): JobResult<T> {
-    return {op, val, err} as JobResult<T>
+function mkResult<T>(op: string, val?: T, err?: any): Result<T> {
+    return {op, val, err} as Result<T>
 }
 
 /**
- * The {@link JobResult} used to indicate a canceled job.
+ * The {@link Result} used to indicate a canceled task.
  *
  * @category Requests and Results
  */
@@ -127,7 +129,7 @@ export function ErrorResult(err: any): UnhandledError { return mkResult("throw",
  *
  * @category Requests and Results
  */
-export function isCancel(res: JobResult<any> | undefined): res is CancelResult {
+export function isCancel(res: Result<any> | undefined): res is CancelResult {
     return res === CancelResult;
 }
 
@@ -136,7 +138,7 @@ export function isCancel(res: JobResult<any> | undefined): res is CancelResult {
  *
  * @category Requests and Results
  */
-export function isValue<T>(res: JobResult<T> | undefined): res is ValueResult<T> {
+export function isValue<T>(res: Result<T> | undefined): res is ValueResult<T> {
     return res ? res.op === "next" : false;
 }
 
@@ -145,7 +147,7 @@ export function isValue<T>(res: JobResult<T> | undefined): res is ValueResult<T>
  *
  * @category Requests and Results
  */
-export function isError(res: JobResult<any> | undefined): res is ErrorResult {
+export function isError(res: Result<any> | undefined): res is ErrorResult {
     return res ? res.op === "throw" : false;
 }
 
@@ -154,7 +156,7 @@ export function isError(res: JobResult<any> | undefined): res is ErrorResult {
  *
  * @category Requests and Results
  */
-export function isUnhandled(res: JobResult<any> | undefined): res is UnhandledError {
+export function isUnhandled(res: Result<any> | undefined): res is UnhandledError {
     return isError(res) && res.val === undefined;
 }
 
@@ -164,7 +166,7 @@ export function isUnhandled(res: JobResult<any> | undefined): res is UnhandledEr
  *
  * @category Requests and Results
  */
-export function isHandled(res: JobResult<any> | undefined): res is HandledError {
+export function isHandled(res: Result<any> | undefined): res is HandledError {
     return isError(res) && res.val === null;
 }
 
@@ -180,20 +182,20 @@ export function markHandled(res: ErrorResult): any {
 }
 
 /**
- * Get the return value from a {@link JobResult}, throwing an appropriate error
+ * Get the return value from a {@link Result}, throwing an appropriate error
  * if the result isn't a {@link ValueResult}.
  *
- * @param res The job result you want to unwrap.  Must not be undefined!
+ * @param res The result you want to unwrap.  Must not be undefined!
  *
  * @returns The value if the result is a {@link ValueResult}, or a thrown error
- * if it's an {@link ErrorResult}.  A {@link CancelError} is thrown if the job
- * was canceled, or the error in the result is thrown.
+ * if it's an {@link ErrorResult}.  A {@link CancelError} is thrown if the
+ * result is {@link CancelResult}.
  *
  * If the result is an error, it is marked as handled.
  *
- * @category Jobs
+ * @category Requests and Results
  */
-export function getResult<T>(res: JobResult<T>): T {
+export function getResult<T>(res: Result<T>): T {
     if (!isValue(res)) {
         res.op; // throw if not defined
         fulfillPromise(noop, e => { throw e; }, res);
@@ -202,7 +204,7 @@ export function getResult<T>(res: JobResult<T>): T {
 }
 
 /**
- * Fulfill a Promise from a {@link JobResult}
+ * Fulfill a Promise from a {@link Result}
  *
  * If the result is a {@link CancelResult}, the promise is rejected with a
  * {@link CancelError}.  Otherwise it is resolved or rejected according to the
@@ -212,44 +214,44 @@ export function getResult<T>(res: JobResult<T>): T {
  *
  * @param reject An error-taking function (second arg to `new Promise` callback)
  *
- * @param res The job result you want to settle the promise with.  An error will
- * be thrown if it's undefined.
+ * @param res The result you want to settle the promise with.  An error will be
+ * thrown if it's undefined.
  *
  * If the result is an error, it is marked as handled.
  *
  * @category Requests and Results
  */
-export function fulfillPromise<T>(resolve: (v: T) => void, reject: (e: any) => void, res: JobResult<T>) {
+export function fulfillPromise<T>(resolve: (v: T) => void, reject: (e: any) => void, res: Result<T>) {
     if (isError(res)) reject(markHandled(res));
-    else if (isCancel(res)) reject(new CancelError("Job canceled"));
+    else if (isCancel(res)) reject(new CancelError("Task canceled"));
     else resolve(res.val);
 }
 
 /**
- * Propagate a {@link JobResult} to another job
+ * Propagate a {@link Result} to another task via its {@link Work} context
  *
- * If the result is a {@link CancelResult}, the job will throw with a
+ * If the result is a {@link CancelResult}, the task will throw with a
  * {@link CancelError}.  Otherwise it is resolved or rejected according to the
  * state of the result.
  *
- * @param job The job to terminate.  If it's already ended, nothing changes: the
- * result is not propagated and the error (if any) is not marked as handled.
+ * @param work The {@link Work} to complete.  If it's already completed or
+ * canceled, nothing changes: the result is not propagated and the error (if
+ * any) is not marked as handled.
  *
- * @param res The job result you want to settle the job with.  An error will be
- * thrown if it's undefined.  If the result is an error, it is marked as
- * handled.
+ * @param res The result you want to settle the work's Task with.  If the result
+ * is an error, it is marked as handled.
  *
  * @category Requests and Results
  */
-export function propagateResult<T>(job: Job<T>, res: JobResult<T>) {
-    if (!job.result()) fulfillPromise(job.return.bind(job), job.throw.bind(job), res);
+export function propagateResult<T>(work: Work<T>, res: Result<T>) {
+    if (!work.cleaningUp()) fulfillPromise(work.return.bind(work), work.throw.bind(work), res);
 }
 
 /**
- * Error thrown when waiting for a result from a job that is canceled.
+ * Error thrown when waiting for a result from a future that is canceled.
  *
  * If you `await`, `yield *`, `.then()`, `.catch()`, {@link getResult}() or
- * otherwise wait on the result of a job that is canceled, this is the type
+ * otherwise wait on the result of a future that is canceled, this is the type
  * of error you'll get.
  *
  * @category Errors

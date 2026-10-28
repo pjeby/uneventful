@@ -1,11 +1,11 @@
-import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useContext, useClock, clock, msg } from "./dev_deps.ts";
 import {
     runRules, value, cached, rule, peek, WriteConflict, Signal, Writable, SignalImpl, ConfigurableImpl,
     action, stable, stableArray
 } from "../src/signals.ts";
 import { isObserved, recalcWhen } from "../src/sinks.ts";
-import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, getJob, isJobActive } from "../src/mod.ts";
-import { currentCell, currentJob } from "../src/ambient.ts";
+import { must, DisposeFn, RecalcSource, mockSource, lazy, each, sleep, root, currentContext, inContext } from "../src/mod.ts";
+import { currentCell, currentCtx } from "../src/ambient.ts";
 import { defaultQ, demandChanges, staleStreams } from "../src/cells.ts";
 
 function updateDemand() { demandChanges.flush(); }
@@ -26,7 +26,7 @@ function verifyMulti(f: <T>(v: T) => Signal<T>) {
 }
 
 describe("Signal Constructors/Interfaces", () => {
-    useRoot();
+    useContext();
     describe("value()", () => {
         useClock();
         it("implements the Signal interface", () => { verifyMulti(value); });
@@ -92,13 +92,13 @@ describe("Signal Constructors/Interfaces", () => {
             see("10000")
         });
         it("can be subscribed as a source", () => {
-            // Given a value and a job that iterates over it with pauses
+            // Given a value and a task that iterates over it with pauses
             const v = value(42), j = root.start(function *(){
                 for(const {item, next} of yield *each(v)) {
                     log(item); yield *sleep(10); yield next;
                 }
             });
-            // When the job starts, it should output the initial value
+            // When the task starts, it should output the initial value
             clock.tick(0); see("42");
             // And it should reflect changes in the value over time
             v.set(99); clock.tick(10); see("99");
@@ -115,7 +115,7 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42);
-            const c = root.connect(v, () => { log(currentJob == null && currentCell == null) });
+            const c = root.connect(v, () => { log(currentCtx == null && currentCell == null) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
@@ -229,13 +229,13 @@ describe("Signal Constructors/Interfaces", () => {
             see("9999");
         });
         it("can be subscribed as a source", () => {
-            // Given a cached based on a value, and a job that iterates it with pauses
+            // Given a cached based on a value, and a task that iterates it with pauses
             const v = value(42), s = cached(() => v()*2), j = root.start(function *(){
                 for(const {item, next} of yield *each(s)) {
                     log(item); yield *sleep(10); yield next;
                 }
             });
-            // When the job starts, it should output the initial value
+            // When the task starts, it should output the initial value
             clock.tick(0); see("84");
             // And it should reflect changes in the value over time
             v.set(99); clock.tick(10); see("198");
@@ -252,22 +252,22 @@ describe("Signal Constructors/Interfaces", () => {
         it("as a source, runs sinks in the null context", () => {
             // Given a value subscribed to as a stream
             const v = value(42), s = cached(() => v()*2);
-            const c = root.connect(s, () => { log(!currentJob && !currentCell) });
+            const c = root.connect(s, () => { log(!currentCtx && !currentCell) });
             // When rules run
             runRules();
             // Then the subscriber should be run in the null context
             see("true"); c.end();
         });
-        describe("Job support", () => {
+        describe("Context API support", () => {
             // Isolate each test's errors
             beforeEach(() => { runRules(); log.clear(); });
 
             it("works like an on-demand rule", () => {
-                // Given a cached that does job functions
+                // Given a cached that uses the context API
                 const c = cached(() => { log("do"); must(msg("undo")); });
                 // When called without subscription
-                // Then the job should run and immediately throw
-                expect(c).to.throw("Job API used in unobserved signal")
+                // Then it should run and immediately throw
+                expect(c).to.throw("Context API used in unobserved signal")
                 see("do")
                 // But when subscribed, and the demand is updated
                 const r1 = rule(() => { try { c() } catch (e) {} }); runRules();
@@ -285,7 +285,7 @@ describe("Signal Constructors/Interfaces", () => {
             });
 
             it("doesn't recalc with no sources, even if timestamp changes", () => {
-                // Given a value, and a cached that does job functions w/no deps
+                // Given a value, and a cached that uses the context API w/no deps
                 const v = value(42), c = cached(() => { log("do"); if (isObserved()) must(msg("undo")); })
                 // When called while unobserved
                 // Then it calculates once
@@ -297,7 +297,7 @@ describe("Signal Constructors/Interfaces", () => {
                 const r1 = rule(() => void c()); runRules();
                 // Then it will run once
                 see("do")
-                // And keep its job active, even if called again
+                // And keep its checkpoint active, even if called again
                 v.value++; c(); see()
                 v.value++; c(); see()
                 // Until the demand goes away, when it will roll back
@@ -313,7 +313,7 @@ describe("Signal Constructors/Interfaces", () => {
             })
 
             it("doesn't roll back during temporary demand dips", () => {
-                // Given an observed cached that does job functions
+                // Given an observed cached that uses the context API
                 const c = cached(() => { log("do"); must(msg("undo")); });
                 const r1 = rule(() => void c()); runRules(); see("do");
                 // When it's unsubscribed
@@ -331,7 +331,7 @@ describe("Signal Constructors/Interfaces", () => {
             })
 
             it("rolls back on error", () => {
-                // Given a job-using signal that throws
+                // Given a context API-using signal that throws
                 const c = cached(() => {
                     must(msg("rollback"));
                     throw "boom!"
@@ -340,7 +340,7 @@ describe("Signal Constructors/Interfaces", () => {
                 const r = rule(() => { try { c(); } catch(e) { log("caught"); } });
                 // When run
                 runRules();
-                // Then the job should be rolled back with the error
+                // Then the context should be rolled back with the error
                 see("rollback", "caught");
                 r();
             });
@@ -432,7 +432,7 @@ describe("Signal Constructors/Interfaces", () => {
 });
 
 describe("Dependency tracking", () => {
-    useRoot();
+    useContext();
     describe("stableArray()", () => {
         it("errors outside a reactive expression", () => {
             expect(() => stableArray([42])).to.throw("stabilizers must be called from a reactive expression")
@@ -524,19 +524,19 @@ describe("Dependency tracking", () => {
                 // Then it should still throw a write conflict
                 expect(runRules).to.throw(WriteConflict);
             });
-            it("blocks access to an enclosing rule's job", () => {
-                // Given a rule with a peek() block that accesses the current job
-                const stop = rule(() => { peek(getJob); })
+            it("blocks access to an enclosing rule's context", () => {
+                // Given a rule with a peek() block that accesses the current context
+                const stop = rule(() => { peek(currentContext); })
                 // When it's run
                 // Then it should throw an error
-                expect(runRules).to.throw("Job API used in unobserved signal")
+                expect(runRules).to.throw("Context API used in unobserved signal")
                 stop()
             });
-            it("makes isObserved() and isJobActive() false", () => {
-                // Given a rule with a peek() and unpeeked queries of job/observed states
+            it("makes isObserved() and inContext() false", () => {
+                // Given a rule with a peek() and unpeeked queries of context/observed states
                 const stop = rule(() => {
-                    log(peek(isObserved)); log(peek(isJobActive))
-                    log(isObserved()); log(isJobActive())
+                    log(peek(isObserved)); log(peek(inContext))
+                    log(isObserved()); log(inContext())
                 })
                 // When it's run
                 runRules()
@@ -585,13 +585,12 @@ describe("Dependency tracking", () => {
             // When the method is called w/args
             const res = cached(() => that.method(99, "foo"))();
 
-            // Then the method should be called in a new job
-            // that's the same as the return value, with the
-            // object as its `this`
+            // Then the method should be run unobserved
+            // with the object as its `this`
             see("true", "99", "foo", "false");
 
             // And the wrapped function's eventual return
-            // goes to the enclosing job
+            // goes to the enclosing signal
             expect(res).to.equal(42);
         });
     });
@@ -624,7 +623,7 @@ describe("Dependency tracking", () => {
         });
     });
     describe("recalcWhen()", () => {
-        useRoot()
+        useContext()
         it("subscribes and unsubscribes on demand", () => {
             // Given a rule that depends on a mock source
             let changed: () => void = undefined!;
@@ -676,7 +675,7 @@ describe("Dependency tracking", () => {
             r2(); updateDemand(); see("unsub 2");
             r1(); updateDemand(); see("unsub 1");
         });
-        it("throws and kills its job on setup error", () => {
+        it("throws and kills its context on setup error", () => {
             // Given a source that throws and a rule that references it
             const src: RecalcSource = () => { log("sub"); must(()=> log("unsub")); throw "boom"; }
             const end = rule(() => { recalcWhen(src); log("ping"); });
@@ -705,7 +704,7 @@ describe("Dependency tracking", () => {
 });
 
 describe("Signal invariants", () => {
-    useRoot();
+    useContext();
 
     it("Updates are immediate outside of rules", () => {
         // Given a value

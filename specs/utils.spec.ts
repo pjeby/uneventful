@@ -1,5 +1,5 @@
 import { describe, expect, it, log, see } from "./dev_deps.ts"
-import { GeneratorBase, arrayEq, call, decorateMethod, isClass, isGeneratorFunction, isPlainFunction, isPlainObject } from "../src/utils.ts"
+import { GeneratorBase, arrayEq, boundTo, call, decorateMethod, isClass, isGeneratorFunction, isPlainFunction, isPlainObject } from "../src/utils.ts"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -46,6 +46,17 @@ describe("Utilities", () => {
         it("this and args", () => {
             call(logCall, someThis, 22);      see("true", "[22]");
             call(logCall, someThis, 33, 156); see("true", "[33,156]");
+        })
+    })
+    describe("boundTo()", () => {
+        it("binds a function to a `this`", () => {
+            // Given an object
+            const that = {}
+            // When a function is boundTo it and called
+            const f = boundTo(that, function() { log(this===that)})
+            f()
+            // Then it should receive the object as its `this`
+            see("true")
         })
     })
     describe("GeneratorBase", () => {

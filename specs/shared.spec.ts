@@ -1,26 +1,26 @@
-import { Yielding, getJob, isJobActive, must, newRoot, root, sleep, start } from "../src/mod.ts"
+import { Yieldable, currentContext, inContext, must, newRoot, root, sleep, start } from "../src/mod.ts"
 import { $, expiring, fork, service } from "../src/shared.ts"
 import { cached, value } from "../src/signals.ts"
-import { clock, describe, expect, it, log, logUncaught, msg, see, useClock, useRoot } from "./dev_deps.ts"
+import { clock, describe, expect, it, log, msg, see, useClock, useContext } from "./dev_deps.ts"
 
 function counter(count=0) { return () => ++count }
 function msgCounter(count=0) { return () => { log(`call #${++count}`); return count } }
 
 describe("expiring()", () => {
-    it("returns a proxy that becomes inaccessible after job end", () => {
-        // Given a job and an object
-        const job = root.start(), obj = { x: 42 } as {x: number}
+    it("returns a proxy that becomes inaccessible after context end", () => {
+        // Given a context and an object
+        const ctx = root.checkpoint(), obj = { x: 42 } as {x: number}
 
         // When an expiring() proxy is created
-        const proxy = job.bind(expiring)(obj)
+        const proxy = ctx.bind(expiring)(obj)
 
         // Then the original object should be accessible through the proxy
         expect(proxy.x).to.equal(42)
         proxy.x = 99
         expect(obj.x).to.equal(99)
 
-        // And when the job ends
-        job.end()
+        // And when the context ends
+        ctx.end()
 
         // Then the object should no longer be accessible through the proxy
         expect(() => proxy.x).to.throw("Cannot perform 'get' on a proxy that has been revoked")
@@ -29,7 +29,7 @@ describe("expiring()", () => {
 
 describe("fork()", () => {
     useClock()
-    useRoot()
+    useContext()
 
     describe("when called on a generator, returns a generator", () => {
         checkGenerator(() => fork(sleepWithMessage()))
@@ -88,7 +88,7 @@ describe("fork()", () => {
         return 42
     }
 
-    function checkGenerator(genfunc: () => Yielding<number>) {
+    function checkGenerator(genfunc: () => Yieldable<number>) {
         it("that proceeds without being waited on", () => {
             // Given a forked generator with a sleep
             const g = genfunc()
@@ -103,8 +103,8 @@ describe("fork()", () => {
             clock.tick(0)
             see("42")
         })
-        it("that can be waited on by more than one job", () => {
-            // Given a forked generator with a sleep, waited on by multiple jobs
+        it("that can be waited on by more than one task", () => {
+            // Given a forked generator with a sleep, waited on by multiple tasks
             const g = genfunc()
             start(g).onValue(v => log(`j1: ${v}`))
             start(g).onValue(v => log(`j2: ${v}`))
@@ -114,18 +114,18 @@ describe("fork()", () => {
             see("sleeping")
             // When the generator finishes
             clock.runAll()
-            // Then all the jobs should receive the result
+            // Then all the tasks should receive the result
             see("done", "j1: 42", "j2: 42", "j3: 42")
         })
-        it("that doesn't run cleanups until the calling job finishes", () => {
-            // Given a forked generator with a cleanup, created in a job
-            let g: Yielding<number>
+        it("that doesn't run cleanups until the calling task finishes", () => {
+            // Given a forked generator with a cleanup, created in a task
+            let g: Yieldable<number>
             const j = start(() => { g = genfunc(); })
             // When the generator finishes
             clock.tick(10)
             // Then the cleanup function should not run
             see("sleeping", "done")
-            // Until the job is ended
+            // Until the task is ended
             j.end()
             see("cleanup")
         });
@@ -163,8 +163,8 @@ describe("service()", () => {
             // Then the cleanups should run
             see("cleanup")
         })
-        it("creates instances in the root job", () => {
-            service(() => log(getJob() === root))()
+        it("creates instances in the root scope", () => {
+            service(() => log(currentContext() === root))()
             see("true")
         })
         it("instantiates classes", () => {
@@ -257,7 +257,7 @@ describe("service()", () => {
 
 describe("Lazy constants", () => {
     describe("$(factory)", () => {
-        useRoot()
+        useContext()
         it("returns the same value until newRoot()", () => {
             // Given a function that returns a new value on each call
             const inc = counter()
@@ -284,8 +284,8 @@ describe("Lazy constants", () => {
             // Then the value should be different afterward
             expect($(inc)).to.equal(2)
         })
-        it("creates instances without an active job", () => {
-            $(() => log(isJobActive()))
+        it("creates instances without an active context", () => {
+            $(() => log(inContext()))
             see("false")
         })
         it("blocks reactive reads while creating", () => {
@@ -396,8 +396,8 @@ describe("Lazy constants", () => {
             // Then it should also throw
             expect(() => cb(() => 42)).to.throw("$``() must be called from a reactive expression")
         })
-        it("creates instances without a job", () => {
-            cached(() => $``(() => log(isJobActive())))()
+        it("creates instances without a context", () => {
+            cached(() => $``(() => log(inContext())))()
             see("false")
         })
         it("blocks reactive reads while creating", () => {

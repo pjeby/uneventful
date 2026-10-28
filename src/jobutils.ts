@@ -1,196 +1,262 @@
-import { currentCell, currentJob, popCtx, pushCtx } from "./ambient.ts";
-import { getJob } from "./tracking.ts";
-import { AnyFunction, CleanupFn, Job, OptionalCleanup, StartFn, StartObj, Yielding } from "./types.ts";
-import { apply } from "./utils.ts";
+import { currentCell, currentCtx, popCtx, pushCtx } from "./ambient.ts";
+import { sleep } from "./async.ts";
+import { CancelError } from "./results.ts";
+import { currentContext } from "./tracking.ts";
+import {
+    AnyFunction, CleanupFn, Job, OptionalCleanup, Context, ActivityFn, Eventual, Task, Yieldable, Scope, Coroutine,
+    Work, Activity
+} from "./types.ts";
+import { apply, boundTo } from "./utils.ts";
 
 /**
- * Add a cleanup function to the active job. Non-function values are ignored.
- * Equivalent to calling .{@link Job.must must}() on the current job.  (See
- * {@link Job.must}() for more details.)
+ * Add a cleanup function to the active context. Non-function values are ignored.
+ * Equivalent to calling .{@link Context.must must}() on the current contet.  (See
+ * {@link Context.must}() for more details.)
  *
- * @category Jobs
+ * @category Tasks and Context
  */
 export function must(cleanup?: OptionalCleanup): void {
-    getJob().must(cleanup);
+    currentContext().must(cleanup);
 }
 
 /**
- * Start a nested job within the currently-active job.  (Shorthand for
- * calling .{@link Job.start start}(...) on the active job.)
+ * Start a new task from an activity, as a child of the {@link currentContext}()
  *
- * This function can be called with zero, one, or two arguments:
+ * `start(activity)` is roughly shorthand for calling
+ * {@link starting}(activity).{@link Work.task task}(), or
+ * {@link starting}().{@link Work.exec exec}(activity).task().  That is, it
+ * creates a new {@link Work} of the appropriate type, .exec()s the activity in
+ * it, and returns the {@link Task} that will provide the work's result.
  *
- * - When called with zero arguments, the new job is returned without any other
- *   initialization.
+ * However, unlike with `starting()`, if the activity is an Uneventful-supplied
+ * {@link Task}, the passed-in task is returned unchanged rather than starting a
+ * new task.
  *
- * - When called with one argument that's a function (either a {@link SyncStart}
- *   or {@link AsyncStart}): the function is run inside the new job and receives
- *   it as an argument.  It can return a {@link Yielding} iterator (such as a
- *   generator or job), a promise, or void.  A returned iterator or promise will
- *   be treated as if the method was called with that to begin with; a returned
- *   job will be awaited and its result transferred to the new job
- *   asynchronously.  A returned function will be added to the job via `must()`.
+ * If the activity is a function and it throws a synchronous error before
+ * `start()` returns, the new task will be canceled and the error rethrown.
  *
- * - When called with one argument that's a {@link Yielding} iterator (such as a
- *   generator or an existing job): it's attached to the new job and executed
- *   asynchronously. (Starting in the next available microtask.)
+ * @template T The type of result the task will eventually produce. Defaults
+ * to `never` if not given, meaning that the task will never end itself
+ * (except via an error), and will only end when it is canceled or one of
+ * its parent contexts ends or resets.
  *
- * - When called with one argument that's a Promise, it's converted to a job
- *   that will end when the promise settles.  The resulting job is returned.
- *
- * - When called with two arguments -- a "this" object and a function -- it
- *   works the same as one argument that's a function, except the function is
- *   bound to the supplied "this" before being called.
- *
- *   This last signature is needed because you can't make generator arrows in JS
- *   yet: if you want to start() a generator function bound to the current
- *   `this`, you'll want to use `.start(this, function*() { ...whatever  })`.
- *
- *   (Note, however, that TypeScript and/or VSCode may require that you give
- *   such a function an explicit `this` parameter (e.g. `.start(this, function
- *   *(this) {...}));`) in order to correctly infer types inside a generator
- *   function.)
- *
- * In any of the above cases, if a supplied function throws an error while
- * starting, the new job will be ended, and the error synchronously re-thrown.
- *
- * @returns the created {@link Job}
- *
- * @category Jobs
+ * @category Tasks and Context
  */
-export function start<T>(init?: StartFn<T> | StartObj<T>): Job<T>;
+export function start<T=never>(activity: Activity<T>): Task<T>;
 
 /**
- * The two-argument variant of start() allows you to pass a "this" object that
- * will be bound to the initialization function.  (It's mostly useful for
- * generator functions, since generator arrows aren't a thing yet.)
+ * @hidden @deprecated Use {@link starting}() to create a {@link Work} context,
+ * then customize it and use its .task() or .future() instead
  */
-export function start<T, This>(thisArg: This, fn: StartFn<T, This>): Job<T>;
-export function start<T, This>(init: StartFn<T>|StartObj<T>|This, fn?: StartFn<T, This>) {
-    return getJob().start(init as This, fn!);
+export function start<T>(): Job<T>;
+
+/**
+ * @hidden @deprecated Use `start(`{@link boundTo}`(thisArg, fn)`)
+ */
+export function start<T, This>(thisArg: This, fn: ActivityFn<T, This>): Task<T>;
+
+export function start<T, This>(activity?: Activity<T>|This, fn?: ActivityFn<T, This>) {
+    return currentContext().start(activity as This, fn!);
 }
 
 /**
- * Is there a currently active job? (i.e., can you safely use {@link must}(),
- * or {@link getJob}() right now?)
+ * Create the {@link Work} of a new task, optionally starting activities in it
  *
- * @category Jobs
+ * `starting(a1, a2, ...)` is roughly equivalent to `start(work =>
+ * work.exec(a1).exec(a2)...)`, except that the `work` is returned instead of
+ * the task.
+ *
+ * @param activities Zero or more activities for the new task's {@link Work} to
+ * .{@link Work.exec exec}().  The first one to complete the task (via
+ * return/throw) will determine the overall task result; all others will be
+ * canceled.
+ *
+ * If any of the startables synchronously completes (or throws a synchronous
+ * error) during the initial setup, the remaining startables will not be run. As
+ * with {@link start}(), a synchronous error also cancels the
+ * partially-initialized task.
+ *
+ * @returns A {@link Work} context you can customize to set up its
+ * .{@link Work.future task}() or .{@link Work.future future}() with.
+ *
+ * @category Tasks and Context
  */
-export function isJobActive() { return !!(currentJob || (currentCell && currentCell.isObserved())) }
+export function starting<T=never>(...activities: Activity<T>[]): Work<T> {
+    return currentContext().starting(...activities)
+}
+
+/**
+ * Is there a current context? (i.e., can you safely use
+ * {@link currentContext}() or APIs that use it right now?)
+ *
+ * @category Tasks and Context
+ */
+export function inContext() { return !!(currentCtx || (currentCell && currentCell.isObserved())) }
 
 
-const timers = new WeakMap<Job,
+const timers = new WeakMap<Context,
     ReturnType<typeof setTimeout> |  // current timeout
     undefined | // no timeout set since job was last restarted (if ever)
     null  // current timeout is 0, aka explicit no-timeout
 >();
 
 /**
- * Set the cancellation timeout for a job.
+ * @deprecated Use {@link timeoutAfter}() or {@link watchdog}() instead!
  *
- * When the timeout is reached, the job is canceled (throwing
- * {@link CancelError} to any waiting promises or jobs), unless a new timeout
- * is set before then.  You may set a new timeout value for a job as many times
+ * Set a cancellation timeout for a context
+ *
+ * When the timeout is reached, the context is canceled (throwing
+ * {@link CancelError} to its parent context(s), unless a new timeout
+ * is set before then.  You may set a new timeout value for a context as many times
  * as desired.  A timeout value of zero disables the timeout. Timers are
- * disposed of if the job is canceled or restarted.
+ * disposed of if the context is canceled or reset.
  *
  * @param ms Optional: Number of milliseconds after which the job will be
- * canceled. Defaults to zero if not given.
+ * canceled. Defaults to zero (remove the timeout) if not given.
  *
- * @param job Optional: the job to apply the timeout to.  If none is given, the
- * active job is used.
+ * @param scope Optional: the scope to apply the timeout to.  If none is given,
+ * the ambient context's scope is used.
  *
  * @returns the job to which the timeout was added or removed.
  *
  * @category Scheduling
+ * @hidden
  */
-export function timeout<T>(ms: number, job?: Job<T>): Job<T>;
-export function timeout(ms = 0, job: Job = getJob()) {
-    let timer = timers.get(job);
+
+export function timeout<T>(ms: number, scope?: Scope): Scope;
+export function timeout(ms = 0, scope: Scope = currentContext() as Scope) {
+    let timer = timers.get(scope);
     if (timer) {
         clearTimeout(timer);
-    } else if (timer === undefined && !job.result()) {
+    } else if (timer === undefined && !scope.cleaningUp()) {
         // no timeout has been set since job was last restarted,
         // so we need to arrange to clear it
-        job.must(timeout.bind(null, 0, job));
+        scope.must(timeout.bind(null, 0, scope));
     }
-    if (job.result()) {
+    if (scope.cleaningUp()) {
         // allow restarted timer to set a new must()
-        timers.delete(job);
+        timers.delete(scope);
     } else if (ms) {
-        timers.set(job, setTimeout(() => { timers.set(job, null); job.end(); }, ms));
+        timers.set(scope, setTimeout(() => { timers.set(scope, null); scope.end(); }, ms));
     } else {
-        timers.set(job, null); // Zero = cancel timeout, but don't duplicate must() if called again
+        timers.set(scope, null); // Zero = cancel timeout, but don't duplicate must() if called again
     }
-    return job;
+    return scope;
 }
 
-const abortSignals = new WeakMap<Job, AbortSignal|null>();
+/**
+ * A timeout error - thrown by {@link watchdog}() and {@link timeoutAfter}()
+ *
+ * @category Errors
+ */
+export class TimeoutError extends Error {}
 
 /**
- * Get an AbortSignal that aborts when the job ends or is restarted.
+ * Create an activity that throws a {@link TimeoutError} once a timeout is
+ * reached
  *
- * @param job Optional: the job to get an AbortSignal for.  If none is given,
- * the active job is used.
+ * e.g. `starting(someStartable, timeoutAfter(2000, "whoops!")).task()` will
+ * create a task that terminates with a `new TimeoutError("whoops!")` if
+ * `someStartable` doesn't complete in under 2 seconds.
+ *
+ * Or, to asyncThrow from inside a task, just `start(timeoutAfter(...))` in the
+ * task's body, or `work.exec(timeoutAfter(...))`. (If you need a resettable
+ * deadline, use {@link watchdog}() instead.)
+ *
+ * @category Scheduling
+ */
+export function timeoutAfter(ms: number, message="Timeout reached"): () => Coroutine<never> {
+    return function*() {
+        yield *sleep(ms)
+        throw new TimeoutError(message)
+    }
+}
+
+/**
+ * Create a resettable watchdog timer for the current context, that will
+ * asyncThrow if it ever times out.
+ *
+ * So e.g. `const deadline = watchdog(); deadline(5000, "Time's up!");` will set
+ * up a 5 second timeout (with the error message "Time's up"), and you can then
+ * call `deadline()` as many times as you like to start or reset the timer.
+ *
+ * @returns A function you can call zero or more times with a number of
+ * milliseconds to reset the timer to.  Passing zero cancels the timeout, and a
+ * non-zero value starts it over with the new duration.
+ *
+ * @category Scheduling
+ */
+export function watchdog() {
+    return restarting((ms: number, message?: string) => { ms && start(timeoutAfter(ms, message)) })
+}
+
+const abortSignals = new WeakMap<Context, AbortSignal|null>();
+
+/**
+ * Get an AbortSignal that aborts when the context ends or is cleaned up.
+ *
+ * @param context Optional: the context to get an AbortSignal for.  If none is given,
+ * the current context is used.
  *
  * @returns the AbortSignal
  *
- * @category Jobs
+ * @category Tasks and Context
  */
-export function abortSignal(job: Job = getJob()) {
-    let signal = abortSignals.get(job);
+export function abortSignal(context = currentContext()) {
+    let signal = abortSignals.get(context);
     if (!signal) {
         const ctrl = new AbortController;
         signal = ctrl.signal;
-        job.must(() => { abortSignals.set(job, null); ctrl.abort(); });
-        abortSignals.set(job, signal);
-        if (job.result()) ctrl.abort();
+        context.must(() => { abortSignals.set(context, null); ctrl.abort(); });
+        abortSignals.set(context, signal);
+        if (context.cleaningUp()) ctrl.abort();
     }
     return signal;
 }
 
 /**
- * Wrap a function in a {@link Job} that restarts each time the resulting
- * function is called, thereby canceling any nested jobs and cleaning up any
- * resources used by previous calls. (This can be useful for such things as
- * canceling an in-progress search when the user types more text in a field.)
+ * Wrap a function in a {@link Checkpoint} that resets each time the resulting
+ * function is called, thereby canceling any in-progress subtasks and cleaning
+ * up any resources used by previous calls. (This can be useful for such things
+ * as canceling an in-progress search when the user types more text in a field.)
  *
- * The restarting job will be ended when the job that invoked `restarting()`
- * is finished, canceled, or restarted.  Calling the wrapped function after its
- * job has ended will result in an error.  You can wrap any function any number
- * of times: each call to `restarting()` creates a new, distinct "restarting
- * job" and function wrapper to go with it.
+ * The checkpoint will be ended when the context that invoked `restarting()` is
+ * finished, canceled, or reset.  Calling the wrapped function after its
+ * checkpoint has ended will result in an error.  You can wrap any function any
+ * number of times: each call to `restarting()` creates a new, distinct
+ * checkpoint and function wrapper to go with it.
  *
- * @param task (Optional) The function to be wrapped. This can be any function:
- * the returned wrapper function will match its call signature exactly, including
- * overloads.  (So for example you could wrap the {@link start} API via
- * `restarting(start)`, to create a function you can pass job-start functions to.
- * When called, the function would cancel any outstanding job from a previous
- * call, and start the new one in its place.)
+ * @param action (Optional) The function to be wrapped. This can be any
+ * function: the returned wrapper function will match its call signature
+ * exactly, including overloads.  (So for example you could wrap the
+ * {@link start} API via `restarting(start)`, to create a function you can pass
+ * {@link ActivityFn} functions to. When called, the function would cancel any
+ * outstanding task from a previous call, and start the new one in its place.)
  *
  * @returns A function of identical type to the input function.  If no input
  * function was given, the returned function will just take one argument (a
- * zero-argument function optionally returning a {@link CleanupFn}).
+ * zero-argument function optionally returning a {@link CleanupFn}), and will
+ * run it in the checkpoint's context.
  *
- * @category Jobs
+ * @category Tasks and Context
  */
-export function restarting<F extends AnyFunction>(task: F): F
-export function restarting(): (task: () => OptionalCleanup) => void
-export function restarting<F extends AnyFunction>(task?: F): F {
-    const outer = getJob(), inner = outer.start<never>(), {end} = inner;
-    task ||= <F>((f: () => OptionalCleanup) => { inner.must(f()); });
+export function restarting<F extends AnyFunction>(action: F): F
+export function restarting(): (action: () => OptionalCleanup) => void
+export function restarting<F extends AnyFunction>(action?: F): F {
+    const outer = currentContext(), inner = outer.checkpoint(), {end} = inner;
+    action ||= <F>((f: () => OptionalCleanup) => { inner.must(f()); });
     inner.asyncCatch(e => outer.asyncThrow(e));
     return <F>function(this: ThisParameterType<F>) {
-        inner.restart().must(outer.release(end));
+        inner.reset().must(outer.release(end));
         pushCtx(inner);
-        try { return apply(task, this, arguments); }
-        catch(e) { inner.restart(); throw e; }
+        try { return apply(action, this, arguments); }
+        catch(e) { inner.reset(); throw e; }
         finally { popCtx(); }
     };
 }
 
 /**
- * Wrap an argument-taking function so it will run in (and returns) a new Job
+ * Wrap an argument-taking function so it will run in (and returns) a new {@link Task}
  * when called.
  *
  * This lets you avoid the common pattern of needing to write your functions or
@@ -213,7 +279,7 @@ export function restarting<F extends AnyFunction>(task?: F): F {
  * ```ts
  * class Something {
  *     ⁣⁣@task  // auto-detects TC39 or legacy decorators
- *     *someMethod(arg1): Yielding<SomeResultType> {
+ *     *someMethod(arg1): Coroutine<SomeResultType> {
  *         // ...
  *     }
  * }
@@ -226,38 +292,38 @@ export function restarting<F extends AnyFunction>(task?: F): F {
  *
  * Also note that TypeScript doesn't allow decorators to change the calling
  * signature or return type of a method, so even though the above method will
- * return a {@link Job}, TypeScript will only see it as a {@link Yielding}.
+ * return a {@link Task}, TypeScript will only see it as a {@link Coroutine}.
  *
  * This is fine if all you're going to do is `yield *` it to wait for the
- * result, but if you need to use any job-specific methods on it, you'll have to
- * pass it through {@link start} to have TypeScript treat it as an actual job.
- * (Luckily, start() has a fast path to return the original job if it's passed a
- * job, so you won't actually create a new job by doing this.)
+ * result, but if you need to use any task-specific methods on it, you'll have
+ * to pass it through {@link start} to have TypeScript treat it as an actual
+ * Task. (Luckily, start() has a fast path to return the original task if it's
+ * passed a task, so you won't actually create a new task by doing this.)
  *
- * @param fn The function to wrap. A function returning a generator or
- * promise-like object (i.e., a {@link StartObj}).
+ * @param fn The function to wrap. A function returning a {@link Coroutine},
+ * {@link Yieldable}, or promise-like object (i.e., an {@link Eventual}).
  *
  * @returns A wrapped version of the function that passes through its arguments
- * to the original function, while running it in a new job.  (The wrapper also
- * returns the job.)
+ * to the original function, while running it in a new task.  (The wrapper also
+ * returns the task.)
  *
- * @category Jobs
+ * @category Tasks and Context
  */
-export function task<T, A extends any[], C>(fn: (this: C, ...args: A) => StartObj<T>): (this: C, ...args: A) => Job<T>;
+export function task<T, A extends any[], C>(fn: (this: C, ...args: A) => Eventual<T>): (this: C, ...args: A) => Task<T>;
 
 /** @hidden TC39 Decorator protocol */
 export function task<T, A extends any[], C>(
-    fn: (this: C, ...args: A) => StartObj<T>, ctx: {kind: "method"}
-): (this: C, ...args: A) => Job<T>;
+    fn: (this: C, ...args: A) => Eventual<T>, ctx: {kind: "method"}
+): (this: C, ...args: A) => Task<T>;
 
 /** @hidden Legacy Decorator protocol */
-export function task<T, A extends any[], C, D extends {value?: (this:C, ...args: A) => StartObj<T>}>(
+export function task<T, A extends any[], C, D extends {value?: (this:C, ...args: A) => Eventual<T>}>(
     clsOrProto: any, name: string|symbol, desc: D
 ): D
 
-export function task<T, A extends any[], C, D extends {value: (this:C, ...args: A) => StartObj<T>}>(
-    fn: (this: C, ...args: A) => StartObj<T>, _ctx?: any, desc?: D
-): D | ((this: C, ...args: A) => Job<T>) {
+export function task<T, A extends any[], C, D extends {value: (this:C, ...args: A) => Eventual<T>}>(
+    fn: (this: C, ...args: A) => Eventual<T>, _ctx?: any, desc?: D
+): D | ((this: C, ...args: A) => Task<T>) {
     if (desc) return {...desc, value: task(desc.value)};
     return function (this: C, ...args: A) {
         return start(() => apply(fn, this, args));

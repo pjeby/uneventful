@@ -119,7 +119,7 @@ export function perSignal<F extends PlainFunction>(func: F, site: CallSite, name
             if (findOrCreateMemos(hooks, site, 1)) {
                 return getMemo<F>(hooks, 1)()
             } else {
-                // Run w/o job context and block reading signals
+                // Run w/o any context and block reading signals
                 let result: unknown
                 pushCtx(undefined, false)
                 try { result = func(...args) } finally { popCtx() }

@@ -5,14 +5,62 @@ title: Changelog
 
 ### Unreleased
 
+This is effectively a major release, with significant refactoring, deprecations, and behavior changes - please read carefully!
+
+Most notably, the `Job<T>` type has been deprecated, having been split into three major sub-interfaces:
+
+- `Task<T>` - a cancellable future value (returned from `start()`)
+- `Work<T>` - the context in which a task runs, with cleanup facilities, async throw/catch, and the return/throw methods to complete the task.  (Passed into functions given to `start()`)
+- `Checkpoint` - the kind of resettable context used by reactive effects and `restarting()` functions.
+
+This makes separation of abilities and roles clearer, while reducing the mutable surface available to consumers by default.  The monolithic `Job` interface allowed anyone holding it to change things like its async error routing, run other tasks inside of it, or even manually `.return()` a value from it
+
+Now, things like those are only possible from *inside* the task or via its `Work` handle.  (And if you want a Deferred-like way to configure a task from its outside, you can use the new `starting()` API to create a `Work` first and then get its `.task()` or `.future()` for consumers to use.)
+
+As part of the changes, the zero-argument and two-argument versions of `start()` and `.start()` have also been deprecated, leaving only the single-argument forms.  The zero-argument form can be replaced by `starting().task()`, and the two-argument form with `start(boundTo(thisArg, fn))`.  (See {@link uneventful/utils.boundTo boundTo}() for more details.)
+
+Many other types and APIs have also been renamed or replaced, with the old ones deprecated, notably:
+
+| Before             | After                              |
+|--------------------|------------------------------------|
+| `getJob()`         | `currentContext()` |
+| `isJobActive()`    | `inContext()` |
+| `StartFn<T, This>` | `ActivityFn<T, This>` |
+| `StartObj<T>`      | `Eventual<T>` |
+| `AsyncStart<T>`    | `EventuallyReturns<T>` |
+| `SyncStart<T>`     | `Setup<T>` |
+| `Yielding<T>`      | `Yieldable<T>` |
+| `JobIterator<T>`   | `Coroutine<T>` |
+| `timeout(ms, ctx)` | `timeoutAfter(ms)` OR `watchdog()` |
+
+There are also some new APIs, like:
+
+- `starting()` (which is also a context method) lets you start multiple activities in the same context as a race or as parallels, and returns the `Work` rather than the task, so you can do further customization of the task
+- `Work.exec()` lets you adopt `Eventual<T>` values or run additional `EventuallyReturns<T>` functions (such as `Coroutine<T>`-returning generator functions) within the same task.
+- `timeoutAfter(ms)` takes advantage of `starting()` such that you can do e.g. `starting(someActivityOrEventualValue, timeoutAfter(2000)).task()` to get a cancellable task that aborts with `TimeoutError` if it doesn't finish in 2s.
+- `watchdog()` lets you create a resettable deadline timer that async-throws `TimeoutError` in its creation context if it ever expires without being reset or disabled.
+
+Last, but not least, bare `start()` with no arguments still returns a `Job`, but is now deprecated for the same reason `Job` is.  Most such uses should be replaced with `starting()` (which returns a `Work` context), and perhaps a conversion to `.task()` afterward.
+
+Various other fixes, enhancements and behavior changes are listed below by module:
+
 `uneventful`
 - `newRoot()` now carries over the `.asyncCatch()` handler from the previous root and only uses the default for the first root, or if the previous root's handler was explicitly unset.
-- **Behavior change**: Waiting on an unfinished job with `yield*` now resumes in a different microtask than the one where the job ends.  (Waiting on an already-finished job still resumes synchronously.)  This change was made to avoid waiters seeing partially-undone state and running arbitrary code during a job's end.  Now cleanup for an ending job is atomic from the point of view of its asynchronous waiters, whether they use `yield*` or `await`.
-- **Behavior change**: if you use return() or throw() or otherwise cancel a `start()`ed generator/genfunc before it has a chance to start running (i.e., while still in the same microtask as the `start()` call), then the generator will *not* be started.  The previous behavior caused an unnecessary thrash, where the generator would run until the first yield, performing actions that would then be immediately rolled back.
+
+- Fixed: Coroutines that suspend in `finally` clauses and were canceled could leak `using` disposals and also and never finish.  Now, when a coroutine is canceled, all suspends in `finally` clauses are forced to jump to the next-outer finally block, skipping the rest of the suspended `finally` block.
+
+- **Backward-incompatible Behavior and Typing changes**:
+  - `start(something)` now defaults to `Task<never>` as the return type (and `Work<never>` as the argument type) if TypeScript cannot otherwise infer the type.  This may result in some type errors requiring you to explicitly specify the type, e.g. via `start<TheType>(something)`, though runtime behavior should be unaffected.  This change ensures that `.return()` values are typechecked by default and require you to explicitly declare a type in cases of ambiguity.  (The previous default was `unknown`.)
+  - Waiting on an unfinished task with `yield*` now resumes in a *different microtask* than the one where the task ended.  (Though waiting on an already-finished task still resumes synchronously.)  This change was made to avoid waiters seeing partially-undone state and running arbitrary code during a task's end.  Now cleanup for an ending task is atomic from the point of view of its asynchronous waiters, whether they use `yield*` or `await`.
+  - If you use return() or throw() or otherwise cancel a `start()`ed generator/genfunc before it has a chance to start running (i.e., while still in the same microtask as the `start()` call), then the generator will *not* be started.  The previous behavior caused an unnecessary thrash, where the generator would run until the first yield, performing actions that would then be immediately rolled back.
+  - Canceling a coroutine with a `finally` clause now executes that clause *after* all child tasks have been fully canceled and all their cleanups run.  Previously, the finally clause ran at an earlier stage where cleanups might not have run yet.  The new behavior is more consistent with how structured concurrency is handled everywhere else, but may cause issues if you have `finally` clauses that expected to interact with resources that will now be cleaned up in such a case.
 
 `uneventful/signals`
 - The `runRules()` API now explicitly flushes demand changes (subscribing/unsubscribing jobs and external data sources) even if there are no rules on the selected queue, thus ensuring that if anything *would* be updated on that queue, it will happen before `runRules()` returns.
 - In addition, `runRules()` will now throw an error if run inside a rule, to make visible the fact that it is impossible to flush a queue while another queue (or the same queue!) is being flushed.  (Previously, this simply silently failed with no effect, running the rules asynchronously at the next scheduled opportunity.)
+
+`uneventful/utils`
+- There is now a {@link uneventful/utils.boundTo boundTo}() function that is a better-typed, prefix syntax alternative to `Function.prototype.bind`.
 
 ### 0.0.16 (2026-09-10)
 
@@ -46,7 +94,7 @@ Note: this release was deprecated/unpublished due to some significant regression
 `uneventful`
 - Removed the deprecated `detached` and `rule.detached` APIs
 - `isJobActive()` will now return true when invoked in a signal function that hasn't used any job functions, so long as the signal `isObserved()`.
-- The {@link uneventful.makeJob `makeJob()`} function is now deprecated; please see its docs for migration instructions.
+- The `makeJob()` function is now deprecated; please see its docs for migration instructions.
 
 `uneventful/signals`
 - BREAKING: If a signal is unobserved (e.g. due to `peek()` or not being observed by a rule), using the jobs API in it will now throw an error, instead of silently rolling everything back that it just did.  This prevents bugs and inefficiencies caused by silent thrashing, at the cost of this compatibility break.  If you want the signal to be usable even when unobserved, you can use `isObserved()` to avoid using job APIs when the signal is unobserved, or move the job-related actions to an {@link uneventful/signals.fx `fx()`} (as effects do not run unless they are observed).

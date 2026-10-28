@@ -1,5 +1,5 @@
 /**
- * This is the default export of uneventful, which contains the API for jobs and
+ * This is the default export of uneventful, which contains the API for tasks and
  * streams, as well as any signals-related APIs that don't depend on the signals
  * framework (like {@link recalcWhen}() and {@link isObserved}(), which do
  * nothing if the signals framework isn't in use, and won't cause it to be
@@ -13,7 +13,7 @@
 export { defer } from "./defer.ts";
 export * from "./types.ts";
 export * from "./results.ts";
-export { getJob, nativePromise, makeJob, root, newRoot } from "./tracking.ts";
+export { currentContext, nativePromise, getJob, makeJob, newRoot, root } from "./tracking.ts";
 export * from "./async.ts";
 export * from "./streams.ts"
 export * from "./sources.ts";

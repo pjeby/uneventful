@@ -1,5 +1,5 @@
-import { log, see, describe, expect, it, useRoot, useClock, clock } from "./dev_deps.ts"
-import { sleep, root, Job, start } from "../src/mod.ts"
+import { log, see, describe, expect, it, useContext, useClock, clock } from "./dev_deps.ts"
+import { sleep, root, Future } from "../src/mod.ts"
 import { Ext, ext, method } from "../src/ext.ts"
 import { expectType } from "ts-expect"
 
@@ -85,7 +85,7 @@ describe("Extensions", () => {
     })
 
     describe("Ext subclasses", () => {
-        useRoot()
+        useContext()
         class Target { blah: number }
         class Simple extends Ext<Target> {}
         class AsyncExt extends Simple {
@@ -94,8 +94,8 @@ describe("Extensions", () => {
                 yield *sleep(100);
                 return this
             }
-            __new__(tgt: Target): Job<this> {
-                return start(this.__inst__(tgt).setup())
+            __new__(tgt: Target): Future<this> {
+                return root.starting(this.__inst__(tgt).setup()).future()
             }
         }
 
@@ -105,8 +105,8 @@ describe("Extensions", () => {
                 class AsyncSub extends AsyncExt {}
                 const t = new Target
                 // Then it should have properly-extended return types
-                expectType<Job<AsyncSub>|undefined>(AsyncSub.get(t))
-                expectType<Job<AsyncSub>>(AsyncSub.for(t))
+                expectType<Future<AsyncSub>|undefined>(AsyncSub.get(t))
+                expectType<Future<AsyncSub>>(AsyncSub.for(t))
             });
             it("can narrow target types", () => {
                 // Given a narrowed target type
@@ -163,15 +163,15 @@ describe("Extensions", () => {
                 // Given a target
                 const t = new Target
                 // When an asynchronous-setup extension is accessed for it
-                const job = AsyncExt.for(t)
-                // Then it should be a job instance
-                expect(job).to.be.instanceOf(root.constructor)
+                const future = AsyncExt.for(t)
+                // Then it should be a task instance
+                expect(future).to.be.instanceOf(root.constructor)
                 // That has not yet completed
-                expect(job.result()).to.be.undefined
+                expect(future.result()).to.be.undefined
                 // But eventually yields the underlying instance
                 clock.runAll()
-                expect(job.result()!.val).to.be.instanceOf(AsyncExt)
-                expect(job.result()!.val!.of).to.equal(t)
+                expect(future.result()!.val).to.be.instanceOf(AsyncExt)
+                expect(future.result()!.val!.of).to.equal(t)
             })
         })
 

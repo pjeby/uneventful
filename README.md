@@ -14,35 +14,36 @@ Sure, reactive stream and signal libraries help with this some, by giving you fe
 And so, while your code *is* a bit cleaner, the complexity and clutter hasn't really gone away: it's just moved to the mind of the person *reading* your code.  (Like you, six months later!)
 
 #### The Solution
-Enter Uneventful: a seamless, *declarative*, and **composable** blend of signals, streams, and CSP-like, cancelable asynchronous jobs (aka structured concurrency) with automatic resource management.
+Enter Uneventful: a seamless, *declarative*, and **composable** blend of signals, streams, and CSP-like, cancelable asynchronous tasks (aka structured concurrency) with automatic resource management.
 
 Uneventful does for event-driven interaction what async functions did for promises: it lets you build things out of *functions*, instead of spaghetti and garbage.  It's a system for *composable interactivity*, unifying and composing all of the current reactive paradigms in a way that hides the seams and keeps garbage collection where it belongs: hidden in utility functions, not cluttering up your code and your brain.
 
 And it does all this by letting your program structure *reflect its interactivity:*
 
 ```ts
-import { start, pipe, into, fromDomEvent, must, Job } from "uneventful";
+import { start, pipe, into, fromDomEvent, must, Task } from "uneventful";
 
-function drag(node: HTMLElement): Job<HTMLElement> {
-    return start(job => {
+function drag(node: HTMLElement): Task<HTMLElement> {
+    return start(self => {
         // The dragged item needs a dragging class during the operation
         addDragClass(node);
 
         // The item position needs to track the mouse movement
         trackMousePosition(node);
 
-        // The job ends when the mouse button goes up,
+        // The task ends when the mouse button goes up,
         // returning the DOM node it happens over
         pipe(fromDomEvent(document, "mouseup"), into(e => {
-            // Exit the job, removing all the listeners (and the .dragging class)
-            job.return(e.target);
+            // End the task, returning the target and removing all the listeners
+            // (along with the .dragging class)
+            self.return(e.target);
         }));
     });
 }
 
 function addDragClass(node: HTMlElement) {
     node.classList.add("dragging");  // Add a class now
-    must(() => node.classList.remove("dragging"));  // Remove it when the job is over
+    must(() => node.classList.remove("dragging"));  // Remove when current task ends
 }
 
 function trackMousePosition(node: HTMLElement) {
@@ -52,11 +53,11 @@ function trackMousePosition(node: HTMLElement) {
 }
 ```
 
-The example above is a sketch of a drag-and-drop operation that can be *called as a function*.  It returns a Job, which is basically a cancellable Promise.  (With a bunch of extra superpowers we'll get to later.)  Other jobs can wait for it to complete, or you can `await` it in a regular async function if you want.
+The example above is a sketch of a drag-and-drop operation that can be *called as a function*.  It returns a Task, which is basically a cancellable Promise.  (With a bunch of extra superpowers we'll get to later.)  Other tasks can wait for it to complete, or you can `await` it in a regular async function if you want.  The `self` parameter is the task's "work context": a combination of a cleanup scope and task-completion methods like `.return()` and `.throw()`.
 
-You've probably noticed that there isn't any code here that unsubscribes from anything, and that the only explicit "cleanup" code present is the `must()` call in `addDragClass()`.  That's because Uneventful keeps track of the "active" job, and has APIs like `must()` to register cleanup code that will run when that job is finished or canceled.  This lets you move the garbage collection to *precisely* where it belongs in your code: **the place where it's created**.
+You've probably noticed that there isn't any code here that unsubscribes from anything, and that the only explicit "cleanup" code present is the `must()` call in `addDragClass()`.  That's because Uneventful keeps track of the "active" task (technically, the "current cleanup context"), and has APIs like `must()` to register cleanup code that will run when that task is finished or canceled.  This lets you move the garbage collection to *precisely* where it belongs in your code: **the place where it's created**.  (A bit like the new `using` syntax, but with automatic *cancellation* and structured concurrency support thrown in for free!)
 
-If you're familiar with [statecharts](https://statecharts.dev/what-is-a-statechart.html), you might notice that this code sample can easily be translated to one, and the same is true in reverse: if you use statecharts for design and uneventful for implementation, you can pretty much *write down the chart as code*.  (A job definition function is a state, and each job instance at runtime represents one "run" of that state, from entry to exit.  And of course job definitions can nest like states, and be named and abstracted away like states.)
+If you're familiar with [statecharts](https://statecharts.dev/what-is-a-statechart.html), you might notice that this code sample can easily be translated to one, and the same is true in reverse: if you use statecharts for design and uneventful for implementation, you can pretty much *write down the chart as code*.  (A task definition function is a state, and each task instance at runtime represents one "run" of that state, from entry to exit.  And of course task definitions can nest like states, and be named and abstracted away like states.)
 
 But Uneventful is actually *better* than statecharts, even for design purposes: instead of following boxes and lines, your code is a straightforward list of substates, event handlers, or even *sequential activities*:
 
@@ -64,7 +65,7 @@ But Uneventful is actually *better* than statecharts, even for design purposes: 
 import { each } from "uneventful";
 
 function supportDragDrop(parentNode: HTMLElement) {
-    return start(function*(job) {
+    return start(function*() {
         const mouseDown = fromDomEvent(parentNode, "mousedown");
         for (const {item: event, next} of yield *each(mouseDown)) {
             if (event.target.matches(".drag-handle")) {
@@ -77,29 +78,30 @@ function supportDragDrop(parentNode: HTMLElement) {
 }
 ```
 
-Where our previous job did a bunch of things in parallel, this one is *serial*.  If the previous job was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so semi-synchronously.  (Specifically, each pass of the loop starts *during* the event being responded to, not in a later microtask!)
+Where our previous task did a bunch of things in parallel, this one is *serial*.  If the previous task was akin to a Promise constructor, this one is more like an async function.  It loops over an event like it was an async iterator, but it does so semi-synchronously.  (Specifically, each pass of the loop starts *during* the event being responded to, not in a later microtask!)
 
-Then it starts a drag job, and waits for its completion, receiving the return value in much the same way as an `await` does -- but again, semi-synchronously, during the mouseup event that ends the `drag()` call.  (Note: this pseudo-synchronous return-from-a-job is specific to using `yield` in another job function: if you `await` a job or call its `.then()` method to obtain the result, it'll happen in a later microtask as is normal for promise-based APIs.)
-
-And though we haven't shown any details here of what's being *done* with the drop, it's possible that we'll kick off some additional jobs to do an animation or contact a server or something of that sort, and wait for those to finish before enabling drag again.  (Unless of course we *want* them to be able to overlap with additional dragging, in which case we can spin off detached jobs.)
+Then it starts a drag task, and waits for its completion, receiving the return value in much the same way as an `await` does.  And though we haven't shown any details here of what's being *done* with the drop, it's possible that we'll kick off some additional tasks to do an animation or contact a server or something of that sort, and wait for those to finish before enabling drag again.  (Unless of course we *want* them to be able to overlap with additional dragging, in which case we can spin off detached tasks.)
 
 #### Context, Cancellation, and Cleanup
-If you look closely, you might notice that our last example is an *infinite loop*.  `fromDomEvent` returns a stream that will never end on its own, so we could in fact declare this function as returning `Job<never>` -- i.e. a promise that will never return a value.  (But it can still throw an error, or be canceled.)
+If you look closely, you might notice that our last example is an *infinite loop*.  `fromDomEvent` returns a stream that will never end on its own, so the function's return type is actually `Task<never>`-- i.e. a promise that will never return a value.  (But it can still throw an error, or be canceled.)  This is a fairly common pattern for tasks that represent an interaction state, as `supportDragDrop()` does.
 
 So how does it *exit*?  When do the event handlers get cleaned up?
 
-Well, that's up to the *caller*.  If the calling job exits, then any unfinished jobs "inside" it are automatically canceled.  (It can also explicitly cancel the job, of course.)
+Well, that's up to the *caller*.  If the calling task exits, then any unfinished tasks "inside" it are automatically canceled.  (It can also explicitly cancel the task, of course.)
 
-For jobs implemented via a setup function (like `drag()`) this just means that all `must()` callbacks registered with that job will be invoked, in reverse order.  For a job implemented as a generator (like `supportDragDrop()`), it also means that the most recent `yield` will be resumed as if it had been a `return` instead, allowing any enclosing `try` /`finally` blocks to run.
+For tasks implemented via a setup function (like `drag()`) this just means that all `must()` callbacks registered with that task will be invoked, in reverse order.  For a task implemented as a generator-coroutine (like `supportDragDrop()`), it also means that the most recent `yield` will be resumed as if it had been a `return` instead, allowing any enclosing `try` /`finally` blocks and `using` cleanups to run.
 
-In order for all this to work, of course, Uneventful has to keep track of the "active" job, so that `must()` callbacks and nested jobs can be linked to the correct owner.  (You can also do this linking explicitly, e.g. by directly calling a specific job's `.start()` or `.must()` methods instead of the standalone versions.)  The way it works is this:
+In order for all this to work, of course, Uneventful has to keep track of the "current" task's context, so that `must()` callbacks and nested tasks can be linked to the correct owner.  (You can also do this linking explicitly, e.g. by directly calling a specific context's `.start()` or `.must()` methods instead of the standalone versions.)
 
-- If you're in the body of a `start()` function, that job is active
-- if you're in the body of a `start()`-ed *generator* function, the same applies, but also any generator functions you `yield *` to in the generator function will still have the job active.
-- Callbacks **must** be wrapped with `restarting()` or a job's `.bind()` method (or invoked via a job's `.run()` method) in order to have a job active.
-- If you're in a (non-async) function directly called from an any place where there's an active job, that job is still active.
+The way it works is this:
 
-Early versions of Uneventful also tried to automatically wrap event handlers to run in their owning jobs, but it turned out that this is fairly wasteful in practice!  Most event handlers are defined inside of jobs, and so have easy access to their job instance in a variable (as provided by `start()`).  So they can explicitly target `job.start()` or `job.must()` to create subjobs or register cleanups, etc., without needing an implicit current job.
+- If you're in the body of a plain or generator function started using to `start()` (or `starting()` or `.exec()`), that task's context is current
+- if you're in the body of a started generator function (aka a `Coroutine`), any generator functions you call and `yield *` to in the generator function will have the same task's context as current
+- All other callbacks **must** be wrapped with `restarting()` or a context's `.bind()` method (or invoked via a context's `.run()` method) in order to run in a context
+- Async functions *never* have a current context, because they're made entirely of unwrapped callbacks on the inside.  (But async functions aren't cancellable anyway, so if you're writing new code, stick to generator-coroutine functions.)
+- If you're in a (non-async) function directly called from code that's running in a context, you are still in that context.
+
+Early versions of Uneventful also tried to automatically wrap event handlers to run in their owning contexts, but it turned out that this is fairly wasteful in practice!  Most event handlers are defined inside of some task definition, and so have easy access to their task's work context in a variable (as provided by `start()`).  So they can explicitly target `self.start()`, `self.must()`, etc. to create subtasks, register cleanups, etc., without needing an implicit current context.
 
 (Also, as in our `supportDragDrop()` example, you can just loop over `yield *each()` and avoid callbacks entirely!)
 
@@ -108,9 +110,9 @@ So the main place where you're likely to want to wrap an event handler is when y
 ```ts
 import {restarting, sleep} from "uneventful";
 
-start(job => {
+start(() => {
     pipe(currentlyHoveredFolder, into(restarting(folder => {
-        if (folder && !folder.isOpen()) start(function *(job) {
+        if (folder && !folder.isOpen()) start(function *() {
             yield *sleep(300);
             // ... open the folder here
         });
@@ -118,9 +120,9 @@ start(job => {
 });
 ```
 
-Let's say that `currentlyHoveredFolder` is a stream (or signal!) that sends events as the hover state changes: either a folder object or `null` if no hovering is happening.  The `restarting()` API wraps the event handler with a "temp" job that is canceled and restarted each time the function is called.
+Let's say that `currentlyHoveredFolder` is a stream (or signal!) that sends events as the hover state changes: either a folder object or `null` if no hovering is happening.  The `restarting()` API binds the event handler to a "checkpoint" context that resets used resources and runs cleanup actions each time the function is called: a kind of manually-refreshed "effect".
 
-With this setup, the "open the folder here" code will only be reached if the hover time on a given folder exceeds 300ms.  Otherwise, the next change in the hovered folder will cancel the sleeping job (incidentally clearing the timeout allocated by the `sleep()` as it does so).
+With this setup, the "open the folder here" code will only be reached if the hover time on a given folder exceeds 300ms.  Otherwise, the next change in the hovered folder will cancel the sleeping task (incidentally clearing the timeout allocated by the `sleep()` as it does so).
 
 Now, in this simple example you *could* just directly do the debouncing by manipulating the stream.  And for a lot of simple things, that might even be the best way to do it.  Some event driven libraries might even have lots of handy built-in ways to do things like canceling your in-flight ajax requests when the user types in a search field.
 
@@ -160,16 +162,16 @@ animate(() => {
     // any time there's a change to a `value()` or `cached()` it read
     // in its previous run.
     //
-    // It's also run in a `restarting()` job, allowing it to register
+    // It's also run in a checkpoint context, allowing it to register
     // must() functions that will be called on the next run, or when
-    // the enclosing job ends.  (It can also define other rules or
-    // start jobs, which will be similarly canceled and restarted if
-    // dependencies change, or if the jobs/rules/etc. containing this
+    // the enclosing task ends.  (It can also define other rules or
+    // start tasks, which will be similarly canceled and restarted if
+    // dependencies change, or if the tasks/rules/etc. containing this
     // rule are finished, canceled, or restarted!)
 });
 ```
 
-As in most of the better signal frameworks, Uneventful rules can be nested inside of other rules.  But they can *also* be nested in jobs, and vice versa: if a rule starts a job, it's contained in the rule's restarting job, and canceled/started over if any of the rule's dependencies change.
+As in most of the better signal frameworks, Uneventful rules can be nested inside of other rules.  But they can *also* be nested in tasks, and vice versa: if a rule starts a task, it's contained in the rule's checkpoint, and canceled/started over if any of the rule's dependencies change.
 
 Also unlike other frameworks, you can have rules that run on different schedules, and nest and combine them to your heart's content.  For example, you can use a default, microtask-based `rule()` that decides *whether* an animation rule inside it should be active, or does some of the heavier computation first so the actual animation rule has less to do during the animation frame.
 
@@ -181,13 +183,10 @@ Schedulers also let you appropriately debounce or sample changes for some of you
 So far, we've highlighted just a handful of Uneventful's coolest and most impactful features, showing how you can:
 
 - Use the best-fit tools from every major reactive paradigm, from signals, streams, and CSP, to cancelable async processes and structured concurrency -- while still being interoperable with standard APIs like promises, async functions, and abort signals
-- Make your code's interactivity *visible* and *composable*, such that serial and parallel job flows are obvious in your code, or hidden away within functions, as required, while easily expressing interactions that would be challenging in other paradigms
+- Make your code's interactivity *visible* and *composable*, such that serial and parallel task flows are obvious in your code, or hidden away within functions, as required, while easily expressing interactions that would be challenging in other paradigms
 - Play well with state charts, or ignore the charts and just express interactivity directly in code!
 - Easily control the *timing* of operations, building advanced debouncing and sampling with basic async operators like `sleep()` or by defining rules tied to a scheduler
 
-And at the same time, this has actually been a pretty superficial tour: we haven't gotten into a lot of things like how to actually *use* signals or abort jobs or any other details, really.  For those, you'll currently have to dig through the [API Reference](https://uneventful.js.org/modules/uneventful.html), but there should be more tutorials and guides as time goes on.
-
-(Also, at some point you'll be able to use the "Calibre Connect" Obsidian plugin I'm working on as an example of how to use these things to create responsive search and tame Electron WebFrames while keeping track of whether a connection to a remote server is available, handling logins and background processes and integrating a plugin to a larger application, not to mention controlling lots of features via settings.)
+And at the same time, this has actually been a pretty superficial tour: we haven't gotten into a lot of things like how to actually *use* signals or abort tasks or any other details, really.  For those, you'll currently have to dig through the [API Reference](https://uneventful.js.org/modules/uneventful.html), but there should be more tutorials and guides as time goes on.
 
 In the meantime, this library should now be available for installation and experimentation via [npm](https://www.npmjs.com/package/uneventful), as [an ESM-only package](https://gist.github.com/sindresorhus/a39789f98801d908bbc7ff3ecc99d99c).  Enjoy!
-

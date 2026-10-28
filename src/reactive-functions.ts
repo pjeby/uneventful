@@ -1,10 +1,10 @@
-import { currentCell, currentJob } from "./ambient.ts"
-import { Job } from "./types.ts"
+import { currentCell, currentCtx } from "./ambient.ts"
+import { Context } from "./types.ts"
 import { Cell, defaultQ } from "./cells.ts"
 import { decorateMethod, isFunction, isPlainFunction, setMap } from "./utils.ts"
 import { must } from "./jobutils.ts"
 import { SetOrSingle, sosAdd, sosDel, sosHas, sosSize } from "./sos.ts"
-import { getJob } from "./tracking.ts"
+import { currentContext } from "./tracking.ts"
 import { perSignal } from "./hooks.ts"
 import { Signal, cached } from "./signals.ts"
 
@@ -49,16 +49,16 @@ type DeferredFx = {
 export function fn<Result>(compute: Get<Result>): Signal<Result>;
 
 /**
- * Create a parameterized reactive function that tracks separate dependencies
- * and caching state for each object it's called on.
+ * Create a parameterized reactive function template that tracks separate
+ * dependencies and caching state for each object it's called on.
  *
  * @returns a one-argument reactive function that is shorthand for looking up
  * and returning the value of a cached signal customized for the given argument.
  *
  * That is, given `rf = fn(a => () => a.bar)`, calling `rf(foo)` is equivalent
  * to calling `fn(() => foo.bar)()`, except that each `foo` gets its own `fn(()
- * => foo.bar)` signal cached, so that dependencies can be properly tracked
- * per instance.
+ * => foo.bar)` signal cached, so that dependencies can be properly tracked per
+ * instance.
  *
  * @param factory A function that will be called with each new instance passed
  * to the one-argument reactive function.  It must return a zero-argument
@@ -141,26 +141,26 @@ export function fn<O extends WeakKey, V>(
  * decorator via `@fx`, with either TC39 or "Legacy" decorators.)
  *
  * @remarks Note that reactive effects do not actually execute unless they are
- * "in use", i.e. either directly invoked from an active job or called
+ * "in use", i.e. either directly invoked from an active context or called
  * indirectly from a rule or effect that is itself in use.
  *
  * @param effect The function that will be called to start (or restart) the
  * effect, if the reactive values it used during its last run have changed since
  * then.
  *
- * The effect function is run in a job that will restart if its dependencies
+ * The effect function is run in a checkpoint that resets when its dependencies
  * change, and when the effect is no longer in use.  (So you can use e.g.
- * {@link must}() to define rollback actions, and any jobs, subscriptions, etc.
+ * {@link must}() to define rollback actions, and any tasks, subscriptions, etc.
  * you start inside the effect function will likewise be terminated when the
  * effect becomes unobserved or its dependencies change.)
  *
  * @returns a zero-argument reactive function that can be called from any rule,
- * job, or other observed reactive functions, to start or continue the effect.
+ * task, or other observed reactive functions, to start or continue the effect.
  *
  * Multiple calls from the same or different observers do not restart the
  * effect; only dependency changes will restart it.  If it loses all observers
- * (i.e. fails to be called by any of them, or all the calling jobs end), the
- * effect will stop until it's in use again.
+ * (i.e. fails to be called by any of them, or all the calling contexts end or
+ * reset), the effect will stop until it's in use again.
  *
  * @category none
  */
@@ -168,7 +168,7 @@ export function fx(effect: Get<void>): Get<void>;
 
 /**
  * Create a parameterized reactive effect that tracks separate dependencies,
- * jobs, and caching state for each object it's called on.
+ * tasks, and per-callsite state for each object it's called on.
  *
  * @returns a one-argument reactive effect that is shorthand for looking up and
  * calling a cached, zero-argument reactive effect customized for the given
@@ -213,21 +213,21 @@ export function fx<Instance extends WeakKey, D extends {value?: Method<Instance>
  * Reactive effects are functions that re-run whenever there are changes to the
  * values of the signals they used during their last run.
  *
- * Each effect runs in its own job that is restarted when the effect is re-run
+ * Each effect runs in its own checkpoint that resets when the effect is re-run
  * or is no longer in use.  (Effects can thus register cleanup functions with
- * {@link uneventful.must must()}, and use any other job-dependent APIs.)
+ * {@link uneventful.must must()}, and use any other context-dependent APIs.)
  *
  * Effects are similar to rules, but they run immediately the first time they're
  * called (assuming they're observed), and rather than stopping manually (or
- * with their creating job), effects are reference-counted and only stop when
+ * with their creating context), effects are reference-counted and only stop when
  * they're no longer in use.
  *
  * An effect is "in use" if it is:
  *
- * 1. Called from a rule (or a non-signal job) that has not yet ended, OR
+ * 1. Called from a rule (or a non-signal context) that has not yet ended, OR
  * 2. Invoked from another signal or effect that is in use
  *
- * When no active rules or jobs or in-use signals are referencing an effect, the
+ * When no active rules or contexts or in-use signals are referencing an effect, the
  * effect stops and runs any registered cleanups, closes stream connections,
  * etc.
  *
@@ -273,7 +273,7 @@ export function fx<Instance extends WeakKey>(
         throw new Error("fx() bodies must be plain functions, not signals, generators, or async")
     } else {
         // fx(() => {})
-        let jobs: SetOrSingle<Job>, cell = Cell.mkCached(f as Get<void>)
+        let contexts: SetOrSingle<Context>, cell = Cell.mkCached(f as Get<void>)
         return () => {
             if (currentCell) {
                 // Silent no-op if unobserved
@@ -283,15 +283,15 @@ export function fx<Instance extends WeakKey>(
                 }
             } else {
                 cell.isObserved() || (cell.validThrough = 0)
-                // Called from job instead of signal - track active calling jobs and
-                // activate or deactivate accordingly
-                if (!sosHas(jobs, getJob())) {
-                    const job = currentJob!
-                    jobs = sosAdd(jobs, job)
-                    sosSize(jobs) > 1 || (cell.setQ(defaultQ), defaultQ.delete(cell))
+                // Called from non-signal context - track active calling
+                // contexts and activate or deactivate accordingly
+                if (!sosHas(contexts, currentContext())) {
+                    const ctx = currentCtx!
+                    contexts = sosAdd(contexts, ctx)
+                    sosSize(contexts) > 1 || (cell.setQ(defaultQ), defaultQ.delete(cell))
                     must(() => {
-                        jobs = sosDel(jobs, job)
-                        if (!sosSize(jobs)) cell.setQ()
+                        contexts = sosDel(contexts, ctx)
+                        if (!sosSize(contexts)) cell.setQ()
                     })
                 }
                 // Ensure that the effect is synchronously up-to-date

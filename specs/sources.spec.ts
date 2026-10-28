@@ -1,17 +1,17 @@
 import {
-    log, waitAndSee, see, describe, expect, it, useClock, clock, useRoot, createStubInstance, spy
+    log, waitAndSee, see, describe, expect, it, useClock, clock, useContext, createStubInstance, spy
 } from "./dev_deps.ts";
 import { runPulls } from "./dev_deps.ts";
 import {
     emitter, empty, fromAsyncIterable, fromDomEvent, fromIterable, fromPromise,
     fromValue, fromSubscribe, interval, lazy, never, Emitter, mockSource,
-    throttle, connect, isError, JobResult, isValue, markHandled
+    throttle, connect, isError, Result, isValue, markHandled
 } from "../src/mod.ts";
 
-function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${markHandled(e)}`)}
+function logClose(e: Result<void>) { log("closed"); if (isError(e)) log(`err: ${markHandled(e)}`)}
 
 describe("Sources", () => {
-    useRoot();
+    useContext();
     describe("emitter()", () => {
         testEmitterBasics(emitter);
         it("should be ok with multiple subscribers", () => {

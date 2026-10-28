@@ -1,8 +1,9 @@
 import { fromIterable } from "./sources.ts";
-import { Connection, IsStream, Source, Sink, Stream, Transformer, backpressure, throttle } from "./streams.ts";
+import { IsStream, Source, Sink, Stream, Transformer, backpressure, throttle } from "./streams.ts";
 import { isValue, noop } from "./results.ts";
-import { start } from "./jobutils.ts";
+import { starting } from "./jobutils.ts";
 import { Maybe } from "./internals.ts";
+import { Task } from "./types.ts";
 
 /**
  * Output multiple streams' contents in order (from an array/iterable of stream
@@ -35,10 +36,10 @@ export function concat<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T>
  * @category Stream Operators
  */
 export function concatAll<T>(sources: Stream<Stream<T>>): Source<T> {
-    return (sink, conn=start(), inlet) => {
-        let inner: Maybe<Connection>;
+    return (sink, conn=starting(), inlet) => {
+        let inner: Maybe<Task>;
         const inputs: Stream<T>[] = [], t = throttle();
-        let outer: Maybe<Connection> = conn.connect(sources, s => {
+        let outer: Maybe<Task> = conn.connect(sources, s => {
             inputs.push(s); startNext(); t.pause();
         }, t).do(r => {
             outer = undefined
@@ -126,9 +127,9 @@ export function merge<T>(sources: Stream<T>[] | Iterable<Stream<T>>): Source<T> 
  * @category Stream Operators
  */
 export function mergeAll<T>(sources: Stream<Stream<T>>): Source<T> {
-    return (sink, conn=start(), inlet) => {
-        const uplinks: Set<Connection> = new Set;
-        let outer: Maybe<Connection> = conn.connect(sources, (s) => {
+    return (sink, conn=starting(), inlet) => {
+        const uplinks: Set<Task> = new Set;
+        let outer: Maybe<Task> = conn.connect(sources, (s) => {
             const c = conn.connect(s, sink, inlet).do(r => {
                 uplinks.delete(c);
                 uplinks.size || outer || !isValue(r) || conn.return();
@@ -176,7 +177,7 @@ export function skip<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function skipUntil<T>(notifier: Stream<any>): Transformer<T> {
-    return src => (sink, conn=start(), inlet) => {
+    return src => (sink, conn=starting(), inlet) => {
         let taking = false;
         const c = conn.connect(notifier, () => { taking = true; c.end(); });
         return src(v => taking && sink(v), conn, inlet);
@@ -198,7 +199,7 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
 }
 
 /**
- * Add job control and buffering to a stream
+ * Add flow control and buffering to a stream
  *
  * This lets you block events from a stream that can't be paused, or allow for
  * some slack for a source that can sometimes get ahead of its sink.
@@ -217,7 +218,7 @@ export function skipWhile<T>(condition: (v: T, index: number) => boolean) : Tran
  */
 export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> {
     const max = Math.abs(size);
-    return src => (sink, conn=start(), inlet) => {
+    return src => (sink, conn=starting(), inlet) => {
         const buffer: T[] = [], ready = backpressure(inlet);
         let paused = false, draining = false;
         const t = throttle();
@@ -267,9 +268,9 @@ export function slack<T>(size: number, dropped: Sink<T> = noop): Transformer<T> 
  * @category Stream Operators
  */
 export function switchAll<T>(sources: Stream<Stream<T>>): Source<T> {
-    return (sink, conn=start(), inlet) => {
-        let inner: Maybe<Connection>;
-        let outer: Maybe<Connection> = conn.connect(sources, s => {
+    return (sink, conn=starting(), inlet) => {
+        let inner: Maybe<Task>;
+        let outer: Maybe<Task> = conn.connect(sources, s => {
             inner?.end();
             inner = conn.connect(s, sink, inlet).do(r => {
                 inner = undefined;
@@ -318,7 +319,7 @@ export function take<T>(n: number): Transformer<T> {
  * @category Stream Operators
  */
 export function takeUntil<T>(notifier: Stream<any>): Transformer<T> {
-    return src => (sink, conn=start(), inlet) => {
+    return src => (sink, conn=starting(), inlet) => {
         conn.connect(notifier, () => conn.return());
         return src(sink, conn, inlet);
     }

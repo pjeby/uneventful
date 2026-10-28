@@ -1,4 +1,4 @@
-import { log, see, describe, expect, it, useRoot, spy, msg } from "./dev_deps.ts";
+import { log, see, describe, expect, it, useContext, spy, msg } from "./dev_deps.ts";
 import { runRules, value, cached, rule, CircularDependency, WriteConflict, stableArray } from "../src/signals.ts";
 import { defer } from "../src/defer.ts";
 import { Cell, defaultQ, demandChanges, ruleQueue } from "../src/cells.ts";
@@ -21,7 +21,7 @@ describe("Demand management", () => {
             expect(demandChanges.has(c)).to.be.false;
         });
         it("doesn't double-recalc an observed cell", () => {
-            // Given a cached that does job functions,
+            // Given a cached that uses context APIs,
             const c = Cell.mkCached(() => { log("do"); if (isObserved()) must(msg("undo")); });
             // That is both stateful
             c.getValue(); see("do");  // it's stateful now
@@ -82,7 +82,7 @@ describe("Demand management", () => {
 });
 
 describe("Cycles and Side-Effects", () => {
-    useRoot();
+    useContext();
     it("cached() can't create side-effects", () => {
         const v = value(99), w = cached(() => v.set(42));
         expect(w).to.throw("Side-effects not allowed")
@@ -156,14 +156,11 @@ describe("Cycles and Side-Effects", () => {
             expect(runRules).to.throw("Value already used");
         });
     });
-    // XXX shouldn't sp.run(), job(), cleanup, and many more from inside cached?
-    // don't allow create rule() inside cached?
-    // prevent self-dependency in cached()
 });
 
 
 describe("Consistent updates", () => {
-    useRoot();
+    useContext();
     it("with multiple paths to common element", () => {
         // Given a rule with two paths to a common value
         const start = value(22);
@@ -357,7 +354,7 @@ describe("cached()", () => {
 });
 
 describe("rule()", () => {
-    useRoot();
+    useContext();
     it("should call the function on tick", () => {
         rule(() => log("called"));
         runRules();
@@ -408,7 +405,7 @@ describe("rule.factory()", () => {
         expect(rule.factory(fn)).to.equal(s);
     });
     describe("returns a RuleFactory that", () => {
-        useRoot();
+        useContext();
         it("can be used to create rules that run separately", () => {
             // Given a factory based on a spy
             const cb = spy(), newRule = rule.factory(cb);

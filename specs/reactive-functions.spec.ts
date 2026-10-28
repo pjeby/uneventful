@@ -1,7 +1,7 @@
-import { must, noop, start } from "../src/mod.ts"
+import { must, noop, root, start } from "../src/mod.ts"
 import { demandChanges } from "../src/cells.ts"
 import { cached, fn, fx, rule, runRules, value } from "../src/signals.ts"
-import { describe, expect, it, log, see, useRoot } from "./dev_deps.ts"
+import { describe, expect, it, log, see, useContext } from "./dev_deps.ts"
 
 class Fixture {
     constructor(public name: string) {}
@@ -126,7 +126,7 @@ describe("Reactive Functions", () => {
     })
 
     describe("fx()", () => {
-        useRoot()
+        useContext()
         it("only accepts plain functions as effects", () => {
             function shouldThrow(val: (...args: unknown[]) => unknown) {
                 const msg="fx() bodies must be plain functions, not signals, generators, or async"
@@ -137,11 +137,11 @@ describe("Reactive Functions", () => {
             shouldThrow(async function *(){})
             shouldThrow(fn(() => 42))
         })
-        it("persists for the life of a job it's called in", () => {
+        it("persists for the life of a task it's called in", () => {
             // Given a fixture with an fx
             const f1 = new Fixture("f1")
             start(() => {
-                // When called within a job
+                // When called within a task
                 f1.monitor()
                 // Then it should run right away
                 see("f1: 1")
@@ -152,15 +152,15 @@ describe("Reactive Functions", () => {
                 runRules()
                 see("f1: 19")
             }).end()
-            // And after the job ends
+            // And after the task ends
             f1.multiplier.set(2)
             // Then it should no longer run
             runRules()
             see()
         })
-        it("ends when no more calling jobs or observing signals", () => {
+        it("ends when no more calling tasks or observing signals", () => {
             // Given a fixture with an fx, referenced three ways
-            // (job->fx, job->fx->fx, and rule->fx->fx)
+            // (task->fx, task->fx->fx, and rule->fx->fx)
             const f1 = new Fixture("f1")
             const j1 = start(f1.monitor)
             see("f1: 1")
@@ -173,13 +173,13 @@ describe("Reactive Functions", () => {
             // Then it should re-run
             see("f1: 23")
 
-            // And when the job->fx ends
+            // And when the task->fx ends
             j1.end(); runRules(); see()
             // Then it should still be running
             f1.base.set(2); runRules()
             see("f1: 46")
 
-            // And when the second job ends
+            // And when the second task ends
             j2.end(); runRules(); see()
             // Then it should still be running
             f1.multiplier.set(21); runRules()
@@ -199,11 +199,12 @@ describe("Reactive Functions", () => {
             // Given an fx
             const m = new Fixture("f1").monitor
 
-            // When monitored directly from a job
-            const j1 = start(m)
-            // Then it should run until the job ends/restarts
+            // When monitored directly from a checkpoint
+            const cp = root.checkpoint()
+            cp.run(m)
+            // Then it should run until the checkpoint ends/restarts
             see("f1: 1")
-            j1.restart()
+            cp.reset()
 
             // And when it's monitored by a rule
             const r = rule(m)
@@ -212,11 +213,11 @@ describe("Reactive Functions", () => {
             see("f1: 1")
             r()
 
-            // And when monitored by a job again
-            j1.run(m)
-            // Then it should start again, until the job ends/restarts
+            // And when monitored by the checkpoint again
+            cp.run(m)
+            // Then it should start again, until the checkpoint ends/restarts
             see("f1: 1")
-            j1.restart()
+            cp.reset()
         })
         it("runs only in observed signals", () => {
             // Given a signal wrapping an fx
@@ -239,7 +240,7 @@ describe("Reactive Functions", () => {
             runRules()
             // Then it should re-activate
             see("calculate", "activating", "f1: 1")
-            // And when the effect is ended (via its job)
+            // And when the effect is ended (via its task)
             j.end()
             demandChanges.flush()
             // Then it should deactivate again

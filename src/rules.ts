@@ -80,7 +80,7 @@ export interface RuleFactory {
      * }
      *
      * // Start running the method in an animation frame for every change to
-     * // lastMouseEvent, until the current job ends:
+     * // lastMouseEvent, until the current task ends:
      * someDraggable.trackPosition(top, left);
      * ```
      * or:
@@ -95,7 +95,7 @@ export interface RuleFactory {
      * update on the microtask after a change, etc.)
      *
      * The decorated method will always return a {@link DisposeFn} to let you
-     * explicitly stop the rule before the current job end.  But if the original
+     * explicitly stop the rule before the calling context ends.  But if the original
      * method body doesn't return a dispose function of its own, TypeScript will
      * consider the method to return void, unless you explicitly declare its
      * return type to be `DisposeFn | void`.
@@ -137,12 +137,12 @@ export interface RuleFactory {
     factory(scheduleFn: SchedulerFn): RuleFactory
 
     /**
-     * Create a standalone rule, not attached to the current job.
+     * Create a standalone rule, not attached to the current context.
      *
      * `r.root(fn)` is shorthand for calling `root.run(r, fn)`, where `r` is a
      * {@link RuleFactory} such as `rule`.
      *
-     * The created rule will run until the {@link root} job stops, unless
+     * The created rule will run until the {@link root} scope ends, unless
      * explicitly stopped.  (Either by calling the returned disposal function or
      * by the rule function arranging to stop itself via {@link rule.stop}().)
      */
@@ -222,17 +222,17 @@ const factories = new WeakMap<Function, RuleFactory>();
  * after there are changes in any of the {@link value}()s or {@link cached}()
  * functions it read during its previous run.
  *
- * The created subscription is tied to the currently-active job (which may be
- * another rule).  So when that job is ended or restarted, the rule will be
+ * The created subscription is tied to the currently-active context (may be
+ * another rule).  So when that context ends or resets, the rule will be
  * terminated automatically.  You can also terminate it early by calling the
  * "stop" function that is returned by `rule()`, or by calling
  * {@link rule.stop}() from within the rule function.
  *
- * Note: this function will throw an error if called without an active job. If
+ * Note: this function will throw an error if called without an active context. If
  * you need a standalone rule, use {@link RuleFactory.root rule.root}().
  *
  * @param fn The function that will be run each time its dependencies change.
- * The function will be run in a restarted job each time, with any resources
+ * The function will be run in a reset checkpoint each time, with any resources
  * used by the previous run being cleaned up.  The function is called with no
  * arguments, and should return a cleanup function or void.
  *
@@ -262,7 +262,7 @@ export const rule: ((fn: () => OptionalCleanup) => DisposeFn) & RuleFactory = (
  * {@link rule}() factory is targeted.
  *
  * @remarks In addition to refreshing pending rules, this also updates "demand"
- * changes for reactive functions with jobs, streams, and recalcWhen uses.  That
+ * changes for reactive functions with tasks, streams, and recalcWhen uses.  That
  * is, in addition to running any pending rules on the specific scheduler, it
  * also subscribes to things that gained demand, and unsubscribes/cleans up
  * things that lost demand.

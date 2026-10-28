@@ -1,8 +1,8 @@
 import { defer } from "./defer.ts";
-import { type Stream, IsStream, backpressure, Sink, Connection, Backpressure, throttle, Inlet, Source } from "./streams.ts";
-import { getJob, root } from "./tracking.ts";
-import { must, start } from "./jobutils.ts";
-import { DisposeFn } from "./types.ts";
+import { type Stream, IsStream, backpressure, Sink, Backpressure, throttle, Inlet, Source } from "./streams.ts";
+import { currentContext, root } from "./tracking.ts";
+import { must, starting } from "./jobutils.ts";
+import { DisposeFn, Work, Task } from "./types.ts";
 import { isCancel, isError, isUnhandled, markHandled, noop } from "./results.ts";
 import { Maybe } from "./internals.ts";
 
@@ -60,7 +60,7 @@ export function empty(): Source<never> {
  * @category Stream Producers
  */
 export function fromAsyncIterable<T>(iterable: AsyncIterable<T>): Source<T> {
-    return (sink, conn=start(), inlet) => {
+    return (sink, conn=starting(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.asyncIterator]();
         if (iter.return) must(() => iter.return!());
@@ -123,7 +123,7 @@ export function fromDomEvent<T extends EventTarget, K extends string>(
  * @category Stream Producers
  */
 export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
-    return (sink, conn=start(), inlet) => {
+    return (sink, conn=starting(), inlet) => {
         const ready = backpressure(inlet);
         const iter = iterable[Symbol.iterator]();
         if (iter.return) must(() => iter.return!());
@@ -155,10 +155,10 @@ export function fromIterable<T>(iterable: Iterable<T>): Source<T> {
  */
 export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> {
     return (sink, conn) => {
-        const job = getJob();
+        const ctx = currentContext();
         Promise.resolve(promise).then(
-            v => void (job.result() || (sink(v), conn?.return())),
-            e => void (job.result() || conn?.throw(e))
+            v => void (ctx.cleaningUp() || (sink(v), conn?.return())),
+            e => void (ctx.cleaningUp() || conn?.throw(e))
         )
         return IsStream;
     }
@@ -179,7 +179,7 @@ export function fromPromise<T>(promise: Promise<T>|PromiseLike<T>|T): Source<T> 
  */
 export function fromSubscribe<T>(subscribe: (cb: (val: T) => void) => DisposeFn): Source<T> {
     return (sink) => {
-        const f = getJob().must(() => sink = noop);
+        const f = currentContext().must(() => sink = noop);
         return defer(() => f.must(subscribe(v => { sink(v); }))), IsStream;
     }
 }
@@ -243,7 +243,7 @@ export interface MockSource<T> extends Emitter<T> {
  * @category Stream Producers
  */
 export function mockSource<T>(): MockSource<T> {
-    let write: Maybe<Sink<T>>, outlet: Maybe<Connection>, ready: Maybe<Backpressure>;
+    let write: Maybe<Sink<T>>, outlet: Maybe<Work>, ready: Maybe<Backpressure>;
     const emit: MockSource<T> = (val: T) => { if (write) write(val); };
     emit.source = (sink, conn, inlet) => {
         write = sink; outlet = conn; ready = backpressure(inlet);
@@ -287,9 +287,9 @@ export function never(): Source<never> {
  * @category Stream Operators
  */
 export function share<T>(source: Stream<T>): Source<T> {
-    let uplink: Maybe<Connection>;
+    let uplink: Maybe<Task>;
     const
-        links = new Set<[sink: Sink<T>, conn: Connection]>,
+        links = new Set<[sink: Sink<T>, conn: Work]>,
         inlets = new Map<Inlet, number>(),  // refcounts of incoming inlets
         t = throttle(), // the actual onReady queue
         multi: Inlet = {
@@ -303,10 +303,10 @@ export function share<T>(source: Stream<T>): Source<T> {
                 t.pause();
                 return false;
             },
-            onReady(cb, job) {
+            onReady(cb, ctx) {
                 if (this.isOpen()) {
-                    t.onReady(cb, job);
-                    for (const [i] of inlets) i.isReady() || i.onReady(produce, job);
+                    t.onReady(cb, ctx);
+                    for (const [i] of inlets) i.isReady() || i.onReady(produce, ctx);
                 }
                 return this;
             }
@@ -314,8 +314,8 @@ export function share<T>(source: Stream<T>): Source<T> {
     ;
     function produce() { multi.isReady() && t.resume(); }
 
-    return (sink, conn=start(), inlet) => {
-        const self: [Sink<T>, Connection] = [sink, conn];
+    return (sink, conn=starting(), inlet) => {
+        const self: [Sink<T>, Work] = [sink, conn];
         links.add(self);
         if (inlet) inlets.set(inlet, 1+(inlets.get(inlet) || 0));
         conn.must(() => {

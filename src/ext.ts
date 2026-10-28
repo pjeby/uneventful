@@ -235,7 +235,7 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
     /**
      * This method is called by {@link for}() to create the extension instance
      * for a target. You can override this method to customize instance creation
-     * behavior, e.g. to execute the constructor within a job, or create a
+     * behavior, e.g. to execute the constructor within a task, or create a
      * promise for an extension instance to be asynchronously initiaized, etc.
      *
      * For example:
@@ -245,14 +245,14 @@ export abstract class Ext<Target extends WeakKey=WeakKey> {
      *     // simulate slow initialization
      *     *setup() { yield *sleep(100); return this; }
      *
-     *     __new__(tgt: SomeType): Job<this> {
+     *     __new__(tgt: SomeType): Task<this> {
      *         const ext = this.__inst__(tgt);
-     *         return start(this.__inst__(tgt).setup())
+     *         return root.start(this.__inst__(tgt).setup())
      *     }
      * }
      * ```
      *
-     * Now, `AsyncExt.for(someTarget)` will create and cache  a Job yielding an
+     * Now, `AsyncExt.for(someTarget)` will create and cache a Task yielding an
      * extension whose `setup()` has finished. (And subclasses of `AsyncExt`
      * will share the same behavior, while being subtyped appropriately.)
      *

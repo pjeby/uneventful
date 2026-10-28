@@ -1,12 +1,12 @@
-import { log, see, describe, expect, it, spy, useRoot } from "./dev_deps.ts";
-import { Connection, Throttle, backpressure, throttle } from "../src/streams.ts";
+import { log, see, describe, expect, it, spy, useContext } from "./dev_deps.ts";
+import { Throttle, backpressure, throttle } from "../src/streams.ts";
 import { runPulls } from "./dev_deps.ts";
-import { IsStream, connect, Sink, compose, pipe, must, start, isError, JobResult, root } from "../src/mod.ts";
+import { IsStream, connect, Sink, compose, pipe, must, start, isError, Result, root, Context, starting, Work } from "../src/mod.ts";
 
-function logClose(e: JobResult<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
+function logClose(e: Result<void>) { log("closed"); if (isError(e)) log(`err: ${e.err}`)}
 
 describe("connect()", () => {
-    useRoot();
+    useContext();
     it("calls source with sink and returns a Connector", () => {
         // Given a source and a sink
         const src = spy(), sink = spy();
@@ -15,18 +15,18 @@ describe("connect()", () => {
         // Then the source should have been called with the sink and connector
         expect(src).to.have.been.calledOnceWithExactly(sink, c, undefined);
     });
-    it("is linked to the running job", () => {
-        // Given a connection opened by connect in the context of a job
+    it("is linked to the running context", () => {
+        // Given a connection opened by connect in the context of a task
         const src = spy(), sink = spy();
-        const job = start(() => {
+        const task = start(() => {
             connect(src, sink).do(logClose);
         });
-        // When the job is ended
-        see(); job.end();
+        // When the task is ended
+        see(); task.end();
         // Then the connection should be closed
         see("closed");
     });
-    it("calls the source with the connection's job active", () => {
+    it("calls the source with the connection's Work context active", () => {
         // Given a source and a sink
         function sink() { return true; }
         function src(_sink: Sink<any>) { must(() => log("cleanup")); return IsStream; }
@@ -38,27 +38,27 @@ describe("connect()", () => {
 });
 
 describe("backpressure()", () => {
-    useRoot();
+    useContext();
     it("initially is ready", () => {
         // Given a ready function
-        const ready = backpressure(throttle(start<void>()));
+        const ready = backpressure(throttle(starting<void>()));
         // Then it should be ready
         expect(ready()).to.be.true;
     });
     it("is unready when connection is ended", () => {
         // Given an ended connection
-        const c = start<void>().do(logClose); c.end();
+        const c = starting<void>(); c.task().do(logClose).end();
         // When its status is checked
         // Then it should be closed and not have an error
         see("closed");
         expect(backpressure(throttle(c))()).to.be.false;
     });
-    it("closes(+unready) when its enclosing job is cleaned up", () => {
-        // Given a job and a connection it's attached to
-        root.start(job => {
-            const c = start<void>().do(logClose);
-            // When the job ends
-            job.end();
+    it("closes(+unready) when its enclosing context is cleaned up", () => {
+        // Given a task and a connection it's attached to
+        root.start(work => {
+            const c = starting<void>(); c.task().do(logClose);
+            // When the task ends
+            work.end();
             // Then the connection should be closed and the limiter unready
             see("closed");
             expect(backpressure(throttle(c))()).to.be.false;
@@ -68,7 +68,7 @@ describe("backpressure()", () => {
     describe(".isReady()", () => {
         it("is false after pause(), true after resume() (if open)", () => {
             // Given a connection and throttle
-            const c = start<void>(), t = throttle(c), ready = backpressure(t);
+            const c = starting<void>(), t = throttle(c), ready = backpressure(t);
             // When it's paused, Then it shoud be unready
             t.pause(); expect(ready()).to.be.false;
             // And when resumed it should be ready again
@@ -81,10 +81,10 @@ describe("backpressure()", () => {
     });
 
     describe(".resume()", () => {
-        let c: Connection, t: Throttle;
+        let c: Work, t: Throttle;
         beforeEach(() => {
             // Given a paused connection with an onReady
-            c = start<void>(); t = throttle(c); t.pause(); backpressure(t)(() => log("resumed"));
+            c = starting<void>(); t = throttle(c); t.pause(); backpressure(t)(() => log("resumed"));
         });
         describe("does nothing if", () => {
             it("connection is already closed", () => {
@@ -96,7 +96,7 @@ describe("backpressure()", () => {
             });
             it("no onReady() is set", () => {
                 // Given a connection without an onReady
-                c = start<void>(); t = throttle(c); t.pause();
+                c = starting<void>(); t = throttle(c); t.pause();
                 // When the connection is resume()d
                 t.resume();
                 // Then nothing happens
@@ -124,7 +124,7 @@ describe("backpressure()", () => {
         });
         it("doesn't run duplicate onReady callbacks", () => {
             // Given a paused connection with added duplicate functions
-            const c = start<void>(), t = throttle(); t.pause(); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
+            const c = starting<void>(), t = throttle(); t.pause(); const f1 = () => { log("f1"); }, f2 = () => { log("f2"); };
             const r = backpressure(t); r(f1); r(f2); r(f1); r(f2);
             // When the connection is resumed
             t.resume();

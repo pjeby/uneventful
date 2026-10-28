@@ -17,7 +17,7 @@ module.exports = {
     customJs: ["./typedoc/custom.js"],
     categorizeByGroup: false,
     categoryOrder: [
-        "Jobs",
+        "Tasks and Context",
         "Resource Management",
         "Dependency Tracking",
         "Scheduling",
@@ -48,6 +48,7 @@ module.exports = {
             "Promise": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise"
         }
     },
+    plugin: [noInheritedMembersInPreviews, stripTitlePrefixes],
     projectDocuments: ["CHANGELOG.md"],
     sort: [
         "alphabetical"
@@ -65,4 +66,109 @@ module.exports = {
 const {CI, GITHUB_RUN_ID} = process.env;
 if (CI === undefined || GITHUB_RUN_ID === undefined) {
     module.exports.sourceLinkTemplate = `vscode://file/${__dirname}/{path}:{line}`;
+}
+
+async function noInheritedMembersInPreviews() {
+    const path = require("node:path")
+    const { pathToFileURL } = require("node:url")
+    const typedocDir = path.dirname(require.resolve("typedoc/package.json"))
+    const [{ DefaultTheme, JSX }, { around }, { FormattedCodeBuilder }] =
+    await Promise.all([
+        import("typedoc"),
+        import("monkey-around"),
+        import(pathToFileURL(path.join(typedocDir, "dist/lib/output/formatter.js")).href),
+    ])
+
+    around(DefaultTheme.prototype, {
+        getRenderContext(old) {
+            return function (page) {
+                const ctx = old.call(this, page)
+                const {reflectionPreview} = ctx
+                ctx.reflectionPreview = (props) => {
+                    const restore = around(FormattedCodeBuilder.prototype, {
+                        interface(old) {
+                            return function (item) {
+                                const result = old.call(this, item); // { type: "nodes", content: [6 entries] }
+                                const types = item.extendedTypes;
+                                if (types?.length && result.content.length === 6) {
+                                    // content: [0]"interface" [1]sp [2]name [3]typeParams [4]sp [5]body-group
+                                    result.content.splice(5, 0, ...[
+                                        keyword("extends"),
+                                        space(),
+                                        ...types.flatMap((t, i) =>
+                                            i === 0
+                                                ? [this.type(t, "none")]
+                                                : [symbol(","), space(), this.type(t, "none")],
+                                        ),
+                                        space(), // trailing space before the "{"
+                                    ]);
+                                } else if (types?.length) {
+                                    // layout drifted in some future typedoc — skip rather than mangle
+                                    console.warn("compact-interface: unexpected interface() node layout");
+                                }
+                                return result;
+                            };
+                        },
+                        member(old) {
+                            return function (members, item, options) {
+                                // The converter copies base members in via getPropertiesOfType() and
+                                // ImplementsPlugin flags exactly those with ReflectionFlag.Inherited.
+                                // Members redeclared in the child (overrides) get `overwrites` instead,
+                                // so this skips purely-inherited members only.
+                                if (item.flags.isInherited) return;
+                                return old.call(this, members, item, options);
+                            };
+                        },
+                    })
+                    try { return reflectionPreview(props) } finally { restore() }
+                }
+                return ctx
+            }
+        }
+    })
+
+    function keyword(text) { return {
+        type: "element",
+        content: JSX.createElement("span", { class: "tsd-signature-keyword" }, text),
+        length: text.length,
+    }}
+
+    function symbol(text) { return {
+        type: "element",
+        content: JSX.createElement("span", { class: "tsd-signature-symbol" }, text),
+        length: text.length,
+    }}
+
+    function space() { return { type: "text", content: " " } }
+}
+
+async function stripTitlePrefixes() {
+    const [{ DefaultTheme, ReflectionKind, ReflectionFlag }, { around }] = await Promise.all([
+        import("typedoc"), import("monkey-around"),
+    ])
+    around(DefaultTheme.prototype, {
+        getRenderContext(old) {
+            return function (page) {
+                const ctx = old.call(this, page)
+                const {header} = ctx
+                ctx.header = (props) => {
+                    const {model} = props
+                    if (model.isDocument() || model.isProject()) {
+                        // || model.kind !== ReflectionKind.Variable ??
+                        return header(props)
+                    }
+                    // Force non-const rendering
+                    model.flags.setSingleFlag(ReflectionFlag.Const, false)
+                    const restore = around(ReflectionKind, {
+                        singularString(){ return function() {
+                            restore()
+                            return ""
+                        }},
+                    });
+                    try { return header(props) } finally { restore() }
+                }
+                return ctx
+            }
+        }
+    })
 }

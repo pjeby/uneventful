@@ -1,7 +1,7 @@
 import { currentCell, popCtx, pushCtx } from "./ambient.ts";
-import { DisposeFn, Job, OptionalCleanup, RecalcSource } from "./types.ts"
-import { _Job, getJob, root } from "./tracking.ts";
-import { Connection, Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
+import { Checkpoint, DisposeFn, OptionalCleanup, Work, RecalcSource } from "./types.ts"
+import { _Job, currentContext, root } from "./tracking.ts";
+import { Inlet, IsStream, Sink, Source, backpressure } from "./streams.ts";
 import { apply, setMap } from "./utils.ts";
 import { isError, markHandled } from "./results.ts";
 import { defer } from "./defer.ts";
@@ -73,11 +73,11 @@ export const staleStreams = batch<Cell>(q => {
     q.clear();
 })
 
-/** Cells whose demand has changed and need to start/stop jobs, etc. */
+/** Cells whose demand has changed and need to start/stop tasks, etc. */
 export const demandChanges = batch<Cell>(q => { for(const cell of q) cell.updateDemand(); });
 
 // XXX the demand changes queue should only run when there are no pending rules,
-// because they might reinstate or drop demand, creating job thrash.  Currently,
+// because they might reinstate or drop demand, creating task thrash.  Currently,
 // we run all pending rules in a batch, so rules created by other rules should
 // run before the demand queue has a chance to do anything.  But if we later add
 // things like time/length limits to running the rule queues, we need a way to
@@ -126,7 +126,7 @@ const enum Is {
     Peeking  = 1 << 3,  // dependency should not be tracked
     Error    = 1 << 4,
     Running  = 1 << 5,
-    Stateful = 1 << 6,  // Cell has state (e.g. job, stream) that depends on its observed-ness
+    Stateful = 1 << 6,  // Cell has state (e.g. context, stream) that depends on its observed-ness
     Mutable  = 1 << 7,
     Variable = Compute | Mutable,
     Stream   = 1 << 8,  // Cell is wrapping a stream
@@ -233,7 +233,7 @@ export class Cell {
     lastChanged = 0;  // timestamp of last value change
     latestSource = timestamp; // max lastChanged of this cell or any ancestor source
     flags = 0;
-    job?: Job<never> = undefined;
+    ctx?: Checkpoint = undefined;
     /** The subscription being added during the current calculation - used for uniqueness */
     adding: Subscription = unset;
     /** Linked list of sources */
@@ -248,7 +248,7 @@ export class Cell {
      */
     compute: (sub?: boolean) => any = returnValue;
 
-    stream<T>(sink: Sink<T>, _conn?: Connection, inlet?: Inlet) {
+    stream<T>(sink: Sink<T>, _conn?: Work, inlet?: Inlet) {
         let lastValue = sentinel;
         Cell.mkRule(() => {
             const val = this.getValue();
@@ -401,7 +401,7 @@ export class Cell {
     doRecalc() {
         pushCtx(undefined, this);
         if (this.flags & Is.Stateful) {
-            this.job?.restart();
+            this.ctx?.reset();
         }
         for(let sub = this.sources; sub; sub = sub.nS) {
             sub.ts = -1; // mark stale for possible reuse
@@ -431,10 +431,10 @@ export class Cell {
                 demandChanges.delete(this);
                 if (this.flags & (Is.Error|Is.Stopped)) {
                     this.flags &= ~Is.Stopped;
-                    this.job?.restart();
+                    this.ctx?.reset();
                 } else if (this.flags & Is.Observed) {
                 } else {
-                    this.job?.restart();
+                    this.ctx?.reset();
                 }
             }
             popCtx();
@@ -549,11 +549,11 @@ export class Cell {
         return !!((this.flags|= Is.Stateful) & Is.Observed);
     }
 
-    getJob() {
-        if (!this.isObserved()) throw new Error("Job API used in unobserved signal or peek()")
-        if (this.job) return this.job;
+    getContext() {
+        if (!this.isObserved()) throw new Error("Context API used in unobserved signal or peek()")
+        if (this.ctx) return this.ctx;
         this.flags |= Is.Stateful;
-        return this.job = new _Job
+        return this.ctx = new _Job
     }
 
     updateDemand() {
@@ -564,8 +564,8 @@ export class Cell {
             // Trigger an async update so we run on the right scheduler
             this.shouldWrite(true);
         } else {
-            // no demand: restart job if active
-            this.job?.restart();
+            // no demand: restart checkpoint if active
+            this.ctx?.reset();
         }
     }
 
@@ -573,28 +573,28 @@ export class Cell {
         const cell = this.mkValue(val);
         cell.flags |= Is.Stateful | Is.Stream;
         const write = (v: T) => { cell.setValue(v, false);  };
-        let job: Maybe<Job<void>>;
+        let work: Maybe<Work>;
         monitors.set(cell, () => {
             if (!cell.subscribers) {
                 // Last subscriber is gone, so reset to default value
                 write(val!);
-                job?.end();  // unsubscribe from source
+                work?.end();  // unsubscribe from source
                 return
             }
-            if (job) return;
-            job = new _Job<void>(root).do(r => {
+            if (work) return;
+            work = new _Job<void>(root).do(r => {
                 if (isError(r)) {
                     cell.setValue(markHandled(r), true);
                 } else {
                     cell.setValue(val, false);
                 }
-                job = unset;
+                work = unset;
             });
-            pushCtx(job);
+            pushCtx(work);
             try {
-                src(write, job);
+                src(write, work);
             } catch(e) {
-                job.end();
+                work.end();
                 root.asyncThrow(e);
             } finally {
                 popCtx();
@@ -640,10 +640,10 @@ export class Cell {
     }
 
     static mkRule(fn: () => OptionalCleanup, q: RuleQueue) {
-        const outer = getJob(), cell = Cell.mkCached(() => {
+        const outer = currentContext(), cell = Cell.mkCached(() => {
             try {
                 const cleanup = fn();
-                if (cleanup) (cell.job || cell.getJob()).must(cleanup);
+                if (cleanup) (cell.ctx || cell.getContext()).must(cleanup);
             } catch (e) {
                 cell.stop();
                 throw e;

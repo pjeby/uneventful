@@ -1,7 +1,7 @@
 import { pulls } from "./internals.ts";
-import { DisposeFn, Job } from "./types.ts";
-import { getJob } from "./tracking.ts";
-import { currentJob } from "./ambient.ts";
+import { Task, DisposeFn, Context, Work } from "./types.ts";
+import { currentContext } from "./tracking.ts";
+import { currentCtx } from "./ambient.ts";
 import type { Signal } from "./signals.ts";  // needed for documentation links
 
 /**
@@ -25,10 +25,10 @@ export type Backpressure = (cb?: () => any) => boolean
  * @category Stream Producers
  */
 export function backpressure(inlet: Inlet = defaultInlet): Backpressure {
-    const job = getJob();
+    const ctx = currentContext();
     return (cb?: Flush) => {
-        if (!job.result() && inlet.isOpen()) {
-            if (cb) inlet.onReady(cb, job);
+        if (!ctx.cleaningUp() && inlet.isOpen()) {
+            if (cb) inlet.onReady(cb, ctx);
             return inlet.isReady();
         }
         return false;
@@ -44,17 +44,18 @@ export function backpressure(inlet: Inlet = defaultInlet): Backpressure {
  * @category Types and Interfaces
  */
 export interface Inlet {
-    /** Is the main connection open?  (i.e. is the creating job not closed yet?) */
+    /** Is the main connection open?  (i.e. is the creating context not ended yet?) */
     isOpen(): boolean
 
     /** Is the connection ready to receive data? */
     isReady(): boolean
 
     /**
-     * Register a callback to produce more data when the inlet is resumed
-     * (The callback is unregistered if the supplied job ends.)
+     * Register a callback to produce more data when the inlet is resumed.
+     *
+     * (The callback is unregistered if the supplied context ends or resets.)
      */
-    onReady(cb: () => any, job: Job): this;
+    onReady(cb: () => any, ctx: Context): this;
 }
 
 /**
@@ -77,19 +78,24 @@ export interface Throttle extends Inlet {
 }
 
 /**
- * A Connection is a job that returns void when the connected stream ends
- * itself.  If the stream doesn't end itself (e.g. it's an event listener), the
- * job will never return, and only end with a cancel or throw.
+ * @deprecated - use {@link Task} or {@link Work} for the outside and inside
+ * halves of the connection.
+ *
+ * A Connection is a task that completes with void when the connected stream
+ * ends itself.  If the stream doesn't end itself (e.g. it's an event listener),
+ * the task will never complete, and only end with a cancel or throw.
  *
  * @category Types and Interfaces
+ * @hidden
  */
-export type Connection = Job<void>;
+export type Connection = Task<void>
 
 /**
- * A Source is a function that can be called to arrange for data to be
- * produced and sent to a {@link Sink} function for consumption, until the
- * associated {@link Connection} is closed (either by the source or the sink,
- * e.g. if the sink doesn't want more data or the source has no more to send).
+ * A Source is a function that can be called to arrange for data to be produced
+ * and sent to a {@link Sink} function for consumption, until the connection's
+ * {@link Task} is ended (either by the source or the sink, e.g. via `.end()` if
+ * the sink doesn't want more data or `.return()` if the source has no more to
+ * send).
  *
  * If the source is a backpressurable stream, it can use the (optional) supplied
  * inlet (usually a {@link throttle}()) to rate-limit its output.
@@ -102,7 +108,7 @@ export type Connection = Job<void>;
  */
 export interface Source<T> {
     /** Subscribe sink to receive values */
-    (sink: Sink<T>, conn?: Connection, inlet?: Throttle | Inlet): typeof IsStream;
+    (sink: Sink<T>, conn?: Work, inlet?: Throttle | Inlet): typeof IsStream;
 }
 
 /**
@@ -160,20 +166,22 @@ type Flush = () => any
 
 
 /**
- * Subscribe a sink to a stream, returning a nested job. (Shorthand for
- * .{@link Job.connect connect}(...) on the active job.)
+ * Subscribe a sink to a stream, returning a task representing the connection.
+ *
+ * (Shorthand for
+ * {@link currentContext}().{@link Context.connect connect}(...).)
  *
  * @param src An event source or signal
  * @param sink A callback that will receive the events
  * @param inlet Optional - a {@link throttle}() to control backpressure
  *
- * @returns A job that can be aborted to end the subscription, and which will
- * end naturally (with a void return or error) if the stream ends itself.
+ * @returns a {@link Task} that can be used to detect the stream end/error, or
+ * canceled to close it early.
  *
  * @category Stream Consumers
  */
-export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Connection {
-    return getJob().connect(src, sink, inlet);
+export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inlet): Task<void> {
+    return currentContext().connect(src, sink, inlet);
 }
 
 /**
@@ -181,14 +189,15 @@ export function connect<T>(src: Stream<T>, sink: Sink<T>, inlet?: Throttle | Inl
  * sources you're connecting to, and if they support backpressure they'll
  * respond when you call its .pause() and .resume() methods.
  *
- * @param job - Optional: a job that controls readiness.  (The throttle will
- * pause indefinitely when the job ends.)  Defaults to the currently-active job,
- * but unlike most such defaults, it won't throw if no job is active.
+ * @param ctx - Optional: a context that controls readiness.  (The throttle will
+ * pause indefinitely when the context ends, or while .)  Defaults to the
+ * current context, but unlike most such defaults, it won't throw if no context
+ * is active.
  *
  * @category Stream Consumers
  */
-export function throttle(job = currentJob): Throttle {
-    return new _Throttle(job);
+export function throttle(ctx = currentCtx): Throttle { // XXX || cellCtx()
+    return new _Throttle(ctx);
 }
 
 class _Throttle implements Throttle {
@@ -196,9 +205,9 @@ class _Throttle implements Throttle {
     protected _callbacks: Map<Flush, DisposeFn> = undefined!;
 
     /** @internal */
-    constructor(protected _job?: Job) {}
+    constructor(protected _ctx?: Context) {}
 
-    isOpen(): boolean { return !this._job?.result(); }
+    isOpen(): boolean { return !this._ctx?.cleaningUp(); }
 
     /** Is the connection ready to receive data? */
     isReady(): boolean { return this.isOpen() && this._isReady; }
@@ -206,10 +215,10 @@ class _Throttle implements Throttle {
     _isReady = true;
     _isPulling = false;
 
-    onReady(cb: Flush, job: Job) {
+    onReady(cb: Flush, ctx: Context) {
         if (!this.isOpen()) return this;
         const _callbacks = (this._callbacks ||= new Map);
-        const unlink = job.release(() => _callbacks.delete(cb));
+        const unlink = ctx.release(() => _callbacks.delete(cb));
         if (this.isReady() && this && !_callbacks.size) {
             pulls.add(this);
         }

@@ -1,6 +1,6 @@
-import { Job, RecalcSource, Request, Suspend, Yielding } from "./types.ts"
+import { Completion, Coroutine, RecalcSource, Request, Suspend, Task, Yieldable } from "./types.ts"
 import { defer } from "./defer.ts";
-import { Connection, Inlet, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
+import { Inlet, Sink, Stream, connect, pipe, throttle } from "./streams.ts";
 import { resolve, isError, markHandled, fulfillPromise, rejecter, resolver } from "./results.ts";
 import { restarting, start, must } from "./jobutils.ts";
 import { isFunction } from "./utils.ts";
@@ -61,7 +61,7 @@ export type Each<T> = IterableIterator<EachResult<T>>
  *
  * @category Stream Consumers
  */
-export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
+export function *each<T>(src: Stream<T>): Coroutine<Each<T>> {
     let yielded = false, waiter: Maybe<Request<void>>;
     const result: IteratorYieldResult<EachResult<T>> = {value: {item: undefined as T, next}, done: false};
     const t = throttle(), conn = connect(src, v => {
@@ -111,7 +111,7 @@ export function *each<T>(src: Stream<T>): Yielding<Each<T>> {
  */
 export interface UntilMethod<T> {
     /** Return an async op to resume once a truthy value is available */
-    "uneventful.until"(): Yielding<T>
+    "uneventful.until"(): Yieldable<T>
 }
 
 /**
@@ -123,12 +123,12 @@ export interface UntilMethod<T> {
  */
 export interface NextMethod<T> {
     /** Return an async op to resume with the "next" (i.e. not current) value produced */
-    "uneventful.next"(): Yielding<T>
+    "uneventful.next"(): Yieldable<T>
 };
 
 /**
  * Wait for and return the next value (or error) from a data source (when
- * processed with `yield *` within a {@link Job}).
+ * processed with `yield *` within a {@link Coroutine}).
  *
  * This differs from {@link until}() in that it waits for the *next* value
  * (truthy or not!), and it never resumes immediately for signals, but instead
@@ -136,49 +136,51 @@ export interface NextMethod<T> {
  * functions, unless you wrap them with {@link cached}() first.)
  *
  * @param source The source to wait on, which can be:
- * - An object with an `"uneventful.next"` method returning a {@link Yielding}
- *   (in which case the result will be the the result of calling that method)
- * - A {@link Signal} or {@link Source} (in which case the job resumes on the
- *   next value it produces)
+ * - An object with an `"uneventful.next"` method returning a {@link Yieldable}
+ *   (in which case the result will be the the result of calling that method),
+ *   OR
+ * - A {@link Signal} or {@link Source} (in which case the yielding coroutine
+ *   resumes on the next value produced)
  *
  * (Note: if the supplied source is a function with a non-zero `.length`, it is
  * assumed to be a {@link Source}.)
  *
- * @returns a Yieldable that when processed with `yield *` in a job, will return
- * the triggered event, or signal value.  An error is thrown if event stream
- * throws or closes early, or the signal throws.
+ * @returns a Yieldable that when processed with `yield *` in a coroutine, will
+ * return the triggered event, or updated signal value.  An error is thrown if
+ * an event stream throws or closes early, or a signal throws.
  *
  * @category Stream Consumers
  * @category Scheduling
  */
-export function next<T>(source: NextMethod<T> | Stream<T>): Yielding<T> {
+export function next<T>(source: NextMethod<T> | Stream<T>): Yieldable<T> {
     return callOrWait<T>(source, "uneventful.next", waitAny, mustBeSourceOrSignal);
 }
 
-function waitAny<T>(job: Job<T>, v: T) { job.return(v); }
+function waitAny<T>(work: Completion<T>, v: T) { work.return(v); }
 
 /**
  * Run a {@link restarting}() callback for each value produced by a source.
  *
  * With each event that occurs, any previous callback run is cleaned up before
  * the new one begins.  (And the last run is cleaned up when the connection or
- * job ends.)
+ * its context ends.)
  *
  * This function is almost the exact opposite of {@link each}(), in that the
  * stream is never paused (unless you do so manually via a throttle or inlet),
- * and if the "loop body" (callback job) is still running when a new value
- * arrives, forEach() restarts the job instead of dropping the value.
+ * and if the "loop body" (context the callback runs in) still has running
+ * activities when a new value arrives, forEach() restarts the task instead of
+ * dropping the arriving value.
  *
  * @param src An event source (i.e. a {@link Source} or {@link Signal})
  * @param sink A callback that receives values from the source
  * @param inlet An optional throttle or inlet that will be used to pause the
  * source (if it's a signal or supports backpressure)
- * @returns a {@link Connection} that can be used to detect the stream
- * end/error, or ended to close it early.
+ * @returns a {@link Task} that can be used to detect the stream end/error, or
+ * ended to close it early.
  *
  * @category Stream Consumers
  */
-export function forEach<T>(src: Stream<T>, sink: Sink<T>, inlet?: Inlet): Connection;
+export function forEach<T>(src: Stream<T>, sink: Sink<T>, inlet?: Inlet): Task;
 /**
  * When called without a source, return a callback suitable for use w/{@link pipe}().
  * e.g.:
@@ -188,10 +190,10 @@ export function forEach<T>(src: Stream<T>, sink: Sink<T>, inlet?: Inlet): Connec
  * ```
  *
  */
-export function forEach<T>(sink: Sink<T>, inlet?: Inlet): (src: Stream<T>) => Connection;
+export function forEach<T>(sink: Sink<T>, inlet?: Inlet): (src: Stream<T>) => Task;
 export function forEach<T>(
     src: Stream<T>|Sink<T>, sink?: Sink<T>|Inlet, inlet?: Inlet
-): Connection | ((src: Stream<T>) => Connection) {
+): Task | ((src: Stream<T>) => Task) {
     if (isFunction(sink)) return start(j => {
         (src as Stream<T>)(restarting(sink as Sink<T>), j, inlet)
     });
@@ -265,14 +267,14 @@ export function recalcWhen<T extends WeakKey>(fnOrKey: T | RecalcSource, fn?: (k
  *
  * @remarks Note that calling this function within a signal calculation even
  * once adds a *permanent*, implicit dependency to that signal, on whether the
- * signal is being observed.  (As does using any job APIs directly.)
+ * signal is being observed.  (As does using any context APIs directly.)
  *
  * The assumption here is that if you're checking whether it's observed, it's
  * because you only want to do certain things *while* it's being observed, so
  * the signal needs to be recalculated when it *starts* being observed, so you
  * can do those things.  (If you need to undo or clean up those things when the
  * signal is no-longer observed, you can register a cleanup callback via e.g.
- * {@link must}(), or wrap them in a sub-job with start, connect, etc.)
+ * {@link must}(), or wrap them in a subtask with start, connect, etc.)
  *
  * @category Signals
  */

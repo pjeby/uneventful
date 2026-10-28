@@ -1,9 +1,9 @@
-import { log, see, describe, it, useRoot, msg, expect, logUncaught } from "./dev_deps.ts";
+import { log, see, describe, it, useContext, msg, expect } from "./dev_deps.ts";
 import { must, DisposeFn, root, newRoot, noop } from "../src/mod.ts";
 import { runRules, value, rule, SchedulerFn } from "../src/signals.ts";
 
 describe("@rule.method", () => {
-    useRoot();
+    useContext();
     it("passes `this`+args and creates a rule, returning stop", () => {
         // Given a class instance with a @rule.method
         const v = value(42);
@@ -74,7 +74,7 @@ describe("rule.stop()", () => {
         });
         runRules(); see("ok");
         // When that condition occurs
-        // Then the job should be stopped when the rule returns
+        // Then the checkpoint should be cleaned up when the rule returns
         v.set(99); runRules(); see("after stop", "stopped");
         // And not run again, even if the condition changes
         v.set(42); runRules(); see();
@@ -95,7 +95,7 @@ describe("rule.if()", () => {
     it("doesn't rerun unnecessarily", () => {
         // Given a rule.if() with a multipart condition
         const v1 = value(42), v2 = value(57), s = value("started");
-        const job = root.start(() => {
+        const task = root.start(() => {
             rule.if(
                 () => v1() && v2(),
                 () => { log(s()); return msg("stopped"); }
@@ -112,23 +112,23 @@ describe("rule.if()", () => {
         v2.set(0); runRules(); see("stopped");
         s.set("changed again"); runRules(); see()
         v2.set(58); runRules(); see("changed again");
-        // Or the job ends
-        job.end()
+        // Or the task ends
+        task.end()
         see("stopped")
     });
 });
 
 describe("rule.root()", () => {
     it("exits only when the root does", () => {
-        // Given a rule.root created in a job
+        // Given a rule.root created in a task
         newRoot()
-        const j = root.start(() => {
+        const task = root.start(() => {
             rule.root(() => msg("done"))
         })
         runRules()
         see()
-        // When the job is ended, the rule should still be active
-        j.end()
+        // When the task is ended, the rule should still be active
+        task.end()
         see()
         // But when the root is ended
         newRoot()

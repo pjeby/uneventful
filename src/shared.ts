@@ -1,5 +1,5 @@
 /**
- * Tools for sharing tasks, values, services, etc., especially across job
+ * Tools for sharing tasks, values, services, etc., especially across task
  * boundaries, but also across reactive expression lifetimes (similar to React
  * hooks).
  *
@@ -9,17 +9,17 @@
 
 import { popCtx, pushCtx } from "./ambient.ts"
 import { CallSite, perSignal } from "./hooks.ts"
-import { must, start } from "./jobutils.ts"
+import { must, start, starting } from "./jobutils.ts"
 import { noop } from "./results.ts"
 import { root, rootId, newRoot } from "./tracking.ts"
-import { Job, JobIterator, Yielding } from "./types.ts"
+import { Context, Coroutine, Yieldable } from "./types.ts"
 import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap } from "./utils.ts"
 
 /**
  * Define a configurable service accessor
  *
  * The returned accessor function, when called, will run the factory in the
- * {@link root} job and cache the result until/unless a new root is started.
+ * {@link root} context and cache the result until/unless a new root is started.
  *
  * The factory and result can be overridden at runtime using the accessor's
  * methods: i.e. `myService.set(obj)` sets the instance that `myService()` will
@@ -33,15 +33,15 @@ import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap
  *
  * @remarks Note that if you want your code to be testable with {@link newRoot},
  * you should avoid storing the *result* of calling the service accessor
- * anywhere it can outlive the root job, since you will otherwise end up with a
+ * anywhere it can outlive the root scope, since you will otherwise end up with a
  * stale reference to the previous service instance *and* fail to initialize the
  * new instance.
  *
  * Your services can detect this scenario, however, by having the factory wrap
  * its return value with {@link expiring}(), which will make any access to a
- * saved service value throw a TypeError after the root job ends.  (Note that
+ * saved service value throw a TypeError after the root scope ends.  (Note that
  * such a thing should not be necessary in your production builds, however,
- * since at runtime you will normally only ever have one root job.)
+ * since at runtime you will normally only ever have one root scope.)
  *
  * @category Resources
  */
@@ -90,12 +90,12 @@ export interface ServiceAccessor<T> {
 
 /**
  * A function, or class constructor producing a value that will be cached by a
- * `service()` accessor for the life of the root job.  (Or until overridden via
+ * `service()` accessor for the life of the root scope.  (Or until overridden via
  * a service accessor's set/unset methods.)
  *
- * The function or constructor will be run in the then-current root job, and its
+ * The function or constructor will be run in the then-current root scope, and its
  * value cached.  If the function is a native generator function, it is
- * automatically wrapped with {@link fork}(), so that its job will not end when
+ * automatically wrapped with {@link fork}(), so that its task will not end when
  * the generator ends, and the result can be waited on by multiple callers.  (If
  * your factory is *not* a native generator function but still returns a
  * generator to produce an async result, you should wrap that generator with
@@ -114,10 +114,11 @@ export interface ServiceAccessor<T> {
 export type ServiceFactory<T> = (() => T) | (new () => T)
 
 /**
- * Proxy an object so it "expires" (becomes inaccessible) with the calling job.
+ * Proxy an object so it "expires" (becomes inaccessible) when the calling
+ * context is cleaned up.
  *
- * Any attempts to use the returned object after the job ends or restarts (other
- * than to check its `typeof`) will result in a TypeError.
+ * Any attempts to use the returned object (other than to check its `typeof`)
+ * after the context ends (or is reset) will result in a TypeError.
  *
  * Note: your runtime environment must support `Proxy.revocable()`.
  *
@@ -129,12 +130,12 @@ export function expiring<T extends object>(obj: T): T {
     return p.proxy
 }
 
-export function fork<T>(gen: Yielding<T>): Yielding<T>
-export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F): F
+export function fork<T>(gen: Yieldable<T>): Yieldable<T>
+export function fork<T, F extends (...args: any[]) => Yieldable<T>>(genFunc: F): F
 /** @hidden TC39 decorator */
-export function fork<T, F extends (...args: any[]) => Yielding<T>>(genFunc: F, ctx: {kind: "method"}): F
+export function fork<T, F extends (...args: any[]) => Yieldable<T>>(genFunc: F, ctx: {kind: "method"}): F
 /** @hidden legacy decorator */
-export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {value?: F}>(clsOrProto:any, name: string|symbol, desc: D): D
+export function fork<T, F extends (...args: any[]) => Yieldable<T>, D extends {value?: F}>(clsOrProto:any, name: string|symbol, desc: D): D
 // Implementation
 /**
  * Wrap a generator, generator function, or generator method to run in parallel
@@ -142,20 +143,20 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {va
  *
  * | Expression          | Returns | Behavior |
  * | ------------------- | ------- | -------- |
- * | `fork(Yielding<T>)`   | {@link Yielding `Yielding<T>`} | [Fork a generator](#fork) |
- * | `fork(function *(...): Yielding<T>)` | `(...) => Yielding<T>` | [Wrap a generator function to fork on call](#fork-1) |
- * | `@fork *method(): Yielding<T>`   | `Yielding<T>`          | Decorate[^1] a method to fork on call |
+ * | `fork(Yieldable<T>)`   | {@link Yieldable `Yieldable<T>`} | [Fork a generator](#fork) |
+ * | `fork(function *(...): Yieldable<T>)` | `(...) => Yieldable<T>` | [Wrap a generator function to fork on call](#fork-1) |
+ * | `@fork *method(): Yieldable<T>`   | `Yieldable<T>`          | Decorate[^1] a method to fork on call |
  *
  * [^1]: Both TC39 decorators and "legacy" TypeScript/Babel decorators are
  * supported.
  *
- * Normally, when you `yield *` to a generator in a job function, you're
- * *pausing* the current function until that generator is finished.  And
+ * Normally, when you `yield *` to a generator in a coroutine, you're
+ * *pausing* the current coroutine until that generator is finished.  And
  * normally, this is what you *want*, because you're not trying to do things in
  * parallel.  But if you *do* want to do things in parallel, you need `fork`.
  *
  * Generators also can't normally be *waited on* in parallel either: if multiple
- * jobs try to wait on an unfinished generator, the most likely result is an
+ * tasks try to wait on an unfinished generator, the most likely result is an
  * error or data corruption. (Because the extra `yield *` operations will make
  * the generator think it's received data it was waiting for, causing all kinds
  * of havoc.)
@@ -182,7 +183,7 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {va
  * function exits.
  *
  * With `yield*`, however (with or without `fork`), the resources are cleaned up
- * when the original *calling* job ends.  And this is what you want when the
+ * when the original *calling* task ends.  And this is what you want when the
  * generator's return value is some kind of resource using other active
  * resources (such as event listeners rules, etc.) that need to *remain* active
  * for the caller.
@@ -191,30 +192,29 @@ export function fork<T, F extends (...args: any[]) => Yielding<T>, D extends {va
  * the difference between "actions" and "resources": in Uneventful we use
  * `start()` or `task()` for generators that return the result of an action, and
  * `fork` for generators that return a resource that will be owned by the
- * calling job.)
+ * calling task.)
  *
  * @category Resources
  */
-export function fork<T, F extends (...args: any[]) => Yielding<T>>(
-    genOrFunc:Yielding<T> | ((...args: any[]) => Yielding<T>), ...args: any[]
+export function fork<T, F extends (...args: any[]) => Yieldable<T>>(
+    genOrFunc:Yieldable<T> | ((...args: any[]) => Yieldable<T>), ...args: any[]
 ) {
     if (args.length) return decorateMethod(fork, genOrFunc, ...args as [any, any]);
     if (isFunction(genOrFunc)) return (function(this: any, ...args: Parameters<F>) {
-        return fork(apply(genOrFunc, this, args))
+        return fork(apply(genOrFunc, this, args)) as Yieldable<T>
     }) as F; else {
         if (forks.has(genOrFunc)) return forks.get(genOrFunc);
-        const job = start<T>();
+        const outer = starting<T>(), future = outer.future();
         start(function *run(){
-            try { job.return(yield *genOrFunc); }
-            catch(e) { job.throw(e); }
+            try { outer.return(yield *genOrFunc); }
+            catch(e) { outer.throw(e); }
             yield noop;  // suspend until canceled
         })
-        const it = { [Symbol.iterator]: job[Symbol.iterator].bind(job) }
-        return setMap(forks, it, setMap(forks, genOrFunc, it))
+        return setMap(forks, future, setMap(forks, genOrFunc, future))
     }
 }
 
-const forks = new WeakMap<Yielding<any>, Yielding<any>>()
+const forks = new WeakMap<Yieldable<any>, Yieldable<any>>()
 
 
 
@@ -222,16 +222,16 @@ const forks = new WeakMap<Yielding<any>, Yielding<any>>()
  * A function, or class constructor producing a value that will be cached by
  * ```$``()``` as a permanent-per-signal constant at a given call site.
  *
- * The function or constructor will be run *without* an active job, and its
+ * The function or constructor will be run *without* an active context, and its
  * value cached.  While it runs, any attempt to directly access a reactive value
  * or expression will be blocked by a thrown error, to prevent your cached
  * result from capturing a stale value.
  *
- * Note that unlike {@link ServiceFactory}, a ConstantFactory *cannot* use job
- * APIs, rules, or fx(), nor is there any special handling for generator
+ * Note that unlike {@link ServiceFactory}, a ConstantFactory *cannot* use task or
+ * context APIs, rules, or fx(), nor is there any special handling for generator
  * functions.  None of these things make any sense for a lazy constant, as there
  * is no way to clean up after them: they simply exist for the life of the
- * signal (or root job, for global constants) and so should be relatively
+ * signal (or root scope, for global constants) and so should be relatively
  * stateless.
  *
  * @category Types and Interfaces
@@ -245,7 +245,7 @@ let validFor = -1
  * Return a lazily-initialized constant value for the given factory
  *
  * Every call to `$()` with a given factory will return the same result.
- * (Until/unless a new root job is started.)
+ * (Until/unless a new root scope is started.)
  *
  * On first use, the factory is called (or constructed, if it's a class) and the
  * result (if not an error) is cached for future calls.
@@ -335,12 +335,12 @@ const stack: ServiceFactory<unknown>[] = []
 type AnyFactory<T> = (() => T) | (new () => T)
 
 /**
- * Prevent cyclical, job, and reactive dependencies while constructing, and run
- * factories in the root or empty job.
+ * Prevent cyclical, task, and reactive dependencies while constructing, and run
+ * factories in the root or an empty context.
  */
-function createSingleton<T>(key: AnyFactory<T>, f = key, runIn?: Job): T {
+function createSingleton<T>(key: AnyFactory<T>, f = key, runIn?: Context): T {
     if (stack.indexOf(key) > -1) throw new Error("Factory depends on itself")
-    if (runIn && isGeneratorFunction<JobIterator<unknown>>(f)) f = fork(f)
+    if (runIn && isGeneratorFunction<Coroutine<unknown>>(f)) f = fork(f)
     stack.unshift(key)
     pushCtx(runIn, false) // block reactive reads & run in root
     try { return callOrConstruct(f) } finally { stack.shift(); popCtx() }

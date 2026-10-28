@@ -5,7 +5,7 @@
  */
 
 import { currentCell } from "./ambient.ts";
-import { PlainFunction, Yielding, AnyFunction, Job } from "./types.ts";
+import { PlainFunction, Yieldable, AnyFunction, Completion, Coroutine } from "./types.ts";
 import { Cell, getCell } from "./cells.ts";
 import { rule } from "./rules.ts";
 import { reject, resolve } from "./results.ts";
@@ -32,7 +32,7 @@ export * from "./reactive-functions.ts";
  * Signals also implement the {@link Source} interface, and can thus be
  * subscribed to.  Subscribers receive the current value first, and then any
  * changes thereafter.  They can be waited on by {@link until}(), in which case
- * the calling job resumes when the signal's value is truthy.
+ * the calling coroutine resumes when the signal's value is truthy.
  *
  * You can also transform a signal to a {@link Writable} by calling its
  * .{@link Signal.withSet withSet}() method, or create a writable value using
@@ -73,7 +73,7 @@ export interface Signal<T> extends SignalSource<T>, UntilMethod<T> {
     withSet(set: (v: T) => unknown): Writable<T>
 
     /** @hidden */
-    "uneventful.until"(): Yielding<T>;
+    "uneventful.until"(): Yieldable<T>;
 }
 
 /** @internal */
@@ -89,7 +89,7 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
         return Object.assign(new WritableImpl<T>(this._c), {set});
     }
 
-    *"uneventful.next"(): Yielding<T> {
+    *"uneventful.next"(): Coroutine<T> {
         return yield (r => {
             let seen = false, res: T;
             rule(() => {
@@ -100,7 +100,7 @@ export class SignalImpl<T> extends CallableObject<SignalSource<T>> implements Si
         });
     }
 
-    *"uneventful.until"(): Yielding<T> {
+    *"uneventful.until"(): Coroutine<T> {
         return yield (r => {
             let res: T;
             try { res = this(); } catch(e) { reject(r, e); return; }
@@ -401,7 +401,7 @@ export const stableJSON = /* @__PURE__ */ stabilizer<any>((a,b) => JSON.stringif
 
 /**
  * Wait for and return the next truthy value (or error) from a data source (when
- * processed with `yield *` within a {@link Job}).
+ * processed with `yield *` within a {@link Coroutine}).
  *
  * This differs from {@link next}() in that it waits for the next "truthy" value
  * (i.e., not null, false, zero, empty string, etc.), and when used with signals
@@ -411,26 +411,27 @@ export const stableJSON = /* @__PURE__ */ stabilizer<any>((a,b) => JSON.stringif
  * until() is to wait for an arbitrary condition to be satisfied.)
  *
  * @param source The source to wait on, which can be:
- * - An object with an `"uneventful.until"` method returning a {@link Yielding}
- *   (in which case the result will be the the result of calling that method)
+ * - An object with an `"uneventful.until"` method returning a {@link Yieldable}
+ *   (in which case the result will be the the result of yielding to that
+ *   method)
  * - A {@link Signal}, or a zero-argument function returning a value based on
- *   signals (in which case the job resumes as soon as the result is truthy,
- *   perhaps immediately)
- * - A {@link Source} (in which case the job resumes on the next truthy value
- *   it produces
+ *   signals (in which case the coroutine resumes as soon as the result is
+ *   truthy, perhaps immediately)
+ * - A {@link Source} (in which case the coroutine resumes on the next truthy
+ *   value it produces
  *
  * (Note: if the supplied source is a function with a non-zero `.length`, it is
  * assumed to be a {@link Source}.)
  *
- * @returns a Yieldable that when processed with `yield *` in a job, will return
- * the triggered event, or signal value.  An error is thrown if event stream
- * throws or closes early, or the signal throws.
+ * @returns a Yieldable that when processed with `yield *` in a coroutine, will
+ * return the triggered event, or signal value.  An error is thrown if event
+ * stream throws or closes early, or the signal throws.
  *
  * @category Scheduling
  */
 
-export function until<T>(source: UntilMethod<T> | Stream<T> | (() => T)): Yielding<T> {
+export function until<T>(source: UntilMethod<T> | Stream<T> | (() => T)): Yieldable<T> {
     return callOrWait<T>(source, "uneventful.until", waitTruthy, recache);
 }
 function recache<T>(s: () => T) { return until(cached(s)); }
-function waitTruthy<T>(job: Job<T>, v: T) { v && job.return(v); }
+function waitTruthy<T>(cpl: Completion<T>, v: T) { v && cpl.return(v); }

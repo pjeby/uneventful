@@ -1,9 +1,9 @@
-import { log, see, describe, expect, it, useRoot, useClock, clock, msg } from "./dev_deps.ts";
-import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, Connection, isHandled, forEach, must, Sink, throttle, Job, Inlet, pipe } from "../src/mod.ts";
+import { log, see, describe, expect, it, useContext, useClock, clock, msg } from "./dev_deps.ts";
+import { each, Stream, start, fromIterable, sleep, isValue, emitter, mockSource, isHandled, forEach, must, Sink, throttle, Inlet, pipe, Work, Source } from "../src/mod.ts";
 import { Maybe } from "../src/internals.ts";
 
 describe("each()", () => {
-    useRoot();
+    useContext();
     useClock();
     function iterStream<T>(src: Stream<T>) {
         return start(function*(){
@@ -18,16 +18,16 @@ describe("each()", () => {
         });
     }
     it("iterates a stream", () => {
-        // Given a job that iterates a pausable stream with each()
-        const job = iterStream(fromIterable([1,2,3])); see();
+        // Given a task that iterates a pausable stream with each()
+        const task = iterStream(fromIterable([1,2,3])); see();
         // When it runs the stream should pause between iterations
         clock.tick(10); see("1");
         clock.tick(21); see("2", "3", "done");
-        expect(isValue(job.result())).to.be.true;
+        expect(isValue(task.result())).to.be.true;
     });
     it("drops events that occur during the loop body", () => {
-        // Given an emitter and a job iterating over it
-        const e = emitter<number>(), job = iterStream(e.source);
+        // Given an emitter and a task iterating over it
+        const e = emitter<number>(), task = iterStream(e.source);
         // When items are emitted during the loop body
         clock.tick(1); e(1); e(2); see();
         // Then they should be ignored
@@ -35,30 +35,30 @@ describe("each()", () => {
         // And only items emitted while waiting should be seen
         e(3); clock.tick(10); see("3");
         e.end(); clock.tick(1); see("done");
-        expect(isValue(job.result())).to.be.true;
+        expect(isValue(task.result())).to.be.true;
     });
     it("throws if stream ends with error", () => {
-        // Given an emitter and a job iterating over it
-        let conn: Connection = undefined!;
-        const e = mockSource<number>(), job = iterStream(
+        // Given an emitter and a task iterating over it
+        let conn: Work = undefined!;
+        const e = mockSource<number>(), task = iterStream(
             // Capture the connection so we can make sure its errors
             // are marked handled
             (s,c) => e.source(s, conn=c!)
         );
         clock.tick(1); e(1); clock.tick(10); see("1")
-        conn.must(r => log(isHandled(r))).do(r => log(isHandled(r)))  // log before-and-after handledness
+        conn.must(r => log(isHandled(r))).task().do(r => log(isHandled(r)))  // log before-and-after handledness
         // When the stream ends with an error
         e.throw("boom");
         // Then the waiting point should throw
         // And the connection error should be marked handled
         clock.tick(1); see("false", "true", "err: boom");
-        expect(isValue(job.result())).to.be.true;
+        expect(isValue(task.result())).to.be.true;
     });
     it("throws if stream is canceled", () => {
-        // Given an emitter and a job iterating over it
+        // Given an emitter and a task iterating over it
         const e = mockSource<number>();
-        let c: Connection = undefined!
-        const s = (sink: Sink<number>, conn?: Connection) => { c = conn!; return e.source(sink, conn); }
+        let work: Work = undefined!
+        const s: Source<number> = (sink, conn) => { work = conn!; return e.source(sink, work); }
         start(function*() {
             for (const {item, next} of yield *each(s)) {
                 log(item);
@@ -69,25 +69,25 @@ describe("each()", () => {
         clock.tick(1);
         e(1); see("1"); e(2); see("2");
         // When the stream is ended by a cancel
-        c.end(); clock.tick(0);
+        work.end(); clock.tick(0);
         // Then the waiting point should throw
-        see("err: Error: Job canceled", "done")
+        see("err: Error: Task canceled", "done")
     });
     it("throws if stream starts with error", () => {
-        // Given an emitter and a job iterating over it
-        const e = mockSource<number>(), job = iterStream(e.source);
+        // Given an emitter and a task iterating over it
+        const e = mockSource<number>(), task = iterStream(e.source);
         // When the stream starts with an error
         clock.tick(1); e.throw("boom");
         // Then the waiting point should throw
         clock.tick(1); see("err: boom");
-        expect(isValue(job.result())).to.be.true;
+        expect(isValue(task.result())).to.be.true;
     });
     it("throws if no `yield next`", async () => {
         // Given an initialized each() iterator
-        const e = mockSource<number>(), job = start(function*() {
+        const e = mockSource<number>(), task = start(function*() {
             return yield *each(e.source);
         })
-        clock.tick(1); e(42); const it = (await job)[Symbol.iterator]();
+        clock.tick(1); e(42); const it = (await task)[Symbol.iterator]();
         const res = it.next();  expect(res.done).to.be.false;
         (res.done === false) && expect(res.value.item).to.equal(42);
         // When the iterator is next()'d without a yield next
@@ -95,7 +95,7 @@ describe("each()", () => {
         expect(() => it.next()).to.throw("Must `yield next` in loop");
     });
     it("throws if multiple `yield next`", async () => {
-        const e = mockSource<number>(), job = start(function*() {
+        const e = mockSource<number>(), task = start(function*() {
             // Given an initialized each() iterator
             const it = (yield *each(e.source))[Symbol.iterator]();
             const res = it.next();  expect(res.done).to.be.false;
@@ -111,18 +111,18 @@ describe("each()", () => {
                 }
             }
         })
-        clock.tick(1); e(42); await job;
+        clock.tick(1); e(42); await task;
         // Then it should throw an error
         see("err: Error: Multiple `yield next` in loop");
     });
 });
 
 describe("forEach()", () => {
-    useRoot();
-    it("calls the source w/a restarting sink, the job, and the inlet", () => {
+    useContext();
+    it("calls the source w/a restarting() sink, the Work, and the inlet", () => {
         // Given a mock source and throttle
         const emit = mockSource<number>(), t = throttle();
-        let received: Maybe<Job>;
+        let received: Maybe<Work>;
         // When iterated with forEach
         const conn = forEach((s, j, i) => {
             received = j;
@@ -131,10 +131,10 @@ describe("forEach()", () => {
         }, (x: number) => {
             log(`got: ${x}`); must(msg(`restart: ${x}`));
         }, t);
-        // Then the source should receive the matching job and throttle
+        // Then the source should receive the matching Work and throttle
         see("true");
         expect(received).to.equal(conn);
-        // And the sink should be run in a job that restarts on each new value
+        // And the sink should be run in a checkpoint that resets on each new value
         emit(17); see("got: 17");
         emit(42); see("restart: 17", "got: 42");
         // And ends with the connection
@@ -144,20 +144,20 @@ describe("forEach()", () => {
     it("works as a pipe() target", () => {
         // Given a mock source and throttle
         const emit = mockSource<number>(), t = throttle();
-        let received: Maybe<Job>;
-        const src = (s: Sink<number>, j: Connection, i: Inlet) => {
-            received = j;
+        let received: Maybe<Work>;
+        const src = (s: Sink<number>, work: Work, i: Inlet) => {
+            received = work;
             log(i === t);
-            return emit.source(s, j, i);
+            return emit.source(s, work, i);
         }
         // When iterated with forEach through a pipe()
         const conn = pipe(src, forEach((x: number) => {
             log(`got: ${x}`); must(msg(`restart: ${x}`));
         }, t));
-        // Then the source should receive the matching job and throttle
+        // Then the source should receive the matching Work and throttle
         see("true");
         expect(received).to.equal(conn);
-        // And the sink should be run in a job that restarts on each new value
+        // And the sink should be run in a checkpoint that resets on each new value
         emit(17); see("got: 17");
         emit(42); see("restart: 17", "got: 42");
         // And ends with the connection

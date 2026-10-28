@@ -1,5 +1,5 @@
-import { log, see, describe, expect, it, spy, useRoot, useClock, clock } from "./dev_deps.ts";
-import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Stream, must, slack, mockSource, each, sleep, start, isValue, Connection, isHandled, throttle } from "../src/mod.ts";
+import { log, see, describe, expect, it, spy, useContext, useClock, clock } from "./dev_deps.ts";
+import { emitter, fromIterable, fromValue, connect, IsStream, pipe, Stream, must, slack, mockSource, each, sleep, start, isValue, isHandled, throttle, Work } from "../src/mod.ts";
 import { runPulls } from "./dev_deps.ts";
 import {
     concat, concatAll, concatMap, filter, map, merge, mergeAll, mergeMap, share, skip, skipUntil, skipWhile,
@@ -9,7 +9,7 @@ import {
 function logClose() { log("closed"); }
 
 describe("Operators", () => {
-    useRoot();
+    useContext();
     describe("concat()", () => {
         it("should emit its inputs in sequence", () => {
             // Given a concat of multiple streams
@@ -273,10 +273,10 @@ describe("Operators", () => {
         it("should mark errors handled on the upstream", () => {
             // Given a shared mockSource tracking the connection
             const m = mockSource<number>();
-            let conn: Connection;
+            let conn: Work;
             const s = share((s, c) => m.source(s, conn=c!));
             connect(s, v => log(v)).onError(e => log("outer-error"));
-            see(); conn!.must(r=>log(isHandled(r))).do(r=>log(isHandled(r)));
+            see(); conn!.must(r=>log(isHandled(r))).task().do(r=>log(isHandled(r)));
             // When the underlying source throws
             m.throw("boom");
             // Then its connection error should be marked handled
@@ -392,8 +392,8 @@ describe("Operators", () => {
             e.end(); see("closed");
         });
         it("stops draining when sink pauses", () => {
-            // Given a source and a job iterating over it w/each (which pauses on received items)
-            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), job = start(function*(){
+            // Given a source and a task iterating over it w/each (that pauses on received items)
+            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), task = start(function*(){
                 for(const {item, next} of yield *each(s)) {
                     yield *sleep(1); log(item); yield next;
                 }
@@ -404,11 +404,11 @@ describe("Operators", () => {
             // Then only the most recent N should be kept
             see("drop: 2"); clock.tick(3); see("1", "3", "4");
             e.end(); clock.tick(1); see("done");
-            expect(isValue(job.result())).to.be.true;
+            expect(isValue(task.result())).to.be.true;
         });
         it("buffers items received while sink is running", () => {
-            // Given a source and a job iterating over it w/each and a fake side-effect event
-            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), job = start(function*(){
+            // Given a source and a task iterating over it w/each and a fake side-effect event
+            const e = mockSource<number>(), s = pipe(e.source, slack(2, dropper)), task = start(function*(){
                 for(const {item, next} of yield *each(s)) {
                     if (item === 42) e(99);  // release Zalgo!  (fake side-effect event)
                     yield *sleep(1); log(item); yield next;
@@ -421,7 +421,7 @@ describe("Operators", () => {
             // Then the extra item is buffered in order
             clock.tick(3); see("42", "99", "3");
             e.end(); clock.tick(1); see("done");
-            expect(isValue(job.result())).to.be.true;
+            expect(isValue(task.result())).to.be.true;
         });
     });
     describe("switchAll()", () => {

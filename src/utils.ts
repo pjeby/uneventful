@@ -235,6 +235,39 @@ export function call<F extends AnyFunction>(fn: F, thisArg?: ThisParameterType<F
 }
 
 /**
+ * Bind a `this` to a function, with stricter typing than `.bind()`
+ *
+ * In Uneventful, this is mainly used to turn generator functions into simulated
+ * arrow functions.
+ *
+ * Note: If your generator also needs to access the task's `Work`, be sure to
+ * declare its type (e.g. `boundTo(this, function*(self: Work<whatever>)
+ * {...})`), **even if** you're using `start<whatever>()`, as TypeScript will
+ * interpret an untyped argument in your function signature as `never`.
+ *
+ * @param thisArg The `this` the function will be bound to
+ *
+ * @param fn A function accepting `thisArg`'s type as its `this`
+ *
+ * @returns a bound function
+ *
+ * @category Functions and Decorators
+ */
+export function boundTo<This, F extends (this: This, ...args: never) => unknown>(
+    thisArg: This, fn: F
+): OmitThis<F> {
+    return fn.bind(thisArg!) as OmitThis<F>
+}
+
+/**
+ * A stricter version of TypeScript's `OmitThisParameter` that can avoid some edge
+ * cases by demanding a non-`unknown` type for the `this` parameter.
+ *
+ * @category Functions and Decorators
+ */
+export type OmitThis<T> = T extends (...args: infer A) => infer R ? (...args: A) => R : T;
+
+/**
  * A pseudo-constructor for the abstract ancestor type of all generators,
  * useful for testing whether something is `instanceof Generator`.
  *
