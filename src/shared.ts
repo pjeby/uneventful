@@ -15,6 +15,9 @@ import { root, rootId, newRoot } from "./tracking.ts"
 import { Context, Coroutine, Yieldable } from "./types.ts"
 import { apply, decorateMethod, isClass, isFunction, isGeneratorFunction, setMap } from "./utils.ts"
 
+// Export target() API too
+export * from "./targets.ts"
+
 /**
  * Define a configurable service accessor
  *
