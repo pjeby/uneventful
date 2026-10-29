@@ -110,7 +110,7 @@ Note: this release was deprecated/unpublished due to some significant regression
 `uneventful/utils`
 - Added {@link uneventful/utils.isClass `isClass()`} and {@link uneventful/utils.isPlainObject `isPlainObject()`}
 
-### 0.0.12
+### 0.0.12 (2025-04-07)
 
 `uneventful/ext`
 - {@link uneventful/ext.Ext `Ext`}: refactored how instance construction works to eliminate some typing pitfalls and simplify overriding `__new__`
@@ -118,7 +118,7 @@ Note: this release was deprecated/unpublished due to some significant regression
 `uneventful/signals`
 - Replaced `unchangedIf()` with {@link uneventful/signals.stable `stable()`}, {@link uneventful/signals.stableArray `stableArray()`} and other {@link uneventful/signals.stabilizer `stablilizer()`} features.  (The old function has been deprecated and will be removed in a later release.)
 
-### 0.0.11
+### 0.0.11 (2025-04-06)
 
 `uneventful`
 - Refactored internal context management to use less memory (and fewer objects) per signal, and to reduce the amount of pointer indirection on some common code paths.
@@ -133,7 +133,7 @@ Note: this release was deprecated/unpublished due to some significant regression
 `uneventful/utils`
 - Added {@link uneventful/utils.call `call()`} function as an IIFE replacement utility
 
-### 0.0.10
+### 0.0.10 (2025-01-11)
 
 `uneventful`
   - Added `root` job to replace `detached` (which is now deprecated).  Creating root-based rather than detached jobs means there is a single point from which all resources can be cleaned up.
@@ -152,11 +152,11 @@ Note: this release was deprecated/unpublished due to some significant regression
   - Added {@link uneventful/utils.decorateMethod `decorateMethod()`}: a helper for creating hybrid (TC39/legacy) decorator/function wrappers
   - Added {@link uneventful/utils.isGeneratorFunction `isGeneratorFunction()`} to check for native generator function
 
-### 0.0.9
+### 0.0.9 (2024-11-17)
 
 - Fixed: `task` decorator was passing the job as an extra argument to the wrapped function
 
-### 0.0.8
+### 0.0.8 (2024-11-17)
 
 `uneventful/signals`
 - Any computed signal (i.e. a `cached()` function or a `value()` with a `.setf()`) can now start jobs or register cleanups for their side-effects.  (Previously, only rules could do this.)
@@ -174,11 +174,11 @@ Note: this release was deprecated/unpublished due to some significant regression
   - Add `arrayEq()` for comparing array contents
 - Refactor scheduling internals to remove subclassing
 
-### 0.0.7
+### 0.0.7 (2024-07-16)
 
 - Fix build process not running tests
 
-### 0.0.6
+### 0.0.6 (2024-07-14)
 
 - Moved main signals API to a separate export (`uneventful/signals`) and exposed the utils module as an export (`uneventful/utils`).
 - Expanded and enhanced the `RuleFactory` interface:
@@ -187,12 +187,12 @@ Note: this release was deprecated/unpublished due to some significant regression
   - `rule.setScheduler()` lets you change how a rule will be scheduled (from inside it)
 - Changed when streams-as-signals and `recalcWhen()` handle subscribes and unsubscribes so that they don't thrash on and off when there's a single subscriber that's synchronously removed and re-added.
 
-### 0.0.5
+### 0.0.5 (2024-05-26)
 
 - Fix: `next()` and `until()` should not resume job with the rule still active
 - Fix: signal unsubscription causing future conditional re-subscriptions to fail
 
-### 0.0.4
+### 0.0.4 (2024-05-21)
 
 - Added "constant folding" to signals: a cached function that has no dependencies (statically or dynamically) will become a constant and in turn omitted from the dependencies of its readers, which will then also become constants if they have no other dependencies.
 - Track "virtual reads" of signals for write conflict and cycle detection.  (A signal is "virtually" read if its value is known to be unchanged, and that fact is relied upon to *avoid* recalculating other values.  Such "virtual" reads must still be considered a write conflict if written to during the same timestamp.)
@@ -211,19 +211,18 @@ Note: this release was deprecated/unpublished due to some significant regression
 - Fix `lazy()` stream not forwarding its inlet
 - Fix misc. issues with the ending of streams implemented as signals
 
-### 0.0.3
+### 0.0.3 (2024-05-13)
 
 - Dropped CJS export
 - Allow returning a cleanup callback from a `start()` callback
 - Added `forEach()` API
 - Improved Source and Signal type inference
 
-### 0.0.2
+### 0.0.2 (2024-05-05)
 
 - Fix: signals used as streams should run sinks in a null context to prevent dependency tracking
 - Fix: signals' `until()` rules should be ended when the job resumes
 
-### 0.0.1
+### 0.0.1 (2024-05-04)
 
 - Initial release
-
