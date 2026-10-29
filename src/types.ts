@@ -166,20 +166,6 @@ export type Eventual<T> = Yieldable<T> | Promise<T> | PromiseLike<T>
  */
 export type Job<T=any> = Task<T> & Work<T> & Checkpoint
 
-export interface Future<T> extends Yieldable<T>, Promise<T> {
-    /**
-     * The result of the future (canceled, returned value, or error), or
-     * undefined if there's no result yet.
-     *
-     * If undefined, this also acts as a reactive value: the calling reactive
-     * function or effect (if any) will recalculate when the future settles,
-     * with the updated result.
-     *
-     * @category Obtaining Results
-     */
-    result(): Result<T> | undefined;
-}
-
 /**
  * An ambient execution context, for resource cleanup and error reporting
  *
@@ -299,6 +285,57 @@ export interface Context {
     start<T, This>(thisArg: This, fn: ActivityFn<T, This>): Task<T>;
 
     /**
+     * Create the {@link Work} of a new task, optionally starting activities in
+     * it
+     *
+     * `.starting(a1, a2, ...)` is roughly equivalent to `.start(work =>
+     * work.exec(a1).exec(a2)...)`, except that the `work` is returned instead
+     * of the task.
+     *
+     * @param activities Zero or more activities for the new task's {@link Work}
+     * to .{@link Work.exec exec}().  The first one to complete the task (via
+     * return/throw) will determine the overall task result; all others will be
+     * canceled.
+     *
+     * If any of the startables synchronously completes (or throws a synchronous
+     * error) during the initial setup, the remaining startables will not be
+     * run.  As with .{@link Context.start start}(), a synchronous error also
+     * cancels the partially-initialized task.
+     *
+     * @returns A {@link Work} context you can customize to set up its
+     * .{@link Work.future task}() or .{@link Work.future future}() with.
+     *
+     * @category Execution Control
+     */
+    starting<T=void>(...activities: Activity<T>[]): Work<T>
+
+    /**
+     * Returns true if the context is cleaning up due to completion,
+     * cancellation, or checkpoint .{@link Checkpoint.reset reset}().
+     *
+     * Cleanups added to the context while it is being cleaned up will be run
+     * later, after the caller returns (possibly in a different microtask).  A
+     * context ended by return, throw, or cancellation will remain in a
+     * perpetual state of cleaning up, but a checkpoint that is
+     * .{@link Checkpoint.reset reset}() will go back to returning false from
+     * this method once the reset completes.
+     *
+     * @category Resource Tracking
+     */
+    cleaningUp(): boolean
+
+    /**
+     * Create a checkpoint as a child context
+     *
+     * (The new context will *not* automaticaly end when the parent does, but
+     * unhandled async errors will propagate to the parent if you don't give it
+     * an explicit asyncCatch handler.)
+     *
+     * @category Resource Tracking
+     */
+    checkpoint(): Checkpoint
+
+    /**
      * Subscribe a sink to a stream, starting a task that ends when the stream does
      * (and can be canceled to unsubscribe).
      *
@@ -356,6 +393,30 @@ export interface Context {
      * @category Execution Control
      */
     bind<F extends (...args: any[]) => any>(fn: F): F
+
+    /**
+     * Report an unhandled error from a child task.
+     *
+     * If the context has an .{@link Scope.asyncCatch asyncCatch}()
+     * handler set, it will be called with the error, otherwise the context/task
+     * will end with the supplied error.  If the error then isn't handled by a
+     * listener on the associated {@link Future}, the error will cascade to an
+     * asyncThrow on the context's parent context, until the {@link root}
+     * context and its asyncCatch handler are reached. (Which defaults to
+     * creating an unhandled promise rejection.)
+     *
+     * Note: application code should not normally need to call this method
+     * directly, as it's automatically invoked on a task's parent if the task
+     * fails and has no error listeners.  (That is, if a task's future isn't
+     * awaited by anything, listened to by anything, and has no onError
+     * handlers, and the task throw()s, then the error is automatically
+     * asyncThrow()n to the task's parent context.)
+     *
+     * @param err The error thrown by the child task
+     *
+     * @category Handling Errors
+     */
+    asyncThrow(err: any): this;
 }
 
 /**
@@ -389,23 +450,42 @@ export interface Cancellable {
 
 /**
  * An asynchronously-expected result (usually produced by a {@link Task}) that
- * can be awaited or yielded to
+ * can be awaited, yielded to, or queried.
  *
  * Futures implement the Promise interface (then, catch, and finally), so they
  * can be passed to Promise-using APIs or awaited by async functions.  They also
  * implement {@link Yieldable}, so you can await their results using `yield *`.
  *
- * In addition to those asynchronous query/callback methods, there is an
- * synchronous query method (.{@link result}()) as well, and some synchronous
- * result callback methods (.{@link do}() and its variants).
+ * In addition to those asynchronous query/callback methods, they also have the
+ * reactive query and synchronous callback methods provided by
+ * {@link ObservableResult}.
  *
- * Synchronous callbacks are run in FIFO order before any asynchronous
+ * Note: Synchronous callbacks are run in FIFO order before any asynchronous
  * callbacks, but *after* the producing task's cleanup callbacks have run (if
  * applicable).
  *
  * @category Types and Interfaces
  */
-export interface Future<T> extends Yieldable<T>, Promise<T> {
+export interface Future<T> extends Promise<T>, Yieldable<T>, ObservableResult<T> {}
+
+/**
+ * Reactive queries and synchronous callbacks for a present or future {@link Result}
+ *
+ * @category Types and Interfaces
+ */
+export interface ObservableResult<T> {
+    /**
+     * The result of the future (canceled, returned value, or error), or
+     * undefined if there's no result yet.
+     *
+     * If undefined, this also acts as a reactive value: the calling reactive
+     * function or effect (if any) will recalculate when the future settles,
+     * with the updated result.
+     *
+     * @category Obtaining Results
+     */
+    result(): Result<T> | undefined;
+
     /**
      * Invoke a callback with the result.
      *
@@ -489,33 +569,6 @@ export interface Checkpoint extends Scope {
     /** @hidden @deprecated Please use .{@link Checkpoint.reset reset}() instead */
     restart(): Checkpoint
 }
-
-export interface Context {
-    /**
-     * Report an unhandled error from a child task.
-     *
-     * If the context has an .{@link Scope.asyncCatch asyncCatch}()
-     * handler set, it will be called with the error, otherwise the context/task
-     * will end with the supplied error.  If the error then isn't handled by a
-     * listener on the associated {@link Future}, the error will cascade to an
-     * asyncThrow on the context's parent context, until the {@link root}
-     * context and its asyncCatch handler are reached. (Which defaults to
-     * creating an unhandled promise rejection.)
-     *
-     * Note: application code should not normally need to call this method
-     * directly, as it's automatically invoked on a task's parent if the task
-     * fails and has no error listeners.  (That is, if a task's future isn't
-     * awaited by anything, listened to by anything, and has no onError
-     * handlers, and the task throw()s, then the error is automatically
-     * asyncThrow()n to the task's parent context.)
-     *
-     * @param err The error thrown by the child task
-     *
-     * @category Handling Errors
-     */
-    asyncThrow(err: any): this;
-}
-
 
 /**
  * A cancellable cleanup context with configurable error-reporting scope
@@ -667,59 +720,6 @@ export type Activity<T=void> = Eventual<T> | EventuallyReturns<T> | Setup<T>
  * @category Types and Interfaces
  */
 export interface Task<T=void> extends Cancellable, Future<T> {}
-
-export interface Context {
-    /**
-     * Create the {@link Work} of a new task, optionally starting activities in
-     * it
-     *
-     * `.starting(a1, a2, ...)` is roughly equivalent to `.start(work =>
-     * work.exec(a1).exec(a2)...)`, except that the `work` is returned instead
-     * of the task.
-     *
-     * @param activities Zero or more activities for the new task's {@link Work}
-     * to .{@link Work.exec exec}().  The first one to complete the task (via
-     * return/throw) will determine the overall task result; all others will be
-     * canceled.
-     *
-     * If any of the startables synchronously completes (or throws a synchronous
-     * error) during the initial setup, the remaining startables will not be
-     * run.  As with .{@link Context.start start}(), a synchronous error also
-     * cancels the partially-initialized task.
-     *
-     * @returns A {@link Work} context you can customize to set up its
-     * .{@link Work.future task}() or .{@link Work.future future}() with.
-     *
-     * @category Execution Control
-     */
-    starting<T=void>(...activities: Activity<T>[]): Work<T>
-
-    /**
-     * Returns true if the context is cleaning up due to completion,
-     * cancellation, or checkpoint .{@link Checkpoint.reset reset}().
-     *
-     * Cleanups added to the context while it is being cleaned up will be run
-     * later, after the caller returns (possibly in a different microtask).  A
-     * context ended by return, throw, or cancellation will remain in a
-     * perpetual state of cleaning up, but a checkpoint that is
-     * .{@link Checkpoint.reset reset}() will go back to returning false from
-     * this method once the reset completes.
-     *
-     * @category Resource Tracking
-     */
-    cleaningUp(): boolean
-
-    /**
-     * Create a checkpoint as a child context
-     *
-     * (The new context will *not* automaticaly end when the parent does, but
-     * unhandled async errors will propagate to the parent if you don't give it
-     * an explicit asyncCatch handler.)
-     *
-     * @category Resource Tracking
-     */
-    checkpoint(): Checkpoint
-}
 
 /**
  * A pausable computation that ultimately produces a value of type T.
