@@ -100,7 +100,7 @@ export type EventuallyReturns<T, This=void> = (this: This, work: Work<T>) => Eve
 export type Setup<T, This=void>  = (this: This, work: Work<T>) => OptionalCleanup;
 
 /**
- * An function implementing a {@link Task}, or an {@link Activity} within a task
+ * A function implementing a {@link Task}, or an {@link Activity} within a task
  *
  * An activity function is a function run within a task's {@link Scope} and
  * passed its {@link Work}.  Either the function:
@@ -556,7 +556,7 @@ export interface Checkpoint extends Scope {
      * that the scope doesn't stay ended, so cleanup callbacks can be added
      * again and won't be invoked until the next reset or the scope ends.
      *
-     * Unlinke .{@link Cancellable.end end}(), this method guarantees that *all*
+     * Unlike .{@link Cancellable.end end}(), this method guarantees that *all*
      * cleanups for the scope will have completed running when it returns.
      *
      * @see The {@link restarting}() wrapper can be used to make a function that
@@ -609,7 +609,7 @@ export interface Completion<T> {
      * and ordering guarantees as .{@link Cancellable.end end}().
      *
      * Note: since this immediately ends the task with an error, it should only
-     * be called by when the work of the task as a whole is no longer able to
+     * be called when the work of the task as a whole is no longer able to
      * continue.  If you want to notify a task about an error in a *different*
      * task, you may want to use .{@link Context.asyncThrow asyncThrow}()
      * instead.
@@ -655,7 +655,7 @@ export interface Work<T=void> extends Scope, Completion<T> {
      * or canceled, since anything done would just be rolled back by the next
      * microtask anyway.  (If you need to force some side-effect to always run
      * even if the task is over, just run the activity in a different task, e.g.
-     * by using `work.exec(work.start(acvitity))`.)
+     * by using `work.exec(work.start(activity))`.)
      *
      * @category Producing Results
      */
@@ -698,7 +698,7 @@ export interface Work<T=void> extends Scope, Completion<T> {
  *
  * Multiple activities can run in the same Task context if they are the same
  * type, or are of type `never`.  The first one to produce a result or cause the
- * task to end with an error will deterine the task's final result, and all the
+ * task to end with an error will determine the task's final result, and all the
  * task's activities will be canceled/cleaned up.
  *
  * @template T The type of result the activity will produce.  A type of `never`
@@ -715,7 +715,7 @@ export type Activity<T=void> = Eventual<T> | EventuallyReturns<T> | Setup<T>
  *
  * @template T The type of result the task will produce.  A type of `never`
  * means the activity never produces a value, but instead will run until it is
- * is cleaned up, e.g. due to being canceled, ended with an error, etc.
+ * cleaned up, e.g. due to being canceled, ended with an error, etc.
  *
  * @category Types and Interfaces
  */
