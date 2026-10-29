@@ -3,7 +3,7 @@ title: Changelog
 ---
 # Changelog
 
-### Unreleased
+### 0.0.17 (2026-10-28)
 
 This is effectively a major release, with significant refactoring, deprecations, and behavior changes - please read carefully!
 

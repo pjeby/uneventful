@@ -1,6 +1,6 @@
 {
     "name": "uneventful",
-    "version": "0.0.16",
+    "version": "0.0.17",
     "description": "Declarative, event-driven reactivity: signals, streams, structured concurrency, and easy resource cleanup",
     "keywords": [
         "signals",
